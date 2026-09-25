@@ -1,0 +1,41 @@
+<pre id="term-out"></pre>
+
+<script>
+	const lines = [
+		['p', '$ gcc -pthread hello.c -o hello && ./hello | wc -l'],
+		['ok', '7'],
+		['p', '$ ./argrace   # E1 2026-1, pregunta 4'],
+		['', 'id=3 mult=30  (×4)'],
+		['ok', 'Acumulador final: 120'],
+		['p', '$ ./prodcons --orden=mutex-primero'],
+		['v', '⚠ productor bloqueado en vacios sosteniendo mutex'],
+		['v', '⚠ consumidor bloqueado en mutex → DEADLOCK'],
+		['p', '$ echo "listo para el E1"'],
+		['ok', 'listo para el E1 ▌'],
+	];
+	const out = document.getElementById('term-out');
+	if (out) {
+		const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+		let li = 0, ci = 0;
+		const html = [];
+		const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+		const tick = () => {
+			if (li >= lines.length) return;
+			const [cls, txt] = lines[li];
+			if (reduce) {
+				out.innerHTML = lines.map(([c, t]) => `<span class="${c}">${esc(t)}</span>`).join('\n');
+				return;
+			}
+			ci++;
+			const cur = `<span class="${cls}">${esc(txt.slice(0, ci))}</span>`;
+			out.innerHTML = html.concat(cur).join('\n');
+			if (ci >= txt.length) {
+				html.push(cur);
+				li++;
+				ci = 0;
+				setTimeout(tick, cls === 'p' ? 380 : 160);
+			} else setTimeout(tick, cls === 'p' ? 22 : 8);
+		};
+		setTimeout(tick, 500);
+	}
+</script>

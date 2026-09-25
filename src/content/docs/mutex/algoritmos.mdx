@@ -1,0 +1,89 @@
+---
+title: 'Algoritmos: Peterson, Hyman, Flaky…'
+description: Intercalador interactivo que encuentra contraejemplos de exclusión mutua y deadlock en los algoritmos de los exámenes.
+---
+
+import MutexStepper from '../../../components/sim/MutexStepper.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## Intercalador
+
+Elige un algoritmo y juega de planificador. El botón **Buscar contraejemplo** recorre **todo** el espacio de estados con BFS y reproduce la traza más corta que rompe la exclusión mutua o que lleva a deadlock. Si no existe ninguna, lo dice.
+
+<MutexStepper client:visible />
+
+## Peterson (PC1 2021)
+
+```text
+acquire_lock(i):  FLAG[i] ← up;  AFTER_YOU ← i;
+                  wait (FLAG[j] = down ∨ AFTER_YOU ≠ i)
+release_lock(i):  FLAG[i] ← down
+```
+
+`AFTER_YOU` es la *víctima*: el último que la escribe es quien cede.
+
+<Solucion titulo="Solución PC1 2021 P1(b): mutex, starvation y deadlock">
+
+- **Exclusión mutua ✔.** Por contradicción, igual que en [requisitos](/mutex/requisitos/): el último en escribir `AFTER_YOU` (digamos P0) solo pasa si vio `FLAG[1] = down`, lo cual es imposible porque P1 levantó su flag antes.
+- **Deadlock-free ✔.** Si ambos esperan, `AFTER_YOU` vale 0 o 1; el que **no** es `AFTER_YOU` ve `AFTER_YOU ≠ i` y pasa.
+- **Starvation-free ✔ (espera acotada = 1).** Si P1 espera y P0 sale y vuelve a pedir, P0 escribe `AFTER_YOU ← 0` y ahora el que cede es P0, así que P1 entra. Nadie es adelantado más de una vez.
+
+Es el «torneo de 2 procesos» (nota del profesor): para N procesos se arma un árbol de Peterson (tournament).
+
+</Solucion>
+
+## Algoritmo A del E1 2026-1 (algoritmo de Hyman, 1966)
+
+```text
+1. f[i] ← V
+2. mientras (turno ≠ i) hacer:
+3.     mientras (f[j]) hacer omitir
+4.     turno ← i
+5. /* SC */
+6. f[i] ← F
+```
+
+<Solucion titulo="Solución propia (3 pts)">
+
+**1) Exclusión mutua ✘.** Traza con `turno = 0` y ambos flags en F:
+
+| # | P0 | P1 | f | turno |
+| - | --- | --- | --- | --- |
+| 1 | | `f[1] ← V` | [F, V] | 0 |
+| 2 | | `turno ≠ 1` → entra al while | | 0 |
+| 3 | | `f[0]` = F → sale del while interno | | 0 |
+| 4 | `f[0] ← V` | *(se desaloja antes de la línea 4)* | [V, V] | 0 |
+| 5 | `turno = 0` → no entra al while → **SC** | | | 0 |
+| 6 | | `turno ← 1` | | 1 |
+| 7 | | `turno = 1` → sale del while → **SC** | | 1 |
+
+⇒ **ambos en la SC**. El problema es que la comprobación `f[j]` y la escritura de `turno` no son atómicas juntas.
+
+**2) Deadlock ✔ (libre).** Si ambos quieren entrar, el proceso con `turno = i` no entra al while y avanza. El otro gira hasta ver `f[j] = F`, lo que ocurre cuando el primero sale. No hay estado donde ambos giren para siempre.
+
+**3) Starvation ✘.** Con `turno = 0`: P1 gira en `while (f[0])`. P0 sale (`f[0] ← F`) y, antes de que P1 lea, vuelve a pedir (`f[0] ← V`); como `turno` sigue en 0, entra directo. El ciclo se repite indefinidamente y P1 nunca ve `f[0] = F`. No hay cota.
+
+</Solucion>
+
+## Flaky (E1 2024-I)
+
+<Solucion titulo="Solucionario oficial (resumido)">
+
+- **Mutex ✔.** Si A y B estuvieran en la SC y A pasó la línea 11 primero, A vio `turn = A`. Para que B pase, `turn` tuvo que volver a B, es decir, B lo escribió en la línea 8 después de que A entrara. Pero A ya había puesto `busy = true`, así que B no puede salir del bucle interno. Contradicción.
+- **Deadlock ✘.** A: `turn = A`, `busy = true`. B: `turn = B` (queda girando porque `busy`). A: ve `turn ≠ A` y repite el bucle externo, queda en el interno porque `busy = true`. Nadie liberará `busy`.
+- **Starvation ✘**, porque tiene deadlock.
+
+</Solucion>
+
+## Intentos de Dekker (para reconocer patrones)
+
+| Intento | Código | Falla |
+| --- | --- | --- |
+| 1 | `while (turn != i); SC; turn = j;` | Alternancia estricta: si el otro no quiere entrar, bloquea |
+| 2 | `while (flag[j]); flag[i] = true;` | **Mutex**: ambos leen false antes de escribir |
+| 3 | `flag[i] = true; while (flag[j]);` | **Deadlock**: ambos levantan el flag |
+| 4 | como el 3, pero baja el flag un rato si el otro está | **Livelock** («cortesía mutua») |
+| Dekker | 3 + `turn` para desempatar | ✔ las tres propiedades |
+
+<Fuente archivos={['for_partial/Evaluaciones_OS_20261 (1).pdf (P2)', 'for_partial/E1_OS_2021_2022_Solver.pdf (PC1 2021)', 'for_partial/E1_OS_2024_I__Respuestas_.pdf (P2)', 'lab2/Resumenes/03-Mutual-Exclusion-Algorithms.md', 'WSL ~/so/05-OSL-Threads_Mutex/09_alternate.c … 13_interest_alternance.c']} />

@@ -1,0 +1,127 @@
+---
+title: Semáforos y su implementación
+description: Semáforos de Dijkstra, fuertes vs débiles, binarios vs generales, e implementación con semáforos binarios (E1 2025-2 P4).
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## Definición (Dijkstra, notación de Stallings)
+
+```c
+struct semaphore { int count; queue_t queue; };
+
+void semWait(semaphore s) {          // P(s), wait, down
+    s.count--;
+    if (s.count < 0) { place this process in s.queue; block; }
+}
+void semSignal(semaphore s) {        // V(s), signal, up, post
+    s.count++;
+    if (s.count <= 0) { remove a process P from s.queue; place P on ready list; }
+}
+```
+
+Ambas operaciones son **atómicas**. Invariantes:
+- `count ≥ 0`: número de `semWait` que pueden pasar sin bloquearse.
+- `count < 0`: `|count|` es el número de procesos en la cola.
+
+| Tipo | Detalle |
+| --- | --- |
+| **General / contador** | `count` es cualquier entero |
+| **Binario** | `count ∈ {0, 1}`; un `semSignalB` sobre 1 **se pierde** |
+| **Fuerte** | la cola es FIFO, así que no hay starvation |
+| **Débil** | no especifica a quién despertar, así que un proceso puede ser adelantado indefinidamente |
+| **Mutex vs semáforo binario** | el mutex tiene **dueño** (solo quien bloqueó libera); el semáforo no |
+
+POSIX: `sem_init(&s, pshared, valor)`, `sem_wait`, `sem_post`, `sem_trywait` y `sem_timedwait`.
+
+## Patrones
+
+| Patrón | Inicialización | Uso |
+| --- | --- | --- |
+| Exclusión mutua | `mutex = 1` | `wait(mutex); SC; signal(mutex);` |
+| Señalización (A antes que B) | `s = 0` | A: `…; signal(s);` · B: `wait(s); …` |
+| Rendezvous | `a = 0, b = 0` | A: `signal(a); wait(b);` · B: `signal(b); wait(a);` |
+| Multiplex (≤ n dentro) | `m = n` | `wait(m); …; signal(m);` |
+| Turnstile | `t = 1` | `wait(t); signal(t);` — bloquea a todos si alguien lo retiene |
+| Lightswitch | contador + mutex | el primero en entrar toma el recurso y el último en salir lo suelta (lectores) |
+
+## E1 2025-2 · Pregunta 4 (4 pts): semáforo general con binarios
+
+```c
+void semWait(semaphore s) {
+    semWaitB(mutex);
+    s--;
+    if (s < 0) {
+        semSignalB(mutex);
+        semWaitB(delay);
+    } else semSignalB(mutex);
+}
+void semSignal(semaphore s) {
+    semWaitB(mutex);
+    s++;
+    if (s <= 0) semSignalB(delay);
+    semSignalB(mutex);
+}
+```
+
+<Solucion titulo="Solución propia (basada en Stallings, problema 5.x)">
+
+**1) ¿Es una implementación correcta? No.** Parece correcta, pero entre `semSignalB(mutex)` y `semWaitB(delay)` hay una ventana. Como `delay` es **binario**, dos `semSignalB(delay)` seguidos dejan `delay = 1`, no 2, y **se pierde un despertar**.
+
+(Detalle menor: `semaphore s` se pasa por valor, así que `s--` modifica una copia. Debería ser `semaphore *s`.)
+
+**2) Traza** con `s = 0`, `delay = 0`:
+
+| # | Proceso | Acción | s | delay |
+| - | --- | --- | - | - |
+| 1 | A | semWait: `s = -1`, suelta mutex, **se desaloja antes de `semWaitB(delay)`** | -1 | 0 |
+| 2 | B | semWait: `s = -2`, suelta mutex, se desaloja igual | -2 | 0 |
+| 3 | C | semSignal: `s = -1 ≤ 0` → `semSignalB(delay)` | -1 | 1 |
+| 4 | D | semSignal: `s = 0 ≤ 0` → `semSignalB(delay)` → **se pierde** | 0 | 1 |
+| 5 | A | `semWaitB(delay)` → pasa | 0 | 0 |
+| 6 | B | `semWaitB(delay)` → **bloqueado para siempre**, aunque `s = 0` dice que no debería esperar | 0 | 0 |
+
+- La exclusión mutua **sobre la variable `s`** sí está garantizada, porque `mutex` la protege.
+- Pero B queda bloqueado indefinidamente sin que nadie vaya a despertarlo: es **starvation**, o deadlock si todos terminan esperando.
+
+**3) Corrección: paso de testigo (*baton passing*).** Quien despierta a otro **no suelta `mutex`**; se lo «pasa» al despertado, que lo libera. Así nadie puede ejecutar un segundo `semSignalB(delay)` antes de que el primero se consuma.
+
+```c
+void semWait(semaphore *s) {
+    semWaitB(&mutex);
+    s->count--;
+    if (s->count < 0) {
+        semSignalB(&mutex);
+        semWaitB(&delay);
+        semSignalB(&mutex);      // (nuevo) el despertado libera el mutex heredado
+    } else
+        semSignalB(&mutex);
+}
+void semSignal(semaphore *s) {
+    semWaitB(&mutex);
+    s->count++;
+    if (s->count <= 0)
+        semSignalB(&delay);      // (cambio) NO libera mutex: lo hereda el despertado
+    else
+        semSignalB(&mutex);
+}
+```
+
+Rehaciendo la traza: en el paso 4, D se bloquea en `semWaitB(&mutex)` porque C todavía tiene el testigo. A consume `delay` y libera `mutex`; D continúa y hace su `semSignalB(delay)`, que ahora B sí consume. Esto funciona porque el semáforo binario, a diferencia de un mutex, puede ser liberado por un proceso distinto al que lo tomó.
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="sembasic"
+	preguntas={[
+		{ q: 'Un semáforo con `count = -3` significa…', opts: ['Error', '3 procesos bloqueados en su cola', '3 recursos libres', 'Que se hicieron 3 signal de más'], ok: 1 },
+		{ q: '¿Qué garantiza un semáforo fuerte que uno débil no?', opts: ['Exclusión mutua', 'Ausencia de deadlock', 'Orden FIFO → sin starvation', 'Atomicidad'], ok: 2 },
+		{ q: 'Semáforo binario en 1. Se hacen dos `semSignalB` seguidos. Valor final:', opts: ['3', '2', '1 (el segundo se pierde)', '0'], ok: 2 },
+		{ q: 'Para que el hilo B siempre ejecute `y()` después de que A ejecute `x()`:', opts: ['s = 1; A: wait(s); x(); B: y(); signal(s)', 's = 0; A: x(); signal(s); B: wait(s); y()', 's = 0; A: wait(s); x(); B: signal(s); y()', 'Un mutex basta'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['for_partial/E1_OS_20252.pdf (P4)', 'lab2/07-OSL-Mutex_Locks_Semaphores.pdf', 'lab2/Resumenes/07-Locks-Semaphores-Pthreads-Futex.md', 'lab2/Stallings.pdf §5.3']} />

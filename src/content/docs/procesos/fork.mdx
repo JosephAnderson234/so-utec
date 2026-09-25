@@ -1,0 +1,60 @@
+---
+title: fork, exec y contar «Hello!»
+description: Cómo contar impresiones en programas con fork, execv, exit, threads y semáforos (E1 2024-I y 2024-II).
+---
+
+import ForkTree from '../../../components/sim/ForkTree.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+La pregunta 1 de los dos E1 de 2024 fue la misma idea: **¿cuántas veces se imprime «Hello!»?** (3 pts). Se resuelve dibujando el árbol de procesos y anotando, en cada proceso, **el valor de las variables que decide cada `if`**.
+
+## Las 5 reglas
+
+1. `fork()` devuelve **0 en el hijo** y el **pid del hijo en el padre**. Desde ese punto ambos ejecutan *la misma línea siguiente*.
+2. El hijo recibe una **copia** de toda la memoria: variables, buffers de `stdio`, **semáforos y mutex con su valor actual**. Nada se comparte después del fork (salvo memoria compartida explícita).
+3. Solo se copia **el hilo que llamó a `fork`**.
+4. `execv` **reemplaza** el programa: lo que sigue en el código viejo no se ejecuta, y el nuevo programa empieza en `main` con otro `argc`/`argv`.
+5. Los hilos comparten la memoria **de su proceso**. Si el hilo recibe `&pid`, lee el `pid` de *su* proceso.
+
+:::caution[Buffers de printf]
+Si la salida va a un pipe (`./a | wc -l`), `printf` usa buffer completo y un `fork` posterior **duplica el buffer**. En el examen se asume salida sin buffer, es decir, un `printf` = una línea. Para verificarlo, usé `setvbuf(stdout, NULL, _IONBF, 0)`.
+:::
+
+## Simulador
+
+<ForkTree client:visible />
+
+## Ejercicio del E1 2024-II
+
+Con el código de la segunda pestaña: `argc = 1` al inicio, `execv("./hello-fork-exec", {"1","2"})` y un semáforo iniciado en 1 **después** del segundo fork.
+
+<Solucion>
+
+**4 veces.**
+
+1. **P** tiene `argc = 1` → no entra al primer `if`.
+2. **P** hace fork → **H1** (pid = 0) hace `execv` y el programa reinicia con `argc = 2` → **imprime (1)** y termina.
+3. **P** hace fork → **H2**. Cada proceso hace su propio `sem_init(&mutex, 0, 1)`: son semáforos distintos (copias).
+4. El thread de P hace `sem_wait` (1→0), **imprime (2)** y hace `sem_post` porque `pid ≠ 0`.
+5. El thread de H2 hace `sem_wait` (1→0), **imprime (3)** y **no** hace `sem_post` porque su `pid = 0`.
+6. El main de P hace `sem_wait` (1→0) → **imprime (4)**. El main de H2 hace `sem_wait` con valor 0 → se bloquea para siempre.
+
+</Solucion>
+
+## Quiz
+
+<Quiz
+	client:visible
+	id="fork"
+	preguntas={[
+		{ q: '¿Cuántos procesos existen al final de `fork(); fork(); fork();`?', opts: ['3', '6', '8', '4'], ok: 2, why: 'Cada fork duplica a todos los procesos vivos: $2^3 = 8$.' },
+		{ q: 'Después de `pid = fork();`, ¿qué vale `pid` en el hijo?', opts: ['El pid del padre', '0', '-1', 'El pid del hijo'], ok: 1, why: 'fork retorna 0 al hijo y el pid del hijo al padre (-1 si falla).' },
+		{ q: 'Un proceso con 4 hilos llama a `fork()` desde el hilo 2. ¿Cuántos hilos tiene el hijo?', opts: ['4', '1', '2', 'Depende del planificador'], ok: 1, why: 'POSIX: el hijo solo contiene una réplica del hilo que llamó a fork.' },
+		{ q: 'Si `execv` tiene éxito, ¿qué pasa con las líneas que lo siguen?', opts: ['Se ejecutan al terminar el nuevo programa', 'Nunca se ejecutan en ese proceso', 'Se ejecutan en un hilo aparte', 'Se ejecutan en el padre'], ok: 1, why: 'exec reemplaza la imagen del proceso; no retorna si tiene éxito.' },
+		{ q: 'Un semáforo global `sem_t s` iniciado en 0 antes de fork. El padre hace `sem_post(&s)`. ¿Se despierta un `sem_wait(&s)` del hijo?', opts: ['Sí, porque es global', 'No, cada proceso tiene su copia (salvo pshared = 1 en memoria compartida)', 'Solo si el hijo es un thread', 'Sí, fork comparte los semáforos'], ok: 1, why: 'fork copia la memoria. Para compartir un sem_t entre procesos hace falta pshared = 1 y que viva en memoria compartida (mmap/shm).' },
+	]}
+/>
+
+<Fuente archivos={['for_partial/E1_OS_2024_I__Respuestas_.pdf (P1)', 'for_partial/E1_OS_2024_II__Solucionario_.pdf (P1)', 'WSL ~/so/OST-02-Processes_Syscalls_Signals', 'WSL ~/so/verif_parcial/hello24.c, hellofe.c']} />

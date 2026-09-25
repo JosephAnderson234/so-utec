@@ -1,0 +1,67 @@
+---
+title: MMU y segmentación
+description: 'Tema nuevo: direcciones lógicas vs físicas, MMU, registro de relocalización, segmentación con base/límite y su estado en x86-64 y Linux.'
+---
+
+import SegmentTranslator from '../../../components/sim/SegmentTranslator.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Fuente from '../../../components/Fuente.astro';
+
+## Dirección lógica vs física
+
+- **Lógica (virtual):** la genera la CPU; es lo que ve el programa.
+- **Física:** la que ve la unidad de memoria.
+- Son **iguales** con *binding* en tiempo de **compilación** o **carga**, y **distintas** con binding en tiempo de **ejecución**.
+
+Cada proceso (y el kernel) tiene su propio **espacio de direcciones**. La **MMU** traduce de la vista de la CPU a la vista de la memoria. Con traducción, **la protección es fácil**: si A ni siquiera puede nombrar los datos de B, no puede dañarlos. Además, todos los programas pueden enlazarse en la misma región virtual.
+
+## MMU con registro de relocalización
+
+El esquema más simple es un **registro base** (llamado registro de relocalización), que se suma a cada dirección, más un **registro límite** para la protección:
+
+$$
+\text{física} = \text{base} + \text{lógica}, \qquad \text{si } \text{lógica} < \text{límite}
+$$
+
+Si no se cumple, se genera una trampa al SO. MS-DOS en 8086 usaba 4 registros de este tipo (CS, DS, SS y ES). En un cambio de contexto, el SO carga la base y el límite del nuevo proceso, que forman parte del PCB.
+
+## Segmentación
+
+El programa se ve como un conjunto de **segmentos lógicos** de tamaño variable (código, datos, stack, compartido…). Cada dirección es un par **(segmento, offset)** y hay una **tabla de segmentos** con `(base, límite, permisos)` por entrada.
+
+- ✔ Refleja la estructura modular del programa, así que protección y compartición salen por segmento.
+- ✘ Los segmentos son de tamaño variable, así que hay **fragmentación externa**, como en las particiones dinámicas.
+
+<SegmentTranslator client:visible />
+
+### Traza de la diapositiva 38 (PC = 0x0240)
+
+1. Fetch `0x0240` (`0000 0010 0100 0000`): segmento 0, offset `0x240` → física `0x4000 + 0x240 = 0x4240` → `la $a0, varx` → `$a0 = 0x4050`.
+2. Fetch `0x0244` → `0x4244` → `jal strlen` → `$ra = 0x0248` y PC = `0x0360`.
+3. Fetch `0x0360` → `0x4360` → `li $v0, 0`.
+4. Fetch `0x0364` → `0x4364` → `lb $t0, ($a0)`: carga desde `0x4050` (`0100 0000 0101 0000`), que es el **segmento 1**, offset `0x50` → física `0x4800 + 0x50 = 0x4850`.
+
+Observa que la **misma** dirección `0x4050` es un dato virtual y **no** la física `0x4050`, que caería dentro del segmento de código.
+
+## Segmentación en procesadores modernos
+
+- **Modo real (8086):** direcciones `segmento:offset`, segmentación intensiva.
+- **Modo protegido (x86 de 32 bits):** descriptores de segmento en la **GDT/LDT** (código, datos, stack…).
+- **Modo largo (x86-64):** la segmentación está **prácticamente deshabilitada**; base y límite se ignoran para código y datos. **Solo FS y GS** conservan significado:
+  - **FS**: *thread-local storage* en espacio de usuario (glibc).
+  - **GS**: variables **per-CPU** del kernel.
+- **Linux** ignora la segmentación y usa **paginación** como mecanismo principal, porque da aislamiento, memoria virtual y *demand paging*, cosas que la segmentación sola no maneja bien.
+
+<Quiz
+	client:visible
+	id="segmentacion"
+	preguntas={[
+		{ q: 'Con la tabla de la diapositiva 37, ¿a qué física va la virtual 0x8010?', opts: ['0x8010', '0xF010', '0x4810', 'segfault'], ok: 1, why: '0x8010 = 10|00 0000 0001 0000 → segmento 2 (shared, base 0xF000), offset 0x10 < 0x1000.' },
+		{ q: '¿Qué pasa con 0x0900 (segmento 0, límite 0x800)?', opts: ['0x4900', 'segfault: offset ≥ límite', '0x0900', 'se va al segmento 1'], ok: 1 },
+		{ q: 'La segmentación sufre de…', opts: ['fragmentación interna', 'fragmentación externa', 'ninguna', 'thrashing'], ok: 1 },
+		{ q: 'En x86-64 con Linux, ¿para qué se usa FS?', opts: ['Para el segmento de código', 'Para el thread-local storage en espacio de usuario', 'Para las variables per-CPU del kernel', 'No se usa'], ok: 1, why: 'GS es para las per-CPU del kernel.' },
+		{ q: 'Las direcciones lógica y física difieren cuando el binding es en tiempo de…', opts: ['compilación', 'carga', 'ejecución', 'enlazado'], ok: 2 },
+	]}
+/>
+
+<Fuente archivos={['for_partial/pending_themes/Sem06_06-OST-Memory.pdf (diap. 8–10, 24–40)', 'Stallings cap. 7', 'Love, Linux Kernel Development']} />

@@ -1,0 +1,76 @@
+---
+title: Particiones, buddy y placement
+description: 'Tema nuevo (06 · Memory): requisitos de la gestión de memoria, particiones fijas y dinámicas, fragmentación, placement y buddy system.'
+---
+
+import BuddySim from '../../../components/sim/BuddySim.tsx';
+import PlacementSim from '../../../components/sim/PlacementSim.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Fuente from '../../../components/Fuente.astro';
+
+## Requisitos de la gestión de memoria (Stallings cap. 7)
+
+| Requisito | Por qué |
+| --- | --- |
+| **Relocalización** | El programador no sabe dónde quedará su programa, y al hacer *swap* puede volver a otra dirección. |
+| **Protección** | Las referencias a memoria deben revisarse **en tiempo de ejecución**, porque la ubicación es impredecible. Los mecanismos de relocalización también dan protección. |
+| **Compartición** | Permitir que varios procesos usen **la misma copia** del código sin romper la protección. |
+| **Organización lógica** | Los programas son **módulos** con distintos permisos (solo lectura, solo ejecución), compilados por separado. |
+| **Organización física** | Jerarquía de dos niveles (principal y secundaria). El SO debe mover los datos porque el *overlaying* es costoso de programar y el programador no sabe cuánta memoria habrá. |
+
+## Particionamiento (sin memoria virtual)
+
+### Particiones fijas
+- **De igual tamaño:** da igual cuál usar. Si todas están ocupadas por procesos no listos, se hace *swap out*.
+- **De distinto tamaño:** se asigna la partición **más pequeña que alcance**, con una cola por partición o una cola única.
+- ✘ El número de particiones limita el grado de multiprogramación. ✘ Los trabajos pequeños desperdician espacio: **fragmentación interna**. ✘ Un programa demasiado grande necesita *overlays*.
+
+### Particiones dinámicas (OS/MVT de IBM)
+- Cada proceso recibe **exactamente** lo que pide.
+- Con el tiempo aparecen **huecos** pequeños entre procesos: **fragmentación externa**.
+- **Compactación:** mover los procesos para juntar el espacio libre. Solo es posible con **relocalización dinámica** (en tiempo de ejecución) y cuesta CPU. Durante la E/S hay que fijar el proceso en memoria o hacer E/S solo a buffers del SO.
+
+:::tip[Interna vs externa]
+- **Interna:** el espacio se desperdicia **dentro** del bloque asignado (el bloque es más grande que lo pedido). Ocurre en particiones fijas, buddy y paginación (última página).
+- **Externa:** hay memoria libre total suficiente, pero **no contigua**. Ocurre en particiones dinámicas y segmentación.
+:::
+
+## Algoritmos de placement
+
+| Algoritmo | Elige | Comentario |
+| --- | --- | --- |
+| **Best-fit** | el hueco **más ajustado** | deja astillas diminutas e inútiles; en la práctica suele ser el peor |
+| **First-fit** | el **primero** desde el inicio que alcance | simple, rápido y generalmente el mejor |
+| **Next-fit** | el primero **desde la última asignación** | tiende a romper el bloque grande del final |
+
+**Regla del 50 %** (análisis de first-fit): con N bloques asignados se pierden ≈ 0.5 N por fragmentación, es decir, **un tercio** de la memoria puede quedar inutilizable.
+
+<PlacementSim client:visible />
+
+## Buddy system
+
+Es un compromiso entre particiones fijas y dinámicas. Los bloques tienen tamaño $2^K$ con $L \le K \le U$: $2^L$ es el bloque mínimo y $2^U$ es toda la memoria.
+
+1. Al inicio hay un único bloque de $2^U$.
+2. Para una solicitud $s$ con $2^{U-1} < s \le 2^U$ se asigna el bloque completo.
+3. Si no, se divide en dos **buddies** de $2^{U-1}$, y así sucesivamente hasta obtener el menor bloque $\ge s$.
+4. Se mantiene una **lista de huecos por cada tamaño** $2^i$.
+5. Al liberar, si el buddy también está libre, **se fusionan** en un bloque de $2^{i+1}$, y eso se repite hacia arriba.
+
+En el árbol binario, si dos buddies son hojas, al menos uno está asignado; si no, ya se habrían fusionado. Linux usa buddy para asignar **páginas físicas** (`__get_free_pages`).
+
+<BuddySim client:visible />
+
+<Quiz
+	client:visible
+	id="particiones"
+	preguntas={[
+		{ q: 'Buddy system con 1 MiB. Se pide 100 KiB. ¿Qué bloque se asigna y cuánta fragmentación interna genera?', opts: ['100 KiB, 0', '128 KiB, 28 KiB', '256 KiB, 156 KiB', '64 KiB, 0'], ok: 1 },
+		{ q: 'Hay 30 MB libres en huecos de 10 MB y llega un proceso de 25 MB que no cabe. Eso es…', opts: ['Fragmentación interna', 'Fragmentación externa', 'Thrashing', 'Overlaying'], ok: 1 },
+		{ q: '¿Qué algoritmo de placement tiende a dejar huecos diminutos inutilizables?', opts: ['First-fit', 'Best-fit', 'Next-fit', 'Ninguno'], ok: 1 },
+		{ q: 'La compactación requiere…', opts: ['Particiones fijas', 'Relocalización dinámica (en tiempo de ejecución)', 'Buddy system', 'Un TLB'], ok: 1 },
+		{ q: 'En buddy, el buddy del bloque de 64K que empieza en 128K es…', opts: ['el de 64K en 192K', 'el de 64K en 64K', 'el de 128K en 0', 'el de 64K en 0'], ok: 0, why: 'buddy = start XOR size = 128K XOR 64K = 192K.' },
+	]}
+/>
+
+<Fuente archivos={['for_partial/pending_themes/Sem06_06-OST-Memory.pdf (diap. 4–23)', 'sem_6/resumen-capitulo-7-memory-management.md', 'Stallings cap. 7']} />

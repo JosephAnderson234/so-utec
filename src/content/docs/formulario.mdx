@@ -1,0 +1,113 @@
+---
+title: Formulario (cheat sheet)
+description: Todo lo que hay que tener en la cabeza para el E1 de Sistemas Operativos, en una página imprimible.
+---
+
+Esta página se imprime bien (Ctrl + P). Cada bloque enlaza a su tema.
+
+## Procesos y threads
+
+| Llamada | Qué hace | Trampa típica |
+| --- | --- | --- |
+| `fork()` | Clona el proceso: memoria, descriptores, **semáforos y mutex con su estado**. Retorna 0 al hijo y el pid del hijo al padre. | Solo se copia **el hilo que llamó**. Un mutex tomado por otro hilo queda tomado para siempre en el hijo. |
+| `execv(path, argv)` | Reemplaza la imagen del proceso. No retorna si tiene éxito. | Lo que viene después de `execv` en el código original no se ejecuta. `argc` cambia. |
+| `exit(0)` | Termina el proceso (y todos sus hilos). | Cuidado con los prints que venían después. |
+| `pthread_create(&t, NULL, f, arg)` | Nuevo hilo que comparte memoria. | Pasar `&local` compartido entre iteraciones produce una race sobre los argumentos. |
+| `pthread_join(t, NULL)` | Espera a que termine el hilo. | Sin join, `main` puede salir antes. |
+
+**Modelos de threads** ([detalle](/procesos/threads/)):
+- **Many-to-One** (ULT): una syscall bloqueante bloquea **todo el proceso** y no hay paralelismo real.
+- **One-to-One** (Linux, Windows): cada hilo de usuario es un hilo del kernel.
+- **Many-to-Many**: se multiplexan M hilos de usuario sobre N hilos del kernel.
+
+## Exclusión mutua
+
+**Requisitos (Stallings 5.1):**
+1. Solo uno en la SC a la vez.
+2. Un proceso que se detiene fuera de la SC no debe interferir.
+3. Sin deadlock ni starvation.
+4. Si la SC está libre, se entra sin demora.
+5. Sin supuestos sobre velocidades ni número de CPUs.
+6. Se permanece en la SC un tiempo finito.
+
+**Propiedades a demostrar:** *mutex (safety)*, *deadlock-free (progreso)* y *starvation-free (espera acotada)*. Starvation-free implica deadlock-free.
+
+| Algoritmo | Mutex | Deadlock-free | Starvation-free |
+| --- | :-: | :-: | :-: |
+| Peterson / PC1 2021 | ✔ | ✔ | ✔ (espera ≤ 1) |
+| Dekker | ✔ | ✔ | ✔ |
+| Hyman (E1 2026-1) | ✘ | ✔ | ✘ |
+| Flaky (E1 2024-I) | ✔ | ✘ | ✘ |
+| Bakery / Lamport lexicográfico | ✔ | ✔ | ✔ (FCFS) |
+| Dijkstra 1965 (N procesos) | ✔ | ✔ | ✘ |
+| TAS / CAS spinlock | ✔ | ✔ | ✘ |
+
+## Deadlock: 4 condiciones necesarias (Coffman)
+
+1. **Exclusión mutua**: el recurso lo usa uno a la vez.
+2. **Hold and wait**: se retiene un recurso mientras se espera otro.
+3. **No preemption**: no se le puede quitar el recurso a quien lo tiene.
+4. **Espera circular**.
+
+Las tres primeras son de diseño; la cuarta aparece durante la ejecución. `trylock` rompe *hold and wait* y evita el deadlock, pero puede generar **livelock o starvation**.
+
+## Semáforos
+
+```c
+semWait(s):   s.count--; if (s.count < 0) { encolar; bloquear; }
+semSignal(s): s.count++; if (s.count <= 0) { desencolar P; ready(P); }
+```
+
+- `count < 0` ⇒ |count| procesos en cola.
+- **Fuerte** = cola FIFO (sin starvation). **Débil** = orden no especificado.
+- **Regla de oro**: primero el semáforo de conteo (`vacios`/`llenos`) y **después** `mutex`. Invertirlo produce deadlock.
+
+## Monitores
+
+- Un **lock** protege el estado y las **condition variables** son colas.
+- `wait(c, m)`: libera el lock **atómicamente**, duerme y **readquiere** el lock antes de retornar.
+- **Hoare**: `signal` transfiere el monitor de inmediato, así que basta un `if`.
+- **Mesa** (pthreads, Java): `signal` solo marca listo, así que se usa **`while`** (también cubre los *spurious wakeups*).
+
+## Registros (Herlihy)
+
+| Tipo | Si la lectura NO se solapa | Si se solapa con escrituras |
+| --- | --- | --- |
+| **Safe** | último valor escrito | cualquier valor del dominio |
+| **Regular** | último valor | viejo o alguno de los nuevos |
+| **Atomic** | último valor | como regular + **linealizable** (sin inversión nuevo→viejo) |
+
+Las dimensiones son: lectores/escritores (SRSW, MRSW, MRMW) × tamaño (booleano, m-valuado) × fuerza (safe, regular, atomic).
+
+## Memoria
+
+- **Fragmentación interna**: el bloque asignado es más grande que lo pedido (particiones fijas, buddy, páginas).
+- **Fragmentación externa**: hay memoria libre total pero no contigua (particiones dinámicas, segmentación). Se resuelve compactando, lo que requiere relocalización dinámica.
+- **Placement**: best-fit (hueco más ajustado), first-fit (primero desde el inicio), next-fit (primero desde la última asignación). First-fit suele ser el mejor y el más rápido.
+- **Regla del 50 %**: con first-fit, N bloques asignados pierden ≈ 0.5 N por fragmentación (≈ ⅓ de la memoria).
+- **Buddy**: bloques de $2^k$; para pedir, redondear hacia arriba y dividir; al liberar, fusionar con el buddy (dirección `start XOR size`).
+- **Segmentación**: `física = base[seg] + offset` si `offset < limit`; si no, segfault.
+
+**Paginación** ([calculadora](/memoria/paginacion/)):
+
+$$
+\text{offset} = \log_2(\text{página}) \quad
+\text{VPN} = n_{virt} - \text{offset} \quad
+\text{PFN} = n_{fís} - \text{offset}
+$$
+
+$$
+\#\text{entradas} = 2^{\text{VPN}} \qquad
+\text{tamaño tabla} = 2^{\text{VPN}} \cdot \left\lceil \tfrac{\text{PFN} + \text{bits de estado}}{8} \right\rceil \text{ B}
+$$
+
+Para multinivel con tablas de 1 página: bits por nivel $= \log_2(\text{página}/\text{PTE})$ y niveles $= \lceil \text{VPN} / \text{bits por nivel} \rceil$.
+
+## Memory layout de un proceso
+
+`text/code` (instrucciones) → `data` (globales y estáticas) → `heap` (↑ `malloc`) … `stack` (↓ locales, direcciones de retorno). En el PCB: estado, registros, PC, prioridad e información de memoria.
+
+## Microkernel vs monolítico
+
+- **Monolítico** (Linux): todo corre en modo kernel. Es rápido, pero un fallo tira todo el sistema.
+- **Microkernel** (Mach, QNX): solo IPC, planificación y memoria básica; los servicios corren en espacio de usuario. Es más robusto porque un servicio que cae no tumba el sistema, pero es más lento por la IPC. **Si piden robustez ante fallas, la respuesta es microkernel.**

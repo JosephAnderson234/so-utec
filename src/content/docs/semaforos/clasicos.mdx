@@ -1,0 +1,149 @@
+---
+title: Problemas clásicos con semáforos
+description: Morris (E1 2026-1), recurso compartido por 3 (PC1 2021), montaña rusa (E1 2022) y chefs de ramen (E1 2024-II).
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## Morris 1979: mutex sin starvation con semáforos débiles (E1 2026-1 · P3, 5 pts)
+
+**Idea:** agrupar a los procesos en **lotes** con dos salas. La sala A se llena mientras la puerta M está cerrada. Cuando la sala A se vacía (`NA = 0`), se cierra A y se abre M, y los del lote pasan uno por uno a la SC. Los que llegan tarde esperan en A al siguiente lote. Así, ningún proceso puede adelantarte más de una vez aunque los semáforos sean débiles.
+
+```c
+// A = 1, M = 0, B = 1 ; NA = NM = 0
+wait(B); NA++; signal(B);                // Fase 1: entrar a la sala A
+wait(A);
+wait(B); NA--; NM++;                     // Fase 2: pasar a la sala M
+if (NA > 0) signal(A);                   //   aún hay gente en A: que pase el siguiente
+else        signal(M);                   //   A vacía: cerrar A, abrir M
+signal(B);
+wait(M);
+/* SC */
+wait(B); NM--;                           // Fase 3: salida
+if (NM > 0) signal(M);                   //   quedan del lote: pasa el siguiente
+else        signal(A);                   //   lote terminado: reabrir A
+signal(B);
+```
+
+<Solucion titulo="Solución propia (analizada contra el Morris original)">
+
+**Comparación con el original** (Morris 1979, Downey §4.3 «no-starve mutex»):
+
+| | Original | Propuesta |
+| --- | --- | --- |
+| `NM++` | tras `wait(A)`, sin `B` (solo el poseedor del token A lo toca) | dentro de `B` |
+| `NM--` | tras `wait(M)`, **antes** de la SC, sin `B` | **después** de la SC, dentro de `B` |
+| Decisión de salida | `if (NM == 0) signal(A) else signal(M)` | igual (`NM > 0` ↔ `NM ≠ 0`) |
+
+**Invariantes que se mantienen:**
+1. **Un solo token circula** entre `A` y `M`: exactamente uno de `A` o `M` vale 1, o lo tiene un proceso. `B` solo protege los contadores.
+2. Mientras hay un lote en la sala M, **A está cerrada**: la única forma de hacer `signal(A)` es con `NA > 0` en la fase 2 (lo que implica que el lote todavía se está formando) o con `NM = 0` en la salida (el lote terminó).
+3. Quien llega mientras el lote está en M queda contado en `NA`, pero bloqueado en `A` hasta el siguiente lote.
+
+**¿Mantiene la protección contra inanición?** Sí. Cada lote es finito, porque la sala A se cierra en cuanto `NA` llega a 0 y un proceso que ya pasó no puede volver a incrementar `NA` hasta salir de la SC. Un proceso en la sala M es adelantado como máximo por los demás miembros de **su** lote, y uno en la sala A entra en el siguiente lote. La espera está acotada aunque `A`, `M` y `B` sean débiles. El único cambio real es que la salida también usa `B`, pero cada proceso lo hace una sola vez por lote, así que sigue acotado.
+
+**¿Qué modificación sí la rompería?** (el tipo de traza que pide el examen):
+- Si en la salida se hiciera `signal(A)` **siempre** (sin mirar `NM`), A se reabre con el lote a medio pasar. Traza: P1 y P2 forman el lote → P1 en la SC y P2 en `wait(M)` → P1 sale con `signal(A)` → P3 pasa a M con `NA = 0` y hace `signal(M)` → M, que es débil, puede despertar a P3 antes que a P2. Si esto se repite con P1 y P3 volviendo, P2 nunca entra.
+- Si `NA--` y la decisión se hicieran **fuera de `B`**, dos procesos podrían ver `NA = 0` a la vez, emitir dos `signal(M)` y dejar a dos procesos en la SC (se rompe la exclusión mutua).
+
+La **corrección mínima** en ambos casos es restaurar la condición `if (NM > 0) signal(M); else signal(A);` y mantener la transición dentro de `B`, que es justo lo que tiene la propuesta.
+
+:::caution
+El enunciado insinúa que hay un fallo. Con el código tal como está transcrito, el análisis concluye que es equivalente a Morris. Si en clase se discutió otra versión, confírmalo con el profesor.
+:::
+
+</Solucion>
+
+## Recurso compartido por 3 (PC1 2021 · P2, 10 pts)
+
+Reglas: (1) con menos de 3 procesos usando el recurso, los nuevos entran de inmediato; (2) si llegan a 3, **los 3** deben salir antes de que entre uno nuevo.
+
+```c
+semaphore mutex = 1, block = 0;
+int active = 0, waiting = 0;  boolean must_wait = false;
+
+semWait(mutex);
+if (must_wait) { ++waiting; semSignal(mutex); semWait(block); }
+else { ++active; must_wait = (active == 3); semSignal(mutex); }
+/* sección crítica */
+semWait(mutex);
+--active;
+if (active == 0) {
+    int n = (waiting < 3) ? waiting : 3;
+    waiting -= n;  active = n;
+    while (n > 0) { semSignal(block); --n; }
+    must_wait = (active == 3);
+}
+semSignal(mutex);
+```
+
+<Solucion titulo="Solución (Stallings, problema 5.6)">
+
+**(a) Funcionamiento y corrección.** `active` cuenta quiénes usan el recurso y `must_wait` se vuelve verdadero al llegar a 3, **y no se apaga cuando sale uno solo**: solo se recalcula cuando `active == 0`. Eso implementa la regla (2). El último en salir despierta hasta 3 procesos y **les reserva el lugar** incrementando `active` por ellos (paso de testigo). Por eso los despertados no necesitan volver a tomar `mutex`. Nunca hay más de 3 dentro, y todo el que espera es despertado cuando el grupo se vacía.
+
+**(b) ¿«Saltarse la fila»?** Puede ocurrir en un sentido temporal. Si al vaciarse había menos de 3 esperando (n < 3), `must_wait` queda en falso y un proceso **nuevo** puede entrar a la SC antes de que los despertados (que ya tienen su lugar reservado) sean planificados. **No es un problema**: todos los que esperaban ya fueron admitidos (`active` los cuenta) y no se supera el límite de 3. Si esperaban 3 o más, `must_wait = true` y los nuevos esperan.
+
+</Solucion>
+
+## Montaña rusa UTEC (E1 2022 · P2a)
+
+m pasajeros y n vagones de un asiento. Solución propuesta (semáforos en 0):
+
+```text
+passenger: loop  nap(riding_time); P(car_avail); V(car_taken); P(car_filled); P(passenger_released)
+car:       loop  V(car_avail); P(car_taken); V(car_filled); nap(ride_time); V(passenger_released)
+```
+
+<Solucion titulo="Solución (notas del profesor)">
+
+**No es correcta.** Los semáforos son **anónimos**: no ligan a un pasajero con *su* vagón. Con n = m = 2, P1 hace `P(car_avail)` sobre el V de C1, pero su `P(car_filled)` puede consumir el V de C2, y su `P(passenger_released)` puede consumir el de C2 aunque C1 siga en su vuelta. **Un pasajero puede bajarse cuando termina la vuelta de otro vagón**: `car_filled` y `passenger_released` no garantizan el orden.
+
+**Corrección:** identificar el vagón. El vagón publica su id en una variable protegida y cada pasajero espera en el semáforo **de su vagón**:
+
+```text
+car j:      V(car_avail[j]) → P(car_taken[j]) → ride → V(released[j])
+passenger:  P(mutex); j = siguiente vagón libre; V(mutex); P(car_avail[j]); V(car_taken[j]); P(released[j])
+```
+
+</Solucion>
+
+## Chefs de ramen (E1 2024-II · P3, 8 pts)
+
+Es el problema de los **fumadores de cigarrillos**: 3 chefs, cada uno con infinito de un solo ingrediente, y un master chef que pone 2 ingredientes al azar en la mesa.
+
+<Solucion titulo="Solución: un semáforo por chef">
+
+```c
+#define FIDEOS 0
+#define AGUA   1
+#define SEMILLAS 2
+sem_t chef_sem[3];     // = 0  (uno por chef: "te falta justo esto")
+sem_t master_sem;      // = 0
+int falta;             // ingrediente que falta en la mesa
+
+void *master(void *arg) {
+    while (1) {
+        falta = rand() % 3;             // pone en la mesa los otros dos
+        sem_post(&chef_sem[falta]);     // despierta SOLO al chef que tiene lo que falta
+        sem_wait(&master_sem);          // espera a que termine de probar
+    }
+}
+
+void *chef(void *arg) {
+    int tengo = *(int *) arg;           // su ingrediente infinito
+    while (1) {
+        sem_wait(&chef_sem[tengo]);     // lo despiertan cuando la mesa lo completa
+        tomar_ingredientes(); preparar_ramen(); probar(rand() % MAXSLEEP);
+        sem_post(&master_sem);          // avisa al master
+    }
+}
+```
+
+- **Sin deadlock:** en cada momento hay exactamente un token circulando (master → un chef → master), y nadie retiene un recurso mientras espera otro.
+- **Sin starvation:** el master elige al azar con distribución uniforme, así que cada chef es elegido con probabilidad 1/3 en cada ronda (starvation con probabilidad 0). Si se exige una cota dura, se usa round-robin.
+- La solución oficial despierta a los **3** chefs y cada uno revisa `table != missing` en un `do…while`. Es equivalente, pero con despertares inútiles.
+
+</Solucion>
+
+<Fuente archivos={['for_partial/Evaluaciones_OS_20261 (1).pdf (P3)', 'for_partial/E1_OS_2021_2022_Solver.pdf (PC1 2021 P2, E1 2022 P2)', 'for_partial/E1_OS_2024_II__Solucionario_.pdf (P3)', 'lab2/Ejercicios_Repaso.pdf', 'The Little Book of Semaphores (Downey) §4.3']} />

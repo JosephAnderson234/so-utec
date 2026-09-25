@@ -1,0 +1,46 @@
+---
+title: Mapa del examen
+description: Qué preguntas se repiten en los E1 de Sistemas Operativos (2021–2026) y cuánto valen.
+---
+
+import Fuente from '../../components/Fuente.astro';
+
+Revisé los 6 exámenes de `for_partial/`. La estructura es muy estable: **1 pregunta de conceptos + 1 de demostrar un algoritmo de mutex + 1–2 de semáforos/monitores con código C + (desde 2025) 1 de memoria**.
+
+## Qué cae y dónde practicarlo
+
+| Tipo de pregunta | 2021 | 2022 | 2024-I | 2024-II | 2025-2 | 2026-1 | Practica en |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | --- |
+| Contar «Hello!» con fork / exec / threads | | | ✔ | ✔ | | | [fork](/procesos/fork/) |
+| Alternativas conceptuales (threads, fork+mutex, Mesa, false sharing, UB) | | | | | | ✔ | [threads](/procesos/threads/), [atómicas](/hardware/atomicas/) |
+| Demostrar mutex / deadlock / starvation de un algoritmo | ✔ Peterson | ✔ Bakery | ✔ Flaky | | ✔ Lamport lex. | ✔ Hyman | [algoritmos](/mutex/algoritmos/), [bakery](/mutex/bakery/) |
+| Semáforos: analizar deadlock y corregir | ✔ recurso de 3 | ✔ montaña rusa | ✔ stock, aretes | ✔ ramen | ✔ semWait/semSignal | ✔ prod-cons, Morris | [semáforos](/semaforos/clasicos/) |
+| Implementar semáforos con TAS / binarios | | ✔ | | | ✔ | | [implementación](/semaforos/basicos/) |
+| Monitor en C con pthreads | | | | ✔ cine | ✔ baño unisex | | [problemas](/monitores/problemas/) |
+| Completar código pthreads + race de argumentos | | | | | | ✔ | [threads](/procesos/threads/) |
+| Memoria: paginación / multinivel | | ✔ | | | ✔ | | [paginación](/memoria/paginacion/) |
+| Conceptos: atómicas, spinlocks, memory layout, requisitos de mutex, deadlock | ✔ | | ✔ | ✔ | | | [formulario](/formulario/) |
+| Conceptos: microkernel vs monolítico | | | | ✔ | | | [formulario](/formulario/) |
+
+:::tip[Lo que más puntos da]
+Las preguntas de **código de sincronización** (monitor o semáforos, 5–7 pts) y la **demostración de un algoritmo de mutex** (3–4 pts). Entrena el formato: *propiedad → contraejemplo con traza numerada* o *demostración por contradicción*.
+:::
+
+## Temas nuevos en el E1 2026-II
+
+Los profesores subieron tres presentaciones que no aparecen en los resúmenes de `lab 1` ni `lab2`:
+
+- **06 · Memory** (Stallings cap. 7): particiones, buddy, placement, fragmentación, MMU, segmentación → [particiones](/memoria/particiones/), [segmentación](/memoria/segmentacion/).
+- **06 · About registers** (Herlihy & Shavit): SRSW/MRSW/MRMW y safe/regular/atomic → [registros](/hardware/registros/).
+- **09 · Monitors and Reader-Writer**: Hoare vs Mesa y las 3 soluciones de lectores–escritores → [monitores](/monitores/monitores/), [lectores–escritores](/monitores/lectores-escritores/).
+
+La paginación **no** está en esas diapositivas («more about pages in next session»), pero cayó en el E1 2022 y en el 2025-2, así que también está cubierta.
+
+## Plantilla para las preguntas de algoritmos
+
+1. **Describe** qué representa cada variable (flag = interés, turn = quién cede, label = número de turno…).
+2. **Exclusión mutua:** supón que P0 y P1 están ambos en la SC y llega a una contradicción, *o* da una traza numerada que termine con ambos dentro.
+3. **Deadlock-free:** si ambos quieren entrar, ¿alguno siempre progresa? Contraejemplo = traza donde ambos giran para siempre.
+4. **Starvation-free:** ¿hay un límite de veces que el otro puede adelantarte? Contraejemplo = ciclo que se repite indefinidamente.
+
+<Fuente archivos={['for_partial/E1_OS_2021_2022_Solver.pdf', 'for_partial/E1_OS_2024_I__Respuestas_.pdf', 'for_partial/E1_OS_2024_II__Solucionario_.pdf', 'for_partial/E1_OS_20252.pdf', 'for_partial/Evaluaciones_OS_20261 (1).pdf', 'for_partial/pending_themes/']} />

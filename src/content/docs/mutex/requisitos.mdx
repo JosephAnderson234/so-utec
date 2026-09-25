@@ -1,0 +1,76 @@
+---
+title: Requisitos y cómo demostrar
+description: Requisitos de la exclusión mutua, las tres propiedades y las plantillas de demostración que piden en el E1.
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## Conceptos base
+
+- **Race condition**: el resultado depende del orden en que se intercalan los accesos a datos compartidos. `x++` no es atómico: es `load`, `add` y `store`.
+- **Sección crítica (SC)**: el fragmento de código que accede al recurso compartido.
+- **Operación atómica**: indivisible. Nadie observa un estado intermedio.
+
+## Requisitos de la exclusión mutua (Stallings §5.2)
+
+1. **Exclusión mutua obligatoria**: como máximo un proceso en la SC.
+2. Un proceso que se detiene **fuera** de la SC no debe interferir con los demás.
+3. **Sin deadlock ni starvation**: quien pide entrar no espera indefinidamente.
+4. Si nadie está en la SC, quien quiere entrar debe entrar **sin demora**.
+5. **Sin suposiciones** sobre velocidades relativas ni número de procesadores.
+6. Un proceso permanece en la SC por un **tiempo finito**.
+
+:::tip[PC1 2021 · P1(a) — 4 pts]
+«Listar y explicar cuatro requisitos». Usa 1, 3, 4 y 5 y da un ejemplo breve de cada uno.
+:::
+
+## Las tres propiedades que siempre piden
+
+| Propiedad | Tipo | Pregunta | Cómo se refuta |
+| --- | --- | --- | --- |
+| **Mutual exclusion** | *safety* | ¿Pueden dos estar en la SC a la vez? | Traza numerada que termina con ambos dentro |
+| **Deadlock-free** | *liveness* | Si varios quieren entrar, ¿alguno entra? | Traza donde todos giran (o bloquean) para siempre |
+| **Starvation-free** | *liveness* | ¿Todo el que quiere entrar, entra? (espera acotada) | Ciclo repetible donde uno nunca entra |
+
+Starvation-free ⇒ deadlock-free. Por eso, si hay deadlock, **no** es starvation-free (como en Flaky).
+
+## Plantillas
+
+### Demostrar exclusión mutua (por contradicción)
+
+1. Supón que P0 y P1 están en la SC al mismo tiempo.
+2. Mira la **última escritura** de cada uno antes de su prueba de entrada, por ejemplo `write₀(turn = 0) → read₀(flag[1] == false)`.
+3. Ordena los eventos: los registros son atómicos, así que las escrituras tienen un orden total. Supón, sin pérdida de generalidad, que P0 escribió `turn` al final.
+4. Deduce qué **tuvo que leer** el otro y llega a la contradicción («P0 vio `flag[1] = true` y `turn = 0`, así que no podía pasar»).
+
+### Refutar con una traza
+
+Numera los pasos y usa columnas: `P0 | P1 | estado de variables`. Termina con **«⇒ P0 y P1 en SC»** o con **«⇒ ambos en el while para siempre»**. Pruébalo en el [intercalador](/mutex/algoritmos/), que genera la traza automáticamente.
+
+### Starvation
+
+Construye un ciclo: *P1 espera → P0 sale → P0 vuelve a entrar antes de que P1 sea planificado → mismo estado que al inicio*. Si el ciclo puede repetirse para siempre, hay starvation.
+
+<Solucion titulo="Ejemplo: por qué Peterson es mutex (demostración corta)">
+
+Supón que P0 y P1 están en la SC. Cada uno ejecutó `flag[i] = true; turn = j;` y luego pasó `while (flag[j] && turn == j)`. Supón que **P0 fue el último en escribir `turn`**, así que `turn = 1` desde ese momento.
+
+- P0 pasó el while, así que vio `flag[1] = false` o `turn ≠ 1`.
+- `turn = 1` no cambió después de su escritura (fue la última), así que P0 tuvo que ver `flag[1] = false`.
+- Pero P1 escribió `flag[1] = true` **antes** de su escritura de `turn`, que ocurrió antes de la de P0, que ocurrió antes de la lectura de P0. Entonces P0 leyó `true`. **Contradicción.** ∎
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="req"
+	preguntas={[
+		{ q: 'Un algoritmo donde, si ambos quieren entrar, uno siempre entra, pero un proceso concreto puede ser adelantado infinitas veces, es…', opts: ['deadlock-free y starvation-free', 'deadlock-free pero no starvation-free', 'ni lo uno ni lo otro', 'no es mutex'], ok: 1 },
+		{ q: 'La «alternancia estricta» (`while (turn != i); SC; turn = j;`) viola principalmente…', opts: ['La exclusión mutua', 'El requisito 2/4: un proceso fuera de la SC impide que el otro entre', 'La atomicidad', 'Nada'], ok: 1, why: 'Si P1 nunca quiere entrar, P0 no puede entrar dos veces seguidas.' },
+		{ q: '¿Qué propiedad es de *safety*?', opts: ['Starvation-freedom', 'Deadlock-freedom', 'Exclusión mutua', 'Progreso'], ok: 2, why: 'Safety = «nunca pasa algo malo». Liveness = «algo bueno eventualmente pasa».' },
+	]}
+/>
+
+<Fuente archivos={['lab2/Resumenes/04-Mutex-Formalizacion-Dekker-Peterson-Dijkstra-Lamport.md', 'lab2/Resumenes/05-Mutual-Exclusion-Demonstrations.md', 'lab2/Stallings.pdf cap. 5']} />

@@ -1,0 +1,53 @@
+---
+title: E1 2025-2
+description: Examen E1 2025-2 (Bakery lexicográfico, paginación, baño unisex, semáforos con binarios) con soluciones propias.
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+:::caution[Soluciones propias]
+Sin solucionario oficial. El monitor y la versión con semáforos del baño se probaron en WSL con 40 hilos y asserts.
+:::
+
+## Pregunta 1 (4 pts) · Mutex con orden lexicográfico
+
+N procesos, variables $C_i$ (eligiendo), $L_i$ (etiqueta) y $X_i = (L_i + 2i) \bmod 5$. Entrada: $C_i \leftarrow$ true; $L_i \leftarrow 1 + \max_k L_k$; calcula $X_i$; $C_i \leftarrow$ false; para cada $j \ne i$: `wait until` $C_j$ = false ∧ ($L_j = 0$ ∨ $(L_j, j, X_j) \succ (L_i, i, X_i)$). Salida: $L_i \leftarrow 0$.
+
+1. ¿Exclusión mutua? 2. ¿Deadlock-free? 3. ¿Starvation-free? 4. ¿Para qué sirve $X_i$?
+
+<Solucion>
+
+Es **Bakery de Lamport**. ✔ mutex, ✔ deadlock-free, ✔ starvation-free (FCFS). $X_i$ **nunca participa**, porque $j \neq i$ ya rompe todos los empates. Es un distractor que no afecta ni la seguridad ni el progreso. Demostraciones en [Bakery](/mutex/bakery/#e1-2025-2--pregunta-1-4-pts-la-variable-auxiliar-xi).
+
+</Solucion>
+
+## Pregunta 2 (3.5 pts) · Paginación
+
+Espacio virtual de $2^{50}$ B, 2 GiB de RAM, páginas de 4 KiB, PTE con PFN + V + D. (a) a (g).
+
+<Solucion>
+
+31 bits · $2^{38}$ páginas virtuales · $2^{19}$ marcos · VPN 38 / PFN 19 · $2^{38}$ entradas · 3 B por PTE · **$3 \cdot 2^{38}$ B = 768 GiB**. Desarrollo y layout en [Paginación](/memoria/paginacion/#e1-2025-2--pregunta-2-35-pts). Prueba el preset en la calculadora.
+
+</Solucion>
+
+## Pregunta 3 (7 pts) · Baño unisex
+
+Monitor en C (3 pts), Hoare o Mesa (1 pt), solo con semáforos (3 pts).
+
+<Solucion>
+
+Código completo, demostraciones y la versión con semáforos (lightswitch + turnstile) en [Baño unisex](/monitores/problemas/#baño-unisex-e1-2025-2--p3-7-pts). Resumen: contadores dentro/esperando + `turn`; `while` → funciona en Mesa y en Hoare; **sí** se puede solo con semáforos.
+
+</Solucion>
+
+## Pregunta 4 (4 pts) · semWait/semSignal con semáforos binarios
+
+<Solucion>
+
+**No es correcta:** se pierde un despertar (dos `semSignalB(delay)` seguidos sobre un binario dejan 1). Traza de 6 pasos y corrección por **paso de testigo** en [Semáforos](/semaforos/basicos/#e1-2025-2--pregunta-4-4-pts-semáforo-general-con-binarios).
+
+</Solucion>
+
+<Fuente archivos={['for_partial/E1_OS_20252.pdf']} />

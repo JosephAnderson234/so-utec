@@ -1,0 +1,152 @@
+---
+title: Baño unisex y cine multiplex
+description: Monitores en C con pthreads de los exámenes E1 2025-2 (baño unisex) y E1 2024-II (cine), con código verificado.
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## Baño unisex (E1 2025-2 · P3, 7 pts)
+
+Requisitos: (1) **exclusión mutua entre sexos**, es decir, nunca hombres y mujeres a la vez (varios del mismo sexo sí pueden estar juntos); (2) **weak starvation-freedom**: si hay hombres y mujeres esperando, todos acaban entrando.
+
+<Solucion titulo="Monitor con mutex y condition variables (3 pts) — probado en WSL">
+
+```c
+#include <pthread.h>
+enum { NONE, MALE, FEMALE };
+
+typedef struct {
+    pthread_mutex_t m;
+    pthread_cond_t  male_ok, female_ok;
+    int males_in, females_in;       // dentro del baño
+    int males_wait, females_wait;   // esperando
+    int turn;                       // a quién le toca si ambos esperan
+} bathroom_t;
+
+bathroom_t b = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER,
+                 PTHREAD_COND_INITIALIZER, 0, 0, 0, 0, NONE };
+
+void enterMale(void) {
+    pthread_mutex_lock(&b.m);
+    b.males_wait++;
+    // no entrar si hay mujeres dentro, ni si hay mujeres esperando y es su turno
+    while (b.females_in > 0 || (b.females_wait > 0 && b.turn == FEMALE))
+        pthread_cond_wait(&b.male_ok, &b.m);
+    b.males_wait--;
+    b.males_in++;
+    if (b.females_wait > 0) b.turn = FEMALE;   // al entrar, cedo el próximo turno
+    pthread_mutex_unlock(&b.m);
+}
+
+void leaveMale(void) {
+    pthread_mutex_lock(&b.m);
+    b.males_in--;
+    if (b.males_in == 0) {                     // el último en salir avisa a todos
+        pthread_cond_broadcast(&b.female_ok);
+        pthread_cond_broadcast(&b.male_ok);
+    }
+    pthread_mutex_unlock(&b.m);
+}
+// enterFemale / leaveFemale: simétricos (intercambiar male ↔ female)
+```
+
+Lo probé con 20 hombres y 20 mujeres × 2000 entradas cada uno y un `assert` de exclusión: `OK male=40000 female=40000`.
+
+**Exclusión mutua ✔.** Un hombre solo incrementa `males_in` si leyó `females_in == 0` con el lock tomado, y las mujeres aplican la regla simétrica. Como todo cambio de contadores ocurre con el lock, nunca pueden coexistir `males_in > 0` y `females_in > 0`.
+
+**Deadlock-free ✔.** Si el baño está vacío y hay gente esperando, `turn` vale MALE o FEMALE. El sexo que tiene el turno tiene su `while` falso y entra. Los `broadcast` del último en salir despiertan a ambos grupos, que re-evalúan.
+
+**Weak starvation-freedom ✔.** Supón que una mujer espera mientras hay hombres dentro. Como mucho **un** hombre más entra, y al hacerlo pone `turn = FEMALE`. A partir de ahí los hombres nuevos se bloquean, los de dentro terminan y la mujer entra (`turn == FEMALE`). El argumento es simétrico, así que cada espera está acotada.
+
+*Costo:* cuando ambos sexos esperan, los turnos alternan casi de a uno (menos concurrencia). Es aceptable porque el enunciado solo exige exclusión y weak starvation-freedom.
+
+</Solucion>
+
+<Solucion titulo="¿Hoare o Mesa? (1 pt)">
+
+Es **Mesa**: pthreads no transfiere el lock en `signal` y usamos `broadcast`. El código usa **`while`**, así que también sería correcto bajo **Hoare**, donde el while simplemente se evalúa una vez de más. Con `if` solo funcionaría en Hoare y, además, el `broadcast` despierta a varios que no podrían entrar todos. **Se puede usar cualquiera siempre que la espera esté en un `while`.**
+
+</Solucion>
+
+<Solucion titulo="¿Solo con semáforos? (3 pts) — sí, probado en WSL">
+
+Sí: monitores y semáforos tienen el mismo poder expresivo. Se usan los patrones **lightswitch** (el primero de un grupo toma `empty` y el último lo suelta) y **turnstile** (evita que un sexo acapare el baño).
+
+```c
+sem_t empty;        // = 1  el baño está vacío
+sem_t turnstile;    // = 1  torniquete para evitar starvation
+sem_t male_mx;      // = 1  protege males
+sem_t female_mx;    // = 1  protege females
+int males = 0, females = 0;
+
+void enterMale(void) {
+    sem_wait(&turnstile);
+    sem_wait(&male_mx);
+    if (++males == 1) sem_wait(&empty);   // el primer hombre "enciende la luz"
+    sem_post(&male_mx);
+    sem_post(&turnstile);
+}
+void leaveMale(void) {
+    sem_wait(&male_mx);
+    if (--males == 0) sem_post(&empty);   // el último la apaga
+    sem_post(&male_mx);
+}
+// enterFemale / leaveFemale simétricos con females y female_mx
+```
+
+**Por qué no hay starvation:** una mujer que llega con hombres dentro pasa el torniquete, toma `female_mx` y se bloquea en `empty` **sin soltar el torniquete** (lo retiene hasta obtener `empty`). Los hombres nuevos se quedan en `turnstile`, los de dentro salen, el último hace `sem_post(&empty)` y la mujer entra. Esto requiere que `turnstile` sea **fuerte (FIFO)**; con semáforos débiles se necesita Morris. Probado con asserts: `OK sem`.
+
+</Solucion>
+
+## Cine multiplex (E1 2024-II · P2, 7 pts)
+
+3 salas de capacidad 4, 5 y 7; 100 clientes con película al azar. Cuando la sala se llena, empieza la función. Nadie entra durante la función ni mientras salen los clientes. Al final se proyecta aunque la sala no esté llena.
+
+<Solucion titulo="Solucionario oficial (limpio y comentado)">
+
+```c
+typedef struct {
+    int numHalls, numCustomersRemain;
+    int *capacity, *inside, *left, *finished;
+    pthread_mutex_t l;
+    pthread_cond_t *condE;   // una por sala: esperar para ENTRAR
+    pthread_cond_t *condL;   // una por sala: esperar para SALIR (fin de la película)
+} monitor;
+
+void enterTheater(monitor *m, int movie) {
+    pthread_mutex_lock(&m->l);
+    while (m->inside[movie] == m->capacity[movie])       // sala llena o en función
+        pthread_cond_wait(&m->condE[movie], &m->l);
+    m->inside[movie]++;
+    if (m->inside[movie] == m->capacity[movie]) {        // se llenó → empieza la función
+        m->finished[movie] = 1;  m->left[movie] = 0;
+        pthread_cond_broadcast(&m->condL[movie]);
+    }
+    if (--m->numCustomersRemain == 0)                    // último cliente: proyectar lo que quede
+        for (int i = 0; i < m->numHalls; ++i)
+            if (m->inside[i] > 0) { m->finished[i] = 1; m->left[i] = 0; pthread_cond_broadcast(&m->condL[i]); }
+    pthread_mutex_unlock(&m->l);
+}
+
+void leaveTheater(monitor *m, int movie) {
+    pthread_mutex_lock(&m->l);
+    while (m->finished[movie] == 0)                      // esperar a que termine la función
+        pthread_cond_wait(&m->condL[movie], &m->l);
+    if (++m->left[movie] == m->capacity[movie]) {        // salió el último → sala libre
+        m->finished[movie] = m->inside[movie] = m->left[movie] = 0;
+        pthread_cond_broadcast(&m->condE[movie]);
+    }
+    pthread_mutex_unlock(&m->l);
+}
+```
+
+**Por qué funciona:** `inside == capacity` cierra la entrada durante la función y durante la salida (inside solo vuelve a 0 cuando sale el último). Un único lock hace atómica cada operación. Los `while` hacen correcto el uso de `broadcast` en Mesa. Como solo hay un lock, no hay espera circular, y cada sala se vacía en tiempo finito, así que se sostiene para 3 clientes y para 100.
+
+**Detalles a mejorar** (bueno mencionarlos en el examen):
+- En la última función con la sala **incompleta**, `left` nunca llega a `capacity` y la sala no se reinicia. No afecta porque no quedan clientes, pero la condición de salida debería ser `left == inside`.
+- En el `main` oficial, `cust[i] = pthread_create(&cust[i], …)` **pisa** el id del hilo con el código de retorno (0). Debe ser solo `pthread_create(&cust[i], NULL, customer, NULL);`.
+
+</Solucion>
+
+<Fuente archivos={['for_partial/E1_OS_20252.pdf (P3)', 'for_partial/E1_OS_2024_II__Solucionario_.pdf (P2)', 'WSL ~/so/verif_parcial/bath.c, bathsem.c', 'The Little Book of Semaphores (Downey) §6.2 Unisex bathroom']} />

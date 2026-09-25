@@ -1,0 +1,86 @@
+---
+title: Flashcards y simulacro
+description: Banco de flashcards y simulacro de alternativas con todo el temario del E1.
+---
+
+import Flashcards from '../../../components/Flashcards.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+
+## Flashcards
+
+Marca «La sé» o «Repasar». El progreso se guarda en este navegador. Usa «solo pendientes» el día anterior al examen.
+
+<Flashcards
+	client:visible
+	cards={[
+		{ t: 'Procesos', f: '¿Qué retorna `fork()` al padre y al hijo?', b: 'Al hijo **0**; al padre el **pid del hijo**; −1 si falla.' },
+		{ t: 'Procesos', f: '¿Cuántos hilos tiene el hijo tras `fork()` en un proceso multihilo?', b: '**Uno**: la réplica del hilo que llamó a fork.' },
+		{ t: 'Procesos', f: '¿Qué hace `execv` con las líneas que lo siguen?', b: 'No se ejecutan: exec **reemplaza** la imagen del proceso y no retorna si tiene éxito.' },
+		{ t: 'Procesos', f: 'Segmentos del memory layout', b: '**code** (instrucciones), **data** (globales y estáticas), **heap** (dinámico ↑), **stack** (llamadas, retornos y locales ↓).' },
+		{ t: 'Procesos', f: 'Microkernel vs monolítico: ¿cuál para robustez?', b: '**Microkernel**: los servicios corren en espacio de usuario y uno que falla no tumba el sistema. El monolítico es más rápido pero frágil.' },
+		{ t: 'Threads', f: 'Many-to-One + syscall bloqueante', b: 'Se bloquea **todo el proceso** (un solo KLT) y no hay paralelismo en multicore.' },
+		{ t: 'Threads', f: '¿Qué comparten los hilos de un proceso?', b: 'Espacio de direcciones (code, data, heap), archivos abiertos y señales. **No** comparten stack, registros ni PC.' },
+		{ t: 'Threads', f: '`pthread_mutex_unlock` desde un hilo que no es dueño (NORMAL)', b: '**Comportamiento indefinido**. Con ERRORCHECK devuelve EPERM.' },
+		{ t: 'Threads', f: 'False sharing', b: 'Variables distintas en la **misma línea de caché**: cada escritura invalida la línea en el otro núcleo. Se soluciona con padding o `alignas(64)`.' },
+		{ t: 'Threads', f: 'Race en `pthread_create(..., &arg_struct)` compartido', b: 'Todos los hilos leen el **último** valor escrito por el for. Hay que usar un arreglo `args[i]` o `malloc` por hilo.' },
+		{ t: 'Mutex', f: 'Las 3 propiedades que se piden demostrar', b: '**Exclusión mutua** (safety), **deadlock-free** y **starvation-free** (liveness). Starvation-free ⇒ deadlock-free.' },
+		{ t: 'Mutex', f: '¿Peterson cumple las 3 propiedades?', b: 'Sí: mutex, deadlock-free y starvation-free (espera acotada a 1).' },
+		{ t: 'Mutex', f: 'Algoritmo de Hyman (E1 2026-1)', b: '✘ **mutex** (P1 pasa el while interno y se desaloja antes de `turno ← 1`), ✔ deadlock-free, ✘ starvation-free.' },
+		{ t: 'Mutex', f: 'Flaky lock', b: '✔ mutex, ✘ **deadlock** (busy = true y turn cambiado), ✘ starvation.' },
+		{ t: 'Mutex', f: 'Intento 3 de Dekker (`flag = true; while (flag[j]);`)', b: 'Mutex ✔ pero **deadlock**: ambos levantan el flag y giran.' },
+		{ t: 'Mutex', f: 'Bakery: ¿para qué sirve `choosing`/`flag`?', b: 'Para no comparar contra un número **a medio calcular**. Sin él se viola la exclusión mutua.' },
+		{ t: 'Mutex', f: 'Bakery: ¿qué pasa si dos obtienen el mismo número?', b: 'Se desempata por **id**: $(L, i)$ es único y el orden lexicográfico es total.' },
+		{ t: 'Mutex', f: 'E1 2025-2: ¿para qué sirve $X_i$?', b: 'Para **nada**: nunca se compara porque $j \\neq i$. No afecta la seguridad ni el progreso.' },
+		{ t: 'Hardware', f: '¿Un spinlock TAS es starvation-free?', b: '**No**: gana cualquiera. El ticket lock (fetch-and-add) sí lo es (FIFO).' },
+		{ t: 'Hardware', f: '¿Deshabilitar interrupciones sirve en multicore?', b: 'No: otros núcleos siguen ejecutando. Solo sirve en monoprocesador y en modo kernel.' },
+		{ t: 'Hardware', f: 'Mutex en rutinas del kernel que no pueden bloquear', b: '**Spinlocks**: no duermen y la SC es corta.' },
+		{ t: 'Registros', f: 'Registro **safe**', b: 'Sin solapamiento devuelve el último valor; si se solapa con una escritura, **cualquier** valor del dominio.' },
+		{ t: 'Registros', f: 'Registro **regular**', b: 'Si se solapa, devuelve el valor **viejo o alguno de los nuevos**. Puede tener inversión nuevo→viejo.' },
+		{ t: 'Registros', f: 'Registro **atómico**', b: 'Regular + **linealizable**: existe un orden secuencial consistente con el tiempo real. No hay inversión nuevo→viejo.' },
+		{ t: 'Registros', f: 'SRSW / MRSW / MRMW', b: 'Single/Multi-Reader × Single/Multi-Writer.' },
+		{ t: 'Semáforos', f: '`count = −k` en un semáforo', b: 'Hay **k procesos** bloqueados en su cola.' },
+		{ t: 'Semáforos', f: 'Fuerte vs débil', b: 'Fuerte = cola **FIFO**, sin starvation. Débil = orden no especificado.' },
+		{ t: 'Semáforos', f: 'Productor: ¿qué va primero, `wait(mutex)` o `wait(vacios)`?', b: '**`wait(vacios)`** primero. Al revés hay deadlock con el buffer lleno.' },
+		{ t: 'Semáforos', f: 'Fallo del `semWait`/`semSignal` con binarios (2025-2)', b: 'Dos `semSignalB(delay)` seguidos **se pierden** (binario = 1). Se corrige con **paso de testigo**: el que señala no suelta mutex.' },
+		{ t: 'Semáforos', f: 'Idea de Morris (1979)', b: 'Dos salas (A y M) forman **lotes**: nadie te adelanta más de una vez aunque los semáforos sean débiles.' },
+		{ t: 'Semáforos', f: 'Aretes: ¿por qué hay deadlock?', b: '**Hold and wait**: cada uno retiene 1 arete y espera a su pareja. Ocurre si toma arete un miembro de cada pareja.' },
+		{ t: 'Semáforos', f: 'Patrón lightswitch', b: 'El **primero** del grupo toma el recurso y el **último** lo suelta (contador + mutex).' },
+		{ t: 'Semáforos', f: 'Patrón turnstile', b: '`wait(t); signal(t);`: si alguien retiene `t`, todos se detienen. Se usa contra la starvation.' },
+		{ t: 'Deadlock', f: '4 condiciones de Coffman', b: 'Exclusión mutua, hold and wait, no preemption y **espera circular**.' },
+		{ t: 'Deadlock', f: '¿`trylock` evita el deadlock?', b: 'Sí, porque rompe hold and wait, pero puede causar **starvation o livelock**.' },
+		{ t: 'Monitores', f: '¿Qué hace `pthread_cond_wait(&c, &m)`?', b: 'Libera `m` **atómicamente**, duerme y **readquiere** `m` antes de retornar.' },
+		{ t: 'Monitores', f: 'Hoare vs Mesa', b: 'Hoare: el signal transfiere el monitor de inmediato (basta `if`). Mesa: solo marca listo, así que se usa **`while`**.' },
+		{ t: 'Monitores', f: '`cond_signal` sin nadie esperando', b: '**Se pierde**: una condition variable no tiene memoria.' },
+		{ t: 'Monitores', f: 'Lectores–escritores con lightswitch: ¿quién sufre starvation?', b: 'Los **escritores**, si siempre hay algún lector dentro.' },
+		{ t: 'Monitores', f: '¿Por qué falla lectores–escritores con mutex en vez de semáforos?', b: 'Un lector bloquea `lock_data` y **otro** lo desbloquea: el mutex tiene dueño.' },
+		{ t: 'Memoria', f: 'Fragmentación interna vs externa', b: 'Interna: se desperdicia **dentro** del bloque asignado. Externa: hay memoria libre total pero **no contigua**.' },
+		{ t: 'Memoria', f: 'Best / first / next fit', b: 'Best: el hueco más ajustado (deja astillas). First: el primero desde el inicio (el mejor en la práctica). Next: el primero desde la última asignación.' },
+		{ t: 'Memoria', f: 'Regla del 50 %', b: 'Con first-fit, N bloques asignados pierden ≈ **0.5 N** por fragmentación (≈ ⅓ de la memoria).' },
+		{ t: 'Memoria', f: 'Buddy: ¿cómo se encuentra el buddy de un bloque?', b: '`start XOR size`: los buddies difieren solo en ese bit.' },
+		{ t: 'Memoria', f: 'Segmentación: traducción', b: '`física = base[seg] + offset` si `offset < limit`; si no, **segfault**.' },
+		{ t: 'Memoria', f: 'x86-64: ¿qué queda de la segmentación?', b: 'Solo **FS** (TLS de usuario) y **GS** (per-CPU del kernel).' },
+		{ t: 'Memoria', f: '2^50 B virtual, 2 GiB físico, página 4 KiB: VPN y PFN', b: 'VPN = 50 − 12 = **38** bits; PFN = 31 − 12 = **19** bits.' },
+		{ t: 'Memoria', f: 'Tamaño de tabla (2025-2)', b: '$2^{38}$ entradas × 3 B = **768 GiB**.' },
+		{ t: 'Memoria', f: 'Ventaja y desventaja de la tabla multinivel', b: 'Ventaja: **menos memoria** (solo se crean las tablas usadas). Desventaja: **más accesos** por traducción (lo mitiga el TLB).' },
+	]}
+/>
+
+## Simulacro de alternativas
+
+<Quiz
+	client:visible
+	id="simulacro"
+	titulo="Simulacro (10 preguntas)"
+	preguntas={[
+		{ q: '`for (i = 0; i < 2; i++) { fork(); printf("x"); }` sin buffering: ¿cuántas «x»?', opts: ['4', '6', '8', '3'], ok: 1, why: 'Iteración 0: 2 procesos imprimen (2). Iteración 1: 4 procesos imprimen (4). Total 6.' },
+		{ q: '¿Cuál NO es condición de Coffman?', opts: ['Hold and wait', 'No preemption', 'Starvation', 'Espera circular'], ok: 2 },
+		{ q: 'Un monitor con `if (cond) wait()` bajo pthreads puede fallar porque…', opts: ['pthreads es Hoare', 'pthreads es Mesa: la condición puede cambiar antes de readquirir el lock', 'no hay broadcast', 'el mutex no se libera'], ok: 1 },
+		{ q: 'Buddy (1 MiB): A pide 70K. ¿Qué bloque recibe?', opts: ['70K', '64K', '128K', '256K'], ok: 2 },
+		{ q: 'Semáforo inicial 2. Tres procesos hacen wait. Valor final y bloqueados:', opts: ['−1 y 1', '0 y 0', '−3 y 3', '−1 y 3'], ok: 0 },
+		{ q: '¿Qué garantiza Bakery que un spinlock TAS no?', opts: ['Exclusión mutua', 'Ausencia de deadlock', 'Orden FCFS / sin starvation', 'Atomicidad'], ok: 2 },
+		{ q: 'Dirección virtual 0x4050 con la tabla de segmentos de la diapositiva (seg 1 base 0x4800):', opts: ['0x4050', '0x4850', '0x8850', 'segfault'], ok: 1 },
+		{ q: 'Lectura solapada que devuelve un valor jamás escrito. El registro es a lo sumo…', opts: ['atómico', 'regular', 'safe', 'MRMW'], ok: 2 },
+		{ q: 'En el productor–consumidor correcto, ¿importa el orden de los dos `sem_post`?', opts: ['Sí, siempre', 'No: post nunca bloquea', 'Solo con N > 1', 'Solo en Mesa'], ok: 1 },
+		{ q: 'Las lecturas/escrituras en Peterson se asumen sobre registros…', opts: ['safe', 'atómicos', 'regulares MRMW', 'con TAS'], ok: 1, why: 'Peterson asume registros atómicos. Bakery funciona incluso con registros safe.' },
+	]}
+/>

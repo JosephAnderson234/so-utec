@@ -1,0 +1,80 @@
+---
+title: Paginación y tablas multinivel
+description: Cálculo de bits, entradas y tamaño de la tabla de páginas (E1 2025-2 P2 y E1 2022 P3), con calculadora interactiva.
+---
+
+import PagingCalc from '../../../components/sim/PagingCalc.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+:::note
+La diapositiva de memoria de 2026-II termina en segmentación («more about pages in next session»). Aun así, la paginación **cayó en el E1 2022 y en el E1 2025-2**, así que conviene dominar el cálculo.
+:::
+
+## Idea
+
+La memoria física se divide en **marcos** y la virtual en **páginas** del mismo tamaño. La **tabla de páginas** del proceso mapea cada número de página virtual (**VPN**) a un número de marco físico (**PFN**). No hay fragmentación externa; solo interna, en la última página.
+
+$$
+\underbrace{\text{VPN}}_{n_v - o \text{ bits}} \;\big|\; \underbrace{\text{offset}}_{o = \log_2 \text{página}}
+\;\xrightarrow{\text{tabla}}\;
+\underbrace{\text{PFN}}_{n_f - o \text{ bits}} \;\big|\; \text{offset}
+$$
+
+Cada **PTE** (entrada) guarda el PFN y bits de estado: **V** (válida/presente), **D** (dirty), R (referenciada) y permisos.
+
+## Calculadora
+
+<PagingCalc client:visible />
+
+## E1 2025-2 · Pregunta 2 (3.5 pts)
+
+Espacio virtual de $2^{50}$ bytes, 2 GiB de memoria física, páginas de 4 KiB, PTE con PFN + V + D.
+
+<Solucion titulo="Solución paso a paso">
+
+| | Cálculo | Resultado |
+| --- | --- | --- |
+| (a) bits de dirección física | $2\,\text{GiB} = 2^{31}$ | **31 bits** |
+| (b) páginas virtuales | $2^{50} / 2^{12}$ | $\mathbf{2^{38}}$ |
+| (c) páginas físicas (marcos) | $2^{31} / 2^{12}$ | $\mathbf{2^{19}}$ (524 288) |
+| (d) bits de VPN / PFN | $50 - 12$ / $31 - 12$ | **38 / 19** |
+| (e) entradas de la tabla | una por página virtual | $\mathbf{2^{38}}$ |
+| (f) bytes por PTE | $19 + 1 + 1 = 21$ bits → $\lceil 21/8 \rceil$ | **3 bytes** |
+| (g) tamaño de la tabla | $2^{38} \times 3$ B | $3 \cdot 2^{38}$ B = **768 GiB** |
+
+**(g) Layout:** la tabla es un arreglo indexado por VPN (de 0 a $2^{38}-1$). Cada entrada ocupa 24 bits: `| V (1) | D (1) | PFN (19) | relleno (3) |`. Conclusión: una tabla de un nivel para 50 bits es **absurda** (768 GiB > 2 GiB de RAM), y por eso existen las tablas **multinivel** e **invertidas**.
+
+</Solucion>
+
+## E1 2022 · Pregunta 3 (4 pts)
+
+Direcciones virtuales de 38 bits y físicas de 32. (1) Ventaja o desventaja de multinivel frente a un nivel; (2) diseñar dos niveles con páginas de 16 KB y PTE de 4 bytes.
+
+<Solucion titulo="Solución (notas del profesor en el solver)">
+
+**(1)** *Ventaja:* **reduce la memoria usada por la tabla**, porque solo se crean las tablas de segundo nivel de las regiones usadas. Un proceso pequeño necesita 1 tabla raíz + 1 o 2 tablas hoja. *Desventaja:* **más accesos a memoria** por traducción (uno por nivel), lo que se mitiga con el **TLB**.
+
+**(2)**
+- Offset: $16\,\text{KB} = 2^{14}$ → **14 bits**. VPN: $38 - 14 = $ **24 bits**. PFN: $32 - 14 = 18$ bits (caben en la PTE de 4 B junto con los bits de estado).
+- PTEs por página: $2^{14} / 2^2 = 2^{12}$ → cada nivel indexa **12 bits**.
+- Dirección virtual: `| L1: 12 | L2: 12 | offset: 14 |` = 38 bits ✔.
+- Tabla raíz: $2^{12}$ entradas × 4 B = 16 KB = **1 página**. Cada tabla de segundo nivel también ocupa 1 página.
+- Máximo (todo el espacio mapeado): $16\,\text{KB} + 2^{12} \times 16\,\text{KB} = 64\,\text{MB} + 16\,\text{KB}$. Con un nivel serían siempre $2^{24} \times 4\,\text{B} = 64\,\text{MB}$.
+- Dibujo: el registro base de la tabla (CR3/PTBR) apunta a la raíz; `L1` elige una PTE que apunta a una tabla hoja; `L2` elige la PTE con el PFN; PFN ‖ offset = dirección física.
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="paginacion"
+	preguntas={[
+		{ q: 'Dirección virtual de 32 bits, páginas de 4 KiB. ¿Bits de offset y de VPN?', opts: ['12 y 20', '10 y 22', '4 y 28', '12 y 32'], ok: 0 },
+		{ q: '8 GiB de RAM y marcos de 4 KiB. ¿Bits de PFN?', opts: ['33', '21', '20', '12'], ok: 1, why: '$2^{33}/2^{12} = 2^{21}$.' },
+		{ q: 'La paginación elimina…', opts: ['la fragmentación interna', 'la fragmentación externa', 'ambas', 'ninguna'], ok: 1 },
+		{ q: 'Principal desventaja de una tabla de 4 niveles:', opts: ['Ocupa más memoria que la de 1 nivel', 'Hasta 4 accesos extra a memoria por traducción (sin TLB)', 'No permite compartir páginas', 'Fragmentación externa'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['for_partial/E1_OS_20252.pdf (P2)', 'for_partial/E1_OS_2021_2022_Solver.pdf (E1 2022 P3)', 'sem_6/Class 1.md']} />

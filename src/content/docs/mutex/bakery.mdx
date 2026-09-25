@@ -1,0 +1,102 @@
+---
+title: Bakery de Lamport
+description: Algoritmo de la panadería con orden lexicográfico (E1 2022 y E1 2025-2), con demostraciones.
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+Es la **pregunta favorita para N procesos**. Salió como «cachimbos en el primer día de clases» (E1 2022) y como «orden lexicográfico con variable auxiliar $X_i$» (E1 2025-2).
+
+## El algoritmo
+
+```c
+boolean flag[n];   // "estoy eligiendo número" (Lamport: choosing)
+int     label[n];  // número de turno; 0 = no quiero entrar
+
+flag[i]  = true;
+label[i] = 1 + max(label[0..n-1]);   // tomar número (NO atómico)
+flag[i]  = false;
+for (j = 0; j < n; j++) {
+    while (flag[j]) ;                                        // esperar a que j termine de elegir
+    while (label[j] != 0 && (label[j], j) < (label[i], i)) ; // j tiene prioridad
+}
+/* SC */
+label[i] = 0;
+```
+
+Orden lexicográfico: $(a, b) < (c, d) \iff a < c \lor (a = c \land b < d)$. Gana el **número más bajo** y, en empate, el **id más bajo**.
+
+**Idea:** como en una panadería, cada cliente saca un número mayor que todos los que ve y se atiende en orden creciente (FCFS). Dos procesos pueden sacar el **mismo** número si ejecutan `max` a la vez, y por eso se desempata con el id.
+
+## ¿Para qué sirve `flag` (choosing)?
+
+Sin `flag`, esta traza rompe la exclusión mutua: P0 calcula `max = 0` pero todavía no escribe `label[0] = 1`. Mientras tanto, P1 toma el número 1, ve `label[0] = 0` y entra. Luego P0 escribe su 1 y compara con P1: `(1,1) < (1,0)` es falso, así que no espera y **entra también**. Tiene prioridad por su id menor, pero P1 ya estaba dentro. El `while (flag[j])` obliga a esperar a que `j` **termine de elegir** antes de comparar.
+
+## Demostraciones
+
+<Solucion titulo="Exclusión mutua ✔">
+
+Supón que $P_i$ y $P_k$ están en la SC y, sin pérdida de generalidad, $(L_i, i) < (L_k, k)$.
+
+- $P_k$ entró, así que en su iteración `j = i` vio `flag[i] = false` y luego ($L_i = 0$ o $(L_i, i) > (L_k, k)$).
+- **Caso 1:** $P_k$ leyó $L_i = 0$. Entonces $P_i$ aún no había escrito su número, o no había empezado. Como `flag[k]` ya había bajado, $P_k$ tenía $L_k$ definitivo **antes** de que $P_i$ calculara su `max`. Entonces $L_i \ge L_k + 1 > L_k$, lo que contradice $(L_i, i) < (L_k, k)$.
+- **Caso 2:** $P_k$ leyó el $L_i$ definitivo (tras esperar `flag[i]`). Como los pares son distintos (ids distintos) y el orden es total, $(L_i, i) > (L_k, k)$, lo que contradice la hipótesis.
+
+En ambos casos hay contradicción. ∎
+
+</Solucion>
+
+<Solucion titulo="Deadlock-free ✔">
+
+Considera los procesos que esperan. Todos terminan de elegir en tiempo finito (`flag` baja). Entre ellos hay uno con el par $(L, id)$ **mínimo**, porque el orden es total y no hay empates de pares. Ese proceso no espera a nadie en el segundo `while`, así que entra. ∎
+
+</Solucion>
+
+<Solucion titulo="Starvation-free ✔ (FCFS)">
+
+Una vez que $P_i$ fijó $L_i$, cualquier proceso que empiece a elegir **después** obtiene un número $> L_i$ y queda detrás. Solo pueden adelantarlo quienes ya tenían número, que son como máximo $n - 1$. La espera está acotada. ∎
+
+*Caveat:* los números crecen sin límite si la SC nunca queda vacía (enteros no acotados).
+
+</Solucion>
+
+## E1 2025-2 · Pregunta 1 (4 pts): la variable auxiliar Xi
+
+Ahora la entrada compara ternas $(L_j, j, X_j) \succ (L_i, i, X_i)$ con $X_i = (L_i + 2i) \bmod 5$.
+
+<Solucion titulo="Solución propia">
+
+1. **Exclusión mutua ✔.** Es exactamente Bakery. Las ternas se comparan primero por $L$ y luego por el id. Como $j \neq i$ siempre, **nunca** se llega a comparar $X$, así que el orden es total entre procesos activos y la demostración anterior aplica tal cual.
+2. **Deadlock-free ✔.** El proceso con la terna mínima entre los que esperan no espera a nadie.
+3. **Starvation-free ✔.** Quien elige después obtiene $L$ mayor (FCFS), así que la espera está acotada por $n - 1$ entradas.
+4. **Propósito de $X_i$:** ninguno funcional. Solo desempataría si $L_i = L_j$ **y** $i = j$, lo cual no puede ocurrir entre procesos distintos. **No modifica** ni la seguridad ni el progreso, ni siquiera el orden aparente. Es un distractor para ver si entiendes que el id ya rompe todos los empates.
+
+Cuidado con la dirección de ≻: en esta versión, $P_i$ espera mientras $P_j$ tenga **menor** terna, es decir, mientras NO se cumpla $(L_j, j, X_j) \succ (L_i, i, X_i)$. La condición del `wait until` es la de **salida**.
+
+</Solucion>
+
+## E1 2022 · Pregunta 1 (8 pts): los cachimbos
+
+Es el mismo código de arriba con `getmax(label[], n)`.
+
+<Solucion titulo="Solución (basada en las notas del profesor en el solver)">
+
+**1) En palabras:** es el **algoritmo de la panadería de Lamport**. Cada cachimbo (proceso) recibe un número de atención (`label`) igual a 1 + el máximo visible. `flag[i]` indica que está eligiendo número. La SC es ser atendido, y al salir pone `label[i] = 0` (ya no está en la fila). **Sí hay orden:** se atiende por número creciente (FIFO según llegada) y, en empate, por id menor. El número no es único porque `getmax` no es atómico, así que el id garantiza la unicidad del par.
+
+**2) Exclusión mutua y deadlock-free:** las demostraciones de arriba. En el solver, el profesor destaca que si la suma de `label` no es atómica, dos procesos pueden recibir el mismo número y **no es problema**, porque el par (label, id) sigue siendo único y el `while (flag[j])` evita comparar números a medio escribir.
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="bakery"
+	preguntas={[
+		{ q: 'Dos procesos obtienen el mismo `label`. ¿Qué pasa?', opts: ['Violan la exclusión mutua', 'Deadlock', 'Entra primero el de menor id', 'Ambos vuelven a elegir'], ok: 2 },
+		{ q: '¿Qué garantiza el `while (flag[j])`?', opts: ['Que j esté en la SC', 'Que no se compare con un label a medio calcular', 'Que el label sea único', 'Nada, es optimización'], ok: 1 },
+		{ q: 'Bakery usa registros…', opts: ['atómicos MRMW obligatoriamente', 'solo lecturas/escrituras (funciona incluso con registros safe SRSW, cada uno escrito por su dueño)', 'test-and-set', 'CAS'], ok: 1, why: 'Lamport lo diseñó para funcionar sin atomicidad de hardware: cada label[i] solo lo escribe P_i.' },
+	]}
+/>
+
+<Fuente archivos={['for_partial/E1_OS_20252.pdf (P1)', 'for_partial/E1_OS_2021_2022_Solver.pdf (E1 2022, P1)', 'lab2/Resumenes/04-Mutex-Formalizacion-Dekker-Peterson-Dijkstra-Lamport.md']} />

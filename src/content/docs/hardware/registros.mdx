@@ -1,0 +1,80 @@
+---
+title: Registros safe, regular y atomic
+description: 'Tema nuevo (06 · About registers): SRSW/MRSW/MRMW, registros safe, regulares y atómicos, y linealizabilidad.'
+---
+
+import RegisterTimeline from '../../../components/sim/RegisterTimeline.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Fuente from '../../../components/Fuente.astro';
+
+:::tip[Tema nuevo]
+Viene de *The Art of Multiprocessor Programming* (Herlihy, Shavit, Luchangco, Spear), cap. 4. Sirve para precisar qué suponemos cuando decimos «las lecturas y escrituras son atómicas» en Peterson o Bakery.
+:::
+
+## ¿Qué es un registro?
+
+Una **ubicación de memoria** (el nombre es histórico) que guarda un valor binario y soporta dos operaciones:
+
+```java
+public interface Register<T> {
+    T read();
+    void write(T v);
+}
+```
+
+`T` suele ser booleano o un entero de *m* bits.
+
+## Quién lee y quién escribe
+
+| Sigla | Significado |
+| --- | --- |
+| **SRSW** | Single-Reader Single-Writer |
+| **MRSW** | Multi-Reader Single-Writer |
+| **MRMW** | Multi-Reader Multi-Writer |
+
+## Qué garantiza cuando hay concurrencia
+
+El problema está en las lecturas que **se solapan** en el tiempo con una escritura.
+
+| Registro | Lectura sin solapamiento | Lectura solapada con escrituras |
+| --- | --- | --- |
+| **Safe** | el último valor escrito | **cualquier** valor válido del dominio (basura legal) |
+| **Regular** | el último valor escrito | el valor **viejo** o **alguno de los nuevos** que se están escribiendo |
+| **Atomic** | el último valor escrito | como regular y además **linealizable** |
+
+Un **registro atómico** se comporta como si cada operación ocurriera en un **instante** dentro de su intervalo (punto de linealización). Consecuencia práctica: **no hay inversión nuevo→viejo**. Si una lectura devolvió el valor nuevo, ninguna lectura que empiece *después* de que esa termine puede devolver el viejo.
+
+Atomic ⇒ Regular ⇒ Safe.
+
+## Simulador
+
+<RegisterTimeline client:visible />
+
+## El espacio de registros
+
+Tres dimensiones independientes:
+
+1. **Lectores y escritores:** SRSW → MRSW → MRMW.
+2. **Tamaño:** booleano → m-valuado.
+3. **Fuerza:** safe → regular → atomic.
+
+El resultado central del capítulo es que **se puede construir** un registro MRMW m-valuado atómico usando solo registros SRSW booleanos safe. Por eso algoritmos como Bakery son válidos «sin hardware especial».
+
+## Cómo lo preguntarían
+
+- Dada una línea de tiempo de escrituras y lecturas, **clasificar** el registro (el simulador de arriba).
+- «¿Por qué el diagrama de la diapositiva 17 es regular pero no linealizable?» → `read(1)` termina antes de que empiece `read(0)`, ambas solapadas con `write(1)`. Cada una por separado es legal (viejo o nuevo), pero en un orden secuencial, después de ver el 1 no se puede volver a ver el 0.
+- «Un registro booleano safe, ¿es regular?» → **Sí.** Si la lectura solapada puede devolver cualquier valor del dominio {0, 1}, devuelve el viejo o el nuevo, a menos que la escritura no cambie el valor. Ese es el truco de la construcción de Herlihy: **solo escribir si el valor cambia**.
+
+<Quiz
+	client:visible
+	id="registros"
+	preguntas={[
+		{ q: 'Un registro safe, ante una lectura que NO se solapa con escrituras, devuelve…', opts: ['cualquier valor', 'el último valor escrito', 'el valor inicial', 'error'], ok: 1 },
+		{ q: 'Escritura `write(1)` en curso (valor previo 0). Dos lecturas solapadas: la primera devuelve 1, la segunda (que empieza después de que la primera termina) devuelve 0. El registro puede ser…', opts: ['atómico', 'regular pero no atómico', 'ni siquiera safe', 'MRMW'], ok: 1 },
+		{ q: '¿Qué significa MRSW?', opts: ['Many Reads Same Write', 'Multi-Reader Single-Writer', 'Multi-Register Shared-Word', 'Memory Read/Store Word'], ok: 1 },
+		{ q: 'Linealizable significa…', opts: ['Que las operaciones no se solapan', 'Que existe un orden secuencial, consistente con el tiempo real, que explica todos los resultados', 'Que usa un lock', 'Que es SRSW'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['for_partial/pending_themes/Sem0_6-OST-About registers.pdf', 'Herlihy & Shavit, The Art of Multiprocessor Programming, cap. 4']} />

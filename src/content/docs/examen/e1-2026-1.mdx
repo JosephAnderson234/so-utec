@@ -1,0 +1,79 @@
+---
+title: E1 2026-1 (mayo 2026)
+description: Examen E1 de Sistemas Operativos 2026-1 con soluciones propias (sin solucionario oficial).
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+:::caution[Soluciones propias]
+Este examen no tiene solucionario oficial. El código de la P4 se verificó en WSL. Intenta resolverlo en **~100 minutos** antes de abrir las soluciones.
+:::
+
+## Pregunta 1 · Alternativas (cada 2 errores restan 1 pto)
+
+Responde aquí y se corrige al instante. Las explicaciones completas están en los temas enlazados.
+
+<Quiz
+	client:visible
+	id="e1-2026-1-p1"
+	titulo="Pregunta 1"
+	preguntas={[
+		{ q: 'Modelo **Many-to-One**. Un hilo de usuario hace `read()` sobre un socket sin datos. ¿Qué pasa?', opts: ['Solo ese hilo se bloquea y el planificador de usuario cede la CPU', 'Todo el proceso se bloquea porque el único hilo del kernel pasa a espera', '`read()` retorna error de inmediato', 'Ninguna'], ok: 1, why: 'El kernel solo ve un hilo. Ver «Modelos de threads».' },
+		{ q: '`pthread_mutex_lock(&m); pid = fork();` y el hijo hace `pthread_mutex_lock(&m)` (mutex NORMAL). ¿Qué pasa en el hijo?', opts: ['Funciona: hereda una copia nueva con el mutex libre', 'Deadlock: hereda el mutex bloqueado y nadie en el hijo lo liberará', 'Segfault', 'Ninguna'], ok: 1, why: 'fork copia el estado del mutex (bloqueado). Relockear un NORMAL es auto-deadlock.' },
+		{ q: 'Productor: `sem_wait(&mutex); sem_wait(&espacios_vacios); …` con el buffer lleno. Resultado:', opts: ['Correcto', 'Race condition en insertar', 'Deadlock: el productor retiene mutex y el consumidor no puede vaciar', 'Ninguna'], ok: 2, why: 'Míralo en el simulador de «Productor–consumidor».' },
+		{ q: 'En un monitor Mesa, ¿qué es obligatorio?', opts: ['`if` es suficiente y más óptimo', '`while`, porque la señal no transfiere el mutex de inmediato y la condición pudo cambiar', 'No usar mutex con `cond_wait`', 'Ninguna'], ok: 1 },
+		{ q: 'Dos hilos incrementan `stats.contador_hilo1` y `stats.contador_hilo2`; el rendimiento es pésimo. Causa:', opts: ['Inversión de prioridad', 'Deadlock de la MMU', 'False sharing: invalidaciones constantes de la línea de caché', 'Ninguna'], ok: 2 },
+		{ q: 'Hilo A hace `lock(&m)`; hilo B hace `unlock(&m)` sin tenerlo (mutex NORMAL). POSIX dice:', opts: ['B lo desbloquea (paso de tokens)', 'B recibe EPERM y sigue seguro', 'Comportamiento indefinido', 'Ninguna'], ok: 2, why: 'EPERM solo con PTHREAD_MUTEX_ERRORCHECK.' },
+	]}
+/>
+
+## Pregunta 2 (3 pts) · Algoritmo A
+
+```text
+1. f[i] ← V
+2. mientras (turno ≠ i) hacer:
+3.     mientras (f[j]) hacer omitir
+4.     turno ← i
+5. /* SC */
+6. f[i] ← F
+```
+
+¿Exclusión mutua? ¿Deadlock-free? ¿Starvation-free? Justifica con trazas.
+
+<Solucion>
+
+Es el **algoritmo de Hyman**. **Mutex ✘** (traza de 7 pasos: P1 pasa el while interno, se desaloja antes de `turno ← 1`, P0 entra porque `turno = 0`, P1 escribe `turno = 1` y entra). **Deadlock-free ✔.** **Starvation ✘** (P0 re-entra una y otra vez sin que P1 alcance a ver `f[0] = F`).
+
+→ Traza completa y reproducible en el [intercalador](/mutex/algoritmos/#algoritmo-a-del-e1-2026-1-algoritmo-de-hyman-1966) (elige «Algoritmo A» y pulsa *Buscar contraejemplo*).
+
+</Solucion>
+
+## Pregunta 3 (5 pts) · Morris simplificado
+
+Semáforos débiles A = 1, M = 0, B = 1; contadores NA y NM. ¿Mantiene la protección contra inanición? Si no, da una traza y la corrección mínima.
+
+<Solucion>
+
+Análisis completo en [Problemas clásicos → Morris](/semaforos/clasicos/#morris-1979-mutex-sin-starvation-con-semáforos-débiles-e1-2026-1--p3-5-pts). En resumen: la propuesta es **equivalente al algoritmo de Morris** (solo mueve `NM--` después de la SC y protege `NM` con `B`), así que **sí** mantiene la protección. Allí mismo están las dos modificaciones que *sí* la romperían, con su traza y su corrección.
+
+</Solucion>
+
+## Pregunta 4 (6 pts) · pthreads y race de argumentos
+
+<Solucion>
+
+```c
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;                    // [1]
+pthread_mutex_lock(&mutex);                                           // [2]
+pthread_mutex_unlock(&mutex);                                         // [3]
+pthread_create(&threads[i], NULL, rutina_hilo, (void *) &arg_struct); // [4]
+pthread_join(threads[i], NULL);                                       // [5]
+```
+
+Si el `for` termina antes de que algún hilo lea: todos leen **`local_id = 3`, `local_mult = 30`** y el acumulador final es **4 × 30 = 120**. Verificado en WSL. Detalle en [threads](/procesos/threads/#ejercicio-e1-2026-1--pregunta-4-6-pts).
+
+</Solucion>
+
+<Fuente archivos={['for_partial/Evaluaciones_OS_20261 (1).pdf']} />

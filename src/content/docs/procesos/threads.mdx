@@ -1,0 +1,88 @@
+---
+title: Modelos de threads y pthreads
+description: ULT vs KLT, many-to-one, fork con mutex tomado, pthreads y la race de argumentos del E1 2026-1.
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## ULT, KLT y modelos de mapeo
+
+| Modelo | Mapeo | Si un hilo hace una syscall bloqueante… | Paralelismo en multicore |
+| --- | --- | --- | --- |
+| **Many-to-One** (ULT puros, green threads) | N usuario → 1 kernel | **se bloquea todo el proceso** | No |
+| **One-to-One** (Linux NPTL, Windows) | 1 → 1 | solo ese hilo | Sí |
+| **Many-to-Many** (Solaris antiguo) | M → N | el kernel sigue con otro KLT | Sí |
+
+**Ventajas de los ULT:** el cambio de hilo no entra al kernel (es barato) y cada aplicación puede tener su propio planificador. **Desventajas:** una syscall bloqueante detiene todo el proceso y no aprovechan varios núcleos. La técnica de *jacketing* intenta mitigarlo con E/S no bloqueante.
+
+:::note[En el examen · E1 2026-1 P1.1]
+Many-to-One y `read()` sobre un socket sin datos → **B: todo el proceso se bloquea**. El kernel solo ve un hilo, lo pasa a estado de espera y el planificador de usuario nunca recupera la CPU.
+:::
+
+## fork() con un mutex tomado
+
+```c
+pthread_mutex_lock(&mutex_global);
+pid_t pid = fork();
+if (pid == 0) {                       // hijo
+    pthread_mutex_lock(&mutex_global); // ← aquí
+    ...
+```
+
+El hijo hereda la memoria **con el mutex en estado bloqueado**. En este código el que lo bloqueó fue justamente el hilo que hizo `fork`. Para un `PTHREAD_MUTEX_NORMAL`, volver a bloquearlo es un **auto-deadlock**. Y si lo hubiera tomado otro hilo, ese hilo **no existe en el hijo** y nadie lo liberará jamás. Respuesta: **B, deadlock**. Por eso existe `pthread_atfork()`.
+
+## pthreads en 30 segundos
+
+```c
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;   // inicialización estática
+pthread_mutex_lock(&m);   /* SC */   pthread_mutex_unlock(&m);
+pthread_create(&tid, NULL, rutina, (void *) arg); // arg: void*
+pthread_join(tid, NULL);
+```
+
+- `unlock` desde un hilo que **no** es el dueño, con un mutex NORMAL, es **comportamiento indefinido** (E1 2026-1 P1.6 → **C**). Con `PTHREAD_MUTEX_ERRORCHECK` se obtiene `EPERM`.
+- Un mutex no es un semáforo binario: tiene **dueño**. Para pasar tokens entre hilos se usa un semáforo.
+
+## Ejercicio E1 2026-1 · Pregunta 4 (6 pts)
+
+Main crea 4 hilos pasando **la dirección de la misma `ConfigThread arg_struct`** local, y la modifica en cada iteración del `for`. Supón que el planificador ejecuta todo el `for` antes de que cualquier hilo lea sus argumentos.
+
+<Solucion titulo="Ver solución (verificada en WSL)">
+
+**1) Espacios [1]–[5]:**
+
+```c
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;                 // [1]
+pthread_mutex_lock(&mutex);                                        // [2]
+pthread_mutex_unlock(&mutex);                                      // [3]
+pthread_create(&threads[i], NULL, rutina_hilo, (void *) &arg_struct); // [4]
+pthread_join(threads[i], NULL);                                    // [5]
+```
+
+**2) Race estructural:** los 4 hilos reciben **el mismo puntero** `&arg_struct`. Cuando por fin leen, el `for` ya escribió la última iteración (`i = 3`):
+
+- Todos leen `local_id = 3` y `local_mult = 3 · 10 = 30`.
+- `acumulador_global` $= 4 \times 30 = \mathbf{120}$ en vez de $0 + 10 + 20 + 30 = 60$.
+
+El mutex protege la suma, pero **no** la lectura de los argumentos. Lo forcé con una barrera en WSL y la salida fue `id=3 mult=30` ×4 y `Acumulador final: 120`.
+
+**Corrección:** usar un arreglo `ConfigThread args[n]` y pasar `&args[i]`, o reservar memoria con `malloc` por hilo.
+
+</Solucion>
+
+## Quiz
+
+<Quiz
+	client:visible
+	id="threads"
+	preguntas={[
+		{ q: 'Dos hilos incrementan `stats.contador_hilo1` y `stats.contador_hilo2` (campos vecinos del mismo struct). No hay race, pero es lentísimo. ¿Por qué?', opts: ['Inversión de prioridad', 'False sharing: ambos campos están en la misma línea de caché y cada escritura invalida la del otro núcleo', 'Deadlock de la MMU', 'El compilador serializa los hilos'], ok: 1, why: 'Se soluciona con padding o alineando cada contador a 64 bytes (`alignas(64)`).' },
+		{ q: '¿Qué comparten los hilos de un mismo proceso?', opts: ['Stack y registros', 'Espacio de direcciones, archivos abiertos y globales', 'Solo el heap', 'Nada'], ok: 1, why: 'Cada hilo tiene su propio stack, registros, PC y TCB; lo demás lo comparte.' },
+		{ q: 'En Many-to-One, ¿se ejecutan dos hilos del mismo proceso en paralelo en dos núcleos?', opts: ['Sí', 'No, el kernel solo ve un hilo', 'Solo si hay hyperthreading', 'Solo con mutex'], ok: 1 },
+		{ q: '`pthread_mutex_unlock` por un hilo que no es dueño (mutex NORMAL):', opts: ['Funciona: pasa el token', 'Devuelve EPERM', 'Comportamiento indefinido', 'Segfault garantizado'], ok: 2, why: 'EPERM solo con PTHREAD_MUTEX_ERRORCHECK o RECURSIVE.' },
+	]}
+/>
+
+<Fuente archivos={['for_partial/Evaluaciones_OS_20261 (1).pdf (P1, P4)', 'lab 1/Resumenes/Stallings/03-Threads-Fundamentos-y-Tipos.md', 'WSL ~/so/threads/thread-struct-arguments.c', 'WSL ~/so/verif_parcial/argrace.c']} />

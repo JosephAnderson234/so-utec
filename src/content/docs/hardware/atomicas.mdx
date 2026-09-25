@@ -1,0 +1,99 @@
+---
+title: Operaciones atómicas y spinlocks
+description: test-and-set, compare-and-swap, exchange, fetch-and-add, spinlocks, deshabilitar interrupciones y false sharing.
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+Una **operación atómica** es indivisible: ningún otro hilo o núcleo ve un estado intermedio. El hardware la garantiza bloqueando el bus o la línea de caché (`lock` prefix en x86, LL/SC en ARM y RISC-V).
+
+## Las primitivas
+
+```c
+bool test_and_set(bool *p)            { bool old = *p; *p = true; return old; }      // atómico
+bool compare_and_swap(int *p, int e, int n) { if (*p == e) { *p = n; return true; } return false; }
+int  exchange(int *p, int v)          { int old = *p; *p = v; return old; }
+int  fetch_and_add(int *p, int d)     { int old = *p; *p += d; return old; }
+```
+
+C11: `atomic_flag_test_and_set`, `atomic_compare_exchange_strong`, `atomic_exchange` y `atomic_fetch_add`.
+
+## Spinlock
+
+```c
+atomic_flag lock = ATOMIC_FLAG_INIT;
+void acquire() { while (atomic_flag_test_and_set(&lock)) ; }   // busy wait
+void release() { atomic_flag_clear(&lock); }
+```
+
+- ✔ Mutex, ✔ deadlock-free, **✘ starvation-free** (no hay orden: quien gana el TAS es arbitrario).
+- **Busy waiting**: consume CPU mientras espera. Es aceptable cuando la SC es cortísima o cuando **no se puede bloquear**.
+
+:::note[E1 2024-I · P5]
+«En rutinas de kernel donde no se puede bloquear, ¿cómo harías exclusión mutua?» → **spinlocks**: no duermen y el overhead del busy waiting es despreciable porque la SC es corta. En un monoprocesador además se **deshabilitan interrupciones**.
+:::
+
+## Deshabilitar interrupciones
+
+`disable_interrupts(); SC; enable_interrupts();` funciona **solo en monoprocesador**, porque en multicore otro núcleo sigue ejecutando. Además es peligroso darlo a procesos de usuario y degrada el sistema si la SC es larga.
+
+## Ticket lock (spinlock justo)
+
+```c
+atomic_int next = 0, serving = 0;
+void acquire() { int my = atomic_fetch_add(&next, 1); while (serving != my) ; }
+void release() { serving++; }
+```
+
+Es la versión en hardware de Bakery: FIFO y **starvation-free**.
+
+## Implementar un semáforo con TAS (E1 2022 · P2b)
+
+<Solucion titulo="Solución (Stallings fig. 5.14 · busy wait mínimo)">
+
+El TAS solo protege **las pocas instrucciones** que modifican el semáforo. La espera larga se hace **bloqueando**, no girando.
+
+```c
+typedef struct { int flag; int count; queue_t q; } semaphore;
+
+void semWait(semaphore *s) {
+    while (test_and_set(&s->flag)) ;     // spin corto: solo para entrar
+    s->count--;
+    if (s->count < 0) {
+        enqueue(&s->q, self());
+        block_and_clear(&s->flag);       // bloquear y poner flag = 0 atómicamente
+    } else
+        s->flag = 0;
+}
+
+void semSignal(semaphore *s) {
+    while (test_and_set(&s->flag)) ;
+    s->count++;
+    if (s->count <= 0)
+        ready(dequeue(&s->q));           // mover a la cola de listos
+    s->flag = 0;
+}
+```
+
+**Por qué es correcto:** `flag` hace que las secciones de `semWait` y `semSignal` sean mutuamente excluyentes (TAS es atómico), así que `count` y la cola son consistentes. El busy wait dura unas pocas instrucciones, nunca todo el tiempo de espera del recurso. El punto delicado es que **bloquear y liberar `flag`** deben ser atómicos; si no, un `semSignal` puede colarse entre ambos y perder el wake-up.
+
+</Solucion>
+
+## False sharing (E1 2026-1 · P1.5)
+
+Dos hilos escriben variables **distintas** que están en la **misma línea de caché** (64 B). Cada escritura invalida la copia del otro núcleo (protocolo MESI), así que la línea «rebota» entre núcleos y el rendimiento se desploma aunque no haya race lógica. La solución es padding o `alignas(64)`.
+
+<Quiz
+	client:visible
+	id="atomicas"
+	preguntas={[
+		{ q: 'Un spinlock con test-and-set es…', opts: ['Mutex, deadlock-free y starvation-free', 'Mutex y deadlock-free, pero no starvation-free', 'No es mutex', 'Solo funciona en monoprocesador'], ok: 1 },
+		{ q: '¿Deshabilitar interrupciones sirve en multicore?', opts: ['Sí', 'No, otros núcleos siguen ejecutando', 'Solo con hyperthreading', 'Solo en modo usuario'], ok: 1 },
+		{ q: '`compare_and_swap(&x, 5, 7)` con x = 6:', opts: ['x = 7, retorna true', 'x = 6, retorna false', 'x = 5', 'bloquea'], ok: 1 },
+		{ q: '¿Qué es una operación atómica?', opts: ['Una que usa un mutex', 'Una indivisible: no puede ser interrumpida ni observada a medias', 'Una del kernel', 'Una de un solo ciclo de reloj'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['lab2/07-OSL-Atomic_Operations.pdf', 'lab2/Resumenes/08-Operaciones-Atomicas.md', 'WSL ~/so/sem4/07_mutex/spin.c, compare-exchange.c, atomic_inc.c', 'for_partial/E1_OS_2021_2022_Solver.pdf (E1 2022 P2b)']} />

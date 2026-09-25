@@ -1,0 +1,105 @@
+---
+title: Productor–consumidor y deadlock
+description: Buffer acotado con semáforos, el error de orden del E1 2026-1 y los deadlocks del stock y los aretes (E1 2024-I), en un simulador.
+---
+
+import SemaphoreSim from '../../../components/sim/SemaphoreSim.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## Buffer acotado (bounded buffer)
+
+```c
+sem_t mutex;   // = 1  exclusión mutua sobre el buffer
+sem_t vacios;  // = N  huecos libres
+sem_t llenos;  // = 0  elementos disponibles
+
+void *productor(void *arg) {         void *consumidor(void *arg) {
+    item = producir();                   sem_wait(&llenos);
+    sem_wait(&vacios);                   sem_wait(&mutex);
+    sem_wait(&mutex);                    item = extraer();
+    insertar(item);                      sem_post(&mutex);
+    sem_post(&mutex);                    sem_post(&vacios);
+    sem_post(&llenos);                   consumir(item);
+}                                    }
+```
+
+**Regla:** primero el semáforo de **conteo** y después `mutex`. Nunca te bloquees sosteniendo `mutex`. El orden de los `sem_post` **no** importa (post no bloquea).
+
+## Simulador
+
+Elige un escenario. En los escenarios con deadlock, intenta provocarlo tú antes de leer la nota.
+
+<SemaphoreSim client:visible scenario="pc-ok" choices={['pc-ok', 'pc-bad', 'stock', 'aretes']} />
+
+## E1 2026-1 · P1.3
+
+```c
+sem_wait(&mutex);
+sem_wait(&espacios_vacios);   // ← invertido
+```
+
+Con el buffer lleno, el productor toma `mutex` y se bloquea en `espacios_vacios`, **reteniendo `mutex`**. El consumidor, que es el único que podría liberar un hueco, se bloquea en `sem_wait(&mutex)`. → **C: deadlock**.
+
+## E1 2024-I · P3: stock con `if`
+
+<Solucion titulo="Solucionario oficial + detalle">
+
+**¿Deadlock? Sí.** El buyer toma `resource` y, si `stock == 0`, hace `sem_wait(restock)` **dentro** de la sección protegida. El seller necesita `resource` para aumentar el stock y hacer `sem_post(restock)`, pero nunca lo obtiene. Hay *hold and wait* + espera circular.
+
+**Sin `if` y sin deadlock:** usar un semáforo contador `stock_sem` (= 0) que representa las unidades disponibles.
+
+```c
+void *seller() {                       void *buyer() {
+    while (1) {                            while (1) {
+        sem_wait(&resource);                   sem_wait(&stock_sem);   // espera stock FUERA de la SC
+        add_one_stock();                       sem_wait(&resource);
+        sem_post(&resource);                   buy_one_stock();
+        sem_post(&stock_sem);                  sem_post(&resource);
+    }                                      }
+}                                      }
+```
+
+</Solucion>
+
+## E1 2024-I · P4: guerreros y aretes (6 pts)
+
+8 guerreros, 4 aretes, parejas fijas (1,6) (2,7) (3,4) (5,8). Cada uno hace `wait(earrings); signal(ready[me]); wait(ready[buddy]); …; signal(earrings)`.
+
+<Solucion titulo="Solución (oficial corregida + versión simple)">
+
+**Deadlock: sí.** Si toman arete **un miembro de cada pareja**, por ejemplo G1, G2, G3 y G5, los 4 aretes están tomados. Cada uno espera a su pareja en `ready[buddy]`, y las parejas esperan un arete. Hay *hold and wait* + espera circular.
+
+:::caution
+El solucionario oficial pone como ejemplo «1, 2, 3 y 6», pero **1 y 6 son pareja**: G1 y G6 se fusionarían y devolverían los aretes. El ejemplo correcto necesita un guerrero de cada pareja.
+:::
+
+**Starvation** (si no hay deadlock): con semáforos FIFO, cada guerrero recibe su arete en orden, así que no hay starvation.
+
+**Corrección simple:** eliminar el *hold and wait*. Primero la cita con la pareja (sin retener nada) y luego **un solo miembro** pide los aretes de a pares, con un semáforo `pares = 2`.
+
+```c
+sem_t pares;                 // = 2  (dos pares de aretes)
+sem_t ready[8], go[8], done[8];   // = 0
+
+void *warrior(int me) {
+    int b = buddy(me);
+    while (1) {
+        sem_post(&ready[me]);  sem_wait(&ready[b]);    // cita: ambos presentes, nada retenido
+        if (me < b) { sem_wait(&pares); sem_post(&go[b]); }   // el líder toma el PAR completo
+        else          sem_wait(&go[me]);
+        put_earring(); fusion(); fight(); undo_fusion();
+        if (me < b) { sem_wait(&done[me]); sem_post(&pares); } // el líder devuelve el par
+        else          sem_post(&done[b]);
+    }
+}
+```
+
+- **Sin deadlock:** el recurso se pide como **unidad** (un par por pareja) y quien espera `pares` no retiene nada, así que no hay hold and wait.
+- **Sin starvation:** `pares` es FIFO, así que cada pareja espera como máximo a las parejas que llegaron antes.
+
+El oficial logra lo mismo con una cola de grupos protegida por mutex.
+
+</Solucion>
+
+<Fuente archivos={['for_partial/Evaluaciones_OS_20261 (1).pdf (P1.3)', 'for_partial/E1_OS_2024_I__Respuestas_.pdf (P3, P4)', 'lab2/08-OSL-Producer Consumers.pdf', 'WSL ~/so/sem4/08-Producer-consumer/']} />

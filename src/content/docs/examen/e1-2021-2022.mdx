@@ -1,0 +1,78 @@
+---
+title: PC1 2021 y E1 2022
+description: Exámenes escaneados de 2021 y 2022 transcritos, con las notas manuscritas del profesor.
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+El PDF `E1_OS_2021_2022_Solver.pdf` está **escaneado** y trae anotaciones a mano. Los transcribí aquí; en cada solución indico qué viene de las notas y qué es desarrollo propio.
+
+## PC1 2021 (21 de mayo de 2021)
+
+### P1(a) (4 pts) · Cuatro requisitos de la exclusión mutua
+
+<Solucion>
+
+Ver [requisitos](/mutex/requisitos/#requisitos-de-la-exclusión-mutua-stallings-52): solo uno en la SC; quien está fuera de la SC no interfiere; sin deadlock ni starvation; entrada inmediata si la SC está libre; sin supuestos de velocidad; tiempo finito en la SC.
+
+</Solucion>
+
+### P1(b) (6 pts) · Peterson con FLAG / AFTER_YOU
+
+```text
+operation acquire_lock(i) is
+    FLAG[i] ← up;  AFTER_YOU ← i;
+    wait ((FLAG[j] = down) ∨ (AFTER_YOU ≠ i));
+operation release_lock(i) is FLAG[i] ← down
+```
+
+<Solucion>
+
+Nota del profesor: *«Peterson, tournament of 2 processes»*. **Mutex ✔, deadlock-free ✔, starvation-free ✔.** Demostraciones en [algoritmos](/mutex/algoritmos/#peterson-pc1-2021). La nota manuscrita del profesor pide extenderlo a 3 y 4 hilos: se hace con un árbol de torneo de Peterson o con el algoritmo de filtro.
+
+</Solucion>
+
+### P2 (10 pts) · Recurso compartido por 3 procesos
+
+<Solucion>
+
+(a) Funciona y es correcto (paso de testigo con `active = n`). (b) Un nuevo proceso puede «saltarse la fila» solo en sentido temporal, y no es un problema. Desarrollo completo en [clásicos](/semaforos/clasicos/#recurso-compartido-por-3-pc1-2021--p2-10-pts).
+
+</Solucion>
+
+## E1 2022 (10 de mayo de 2022)
+
+### P1 (8 pts) · Cachimbos (Bakery)
+
+<Solucion>
+
+Nota del profesor: *«This is the Lamport's Bakery algorithm»*. Descripción, orden FIFO por número y demostraciones en [Bakery](/mutex/bakery/#e1-2022--pregunta-1-8-pts-los-cachimbos).
+
+</Solucion>
+
+### P2(a) (4 pts) · Montaña rusa UTEC
+
+<Solucion>
+
+Nota del profesor: *«car_filled and passenger_released cannot guarantee order, then it does not solve the problem»*. Con n = m = 2, P1 puede ser liberado por C2 mientras viaja en C1. Traza y corrección en [clásicos](/semaforos/clasicos/#montaña-rusa-utec-e1-2022--p2a).
+
+</Solucion>
+
+### P2(b) (4 pts) · wait/signal con TestAndSet y busy wait mínimo
+
+<Solucion>
+
+Ver [atómicas](/hardware/atomicas/#implementar-un-semáforo-con-tas-e1-2022--p2b). El TAS protege solo la actualización de `count` y de la cola; la espera larga se hace bloqueando.
+
+</Solucion>
+
+### P3 (4 pts) · Tabla de páginas: 38 bits virtuales y 32 físicos
+
+<Solucion>
+
+(1) Multinivel: menos memoria para la tabla, a cambio de más accesos por traducción. (2) Páginas de 16 KB y PTE de 4 B: `12 | 12 | 14`, con tabla raíz de 16 KB (1 página). Desarrollo en [paginación](/memoria/paginacion/#e1-2022--pregunta-3-4-pts), que coincide con los cálculos manuscritos ($2^{14}$ B por página y $2^{12}$ PTE por página).
+
+</Solucion>
+
+<Fuente archivos={['for_partial/E1_OS_2021_2022_Solver.pdf (7 páginas escaneadas)']} />

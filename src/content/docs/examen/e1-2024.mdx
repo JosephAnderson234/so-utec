@@ -1,0 +1,92 @@
+---
+title: E1 2024 (I y II)
+description: Los dos E1 de 2024 con solucionario oficial, comentado y con correcciones.
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+Ambos traen **solucionario oficial**. Aquí están resumidos, con los errores del oficial marcados.
+
+## E1 2024-I (6 preguntas)
+
+### P1 (3 pts) · ¿Cuántos «Hello!»? (thread_print)
+
+<Solucion>
+
+**7** (opción 2). El oficial no da el número; lo verifiqué ejecutándolo en WSL. Recorre el árbol evento por evento en el [simulador de fork](/procesos/fork/).
+
+</Solucion>
+
+### P2 (4 pts) · Flaky lock
+
+<Solucion>
+
+Mutex ✔, **deadlock ✘**, starvation ✘. Demostración y traza en [algoritmos](/mutex/algoritmos/#flaky-e1-2024-i). El intercalador encuentra el deadlock solo.
+
+</Solucion>
+
+### P3 (4 pts) · Stock con semáforos
+
+<Solucion>
+
+**Hay deadlock**: el buyer hace `wait(restock)` sosteniendo `resource`. La solución es un semáforo contador de stock que se espera **antes** de tomar `resource`. Ver [productor–consumidor](/semaforos/productor-consumidor/#e1-2024-i--p3-stock-con-if) y el simulador con el escenario «Stock».
+
+</Solucion>
+
+### P4 (6 pts) · Guerreros y aretes
+
+<Solucion>
+
+**Deadlock** si toma arete un miembro de cada pareja (por ejemplo G1, G2, G3 y G5). ⚠ El ejemplo oficial «1, 2, 3 y 6» es incorrecto, porque 1 y 6 son pareja. La corrección es pedir los aretes **de a pares y como unidad** después de la cita. Ver [aretes](/semaforos/productor-consumidor/#e1-2024-i--p4-guerreros-y-aretes-6-pts).
+
+</Solucion>
+
+### P5 (4 pts) · Conceptos
+
+<Solucion>
+
+- **Operación atómica:** indivisible, no puede interrumpirse ni observarse a medias. Ejemplo de spinlock: `while (test_and_set(&lock)); SC; lock = 0;`.
+- **Mutex en rutinas del kernel que no pueden bloquear:** **spinlocks**, porque no duermen y la SC es corta (en monoprocesador, además, se deshabilitan interrupciones).
+- **Memory layout:** code (instrucciones), data (globales y estáticas), heap (dinámico, crece ↑), stack (llamadas, retornos y locales, crece ↓).
+- **Requisitos de mutex:** los 6 de Stallings. Ver [requisitos](/mutex/requisitos/).
+- **Deadlock:** exclusión mutua, hold and wait, no preemption y espera circular. (El oficial solo lista tres; la **espera circular** es la cuarta.)
+
+</Solucion>
+
+## E1 2024-II (4 preguntas)
+
+### P1 (3 pts) · fork + execv + semáforo
+
+<Solucion>
+
+**4** (opción 1). Explicación paso a paso en [fork](/procesos/fork/#ejercicio-del-e1-2024-ii).
+
+</Solucion>
+
+### P2 (7 pts) · Cine multiplex con monitor
+
+<Solucion>
+
+Código oficial limpio, explicación y **dos bugs** del oficial (la sala incompleta no se reinicia y `cust[i] = pthread_create(…)`) en [cine](/monitores/problemas/#cine-multiplex-e1-2024-ii--p2-7-pts).
+
+</Solucion>
+
+### P3 (8 pts) · Chefs de ramen
+
+<Solucion>
+
+Es el problema de los **fumadores**: un semáforo por chef y otro para el master. El oficial despierta a los 3 y cada uno revisa la mesa en un `do…while`. Ver [ramen](/semaforos/clasicos/#chefs-de-ramen-e1-2024-ii--p3-8-pts).
+
+</Solucion>
+
+### P4 (2 pts) · Conceptos
+
+<Solucion>
+
+- **Monolítico vs microkernel:** el monolítico tiene todo en espacio de kernel (rápido, pero un fallo tumba el sistema); el microkernel deja lo mínimo en el kernel y los servicios en espacio de usuario comunicados por IPC (más lento, pero robusto). **Para robustez ante fallas: microkernel.**
+- **Condiciones de deadlock:** las 4 de Coffman. **¿`trylock` evita el deadlock?** Rompe *hold and wait* (si no obtengo el segundo lock, suelto el primero), así que elimina el deadlock, pero puede causar **starvation o livelock**.
+
+</Solucion>
+
+<Fuente archivos={['for_partial/E1_OS_2024_I__Respuestas_.pdf', 'for_partial/E1_OS_2024_II__Solucionario_.pdf']} />

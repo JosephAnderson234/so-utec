@@ -1,0 +1,140 @@
+---
+title: Lectores–escritores
+description: 'Tema nuevo: las soluciones de la diapositiva 09 (semáforos, locks, locks + condition variables) con un simulador de monitor.'
+---
+
+import RWMonitor from '../../../components/sim/RWMonitor.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+**Problema:** los lectores pueden leer **en paralelo**; los escritores necesitan acceso **exclusivo**. Queremos paralelismo **y** ausencia de starvation.
+
+## Solución 0: un solo semáforo (`r-w-sequential.c`)
+
+```c
+Semaphore sem_data = 1;
+Reader: wait(sem_data); read_data();  signal(sem_data);
+Writer: wait(sem_data); write_data(); signal(sem_data);
+```
+
+Es correcta pero **secuencial**: dos lectores no pueden leer a la vez. Se pierde el paralelismo.
+
+## Solución 1: varios lectores con un contador (`r-w-starvation.c`)
+
+```c
+Semaphore sem_data = 1, sem_nr = 1;  int nr = 0;
+Reader:
+    wait(sem_nr);  nr++; if (nr == 1) wait(sem_data);  signal(sem_nr);   // el primero cierra
+    read_data();
+    wait(sem_nr);  nr--; if (nr == 0) signal(sem_data); signal(sem_nr);  // el último abre
+Writer: wait(sem_data); write_data(); signal(sem_data);
+```
+
+Es el patrón **lightswitch**. Hay paralelismo entre lectores, pero **los escritores pueden sufrir starvation**: si siempre hay algún lector dentro, `nr` nunca llega a 0.
+
+## Solución 2: lo mismo con mutex, y por qué falla
+
+Si se reemplazan los semáforos por `mutex_lock` y `mutex_unlock`, **el lector que bloquea `lock_data` (el primero) puede no ser el que lo desbloquea (el último)**. Un mutex tiene dueño, así que desbloquearlo desde otro hilo es comportamiento indefinido. Es el problema señalado en la diapositiva 19.
+
+## Solución 3: lock + condition variables (`r-w-broadcast.c`)
+
+```c
+mutex_t lock_cont; int nr = 0, nw = 0; cond_t cond_rd, cond_wr;
+
+Reader:
+    mutex_lock(&lock_cont);
+    while (nw > 0) cond_wait(&cond_rd, &lock_cont);
+    nr++;
+    mutex_unlock(&lock_cont);
+    read_data();
+    mutex_lock(&lock_cont);
+    nr--;
+    if (nr == 0) cond_signal(&cond_wr);
+    mutex_unlock(&lock_cont);
+
+Writer:
+    mutex_lock(&lock_cont);
+    while (nr > 0 || nw > 0) cond_wait(&cond_wr, &lock_cont);
+    nw++;
+    mutex_unlock(&lock_cont);
+    write_data();
+    mutex_lock(&lock_cont);
+    nw--;
+    cond_signal(&cond_wr);
+    cond_broadcast(&cond_rd);
+    mutex_unlock(&lock_cont);
+```
+
+- Los datos se leen y escriben **fuera** del lock. El lock solo protege los contadores, y por eso hay paralelismo real entre lectores.
+- **Sigue favoreciendo a los lectores:** un lector entra si `nw == 0`, aunque haya escritores esperando.
+
+## Simulador
+
+<RWMonitor client:visible />
+
+Prueba: **+Escritor, +Lector** (espera), luego saca al escritor. En modo **Mesa**, el lector queda *listo*. Antes de hacer clic en él, agrega **+Escritor** varias veces: con preferencia de escritores, el lector re-evalúa su `while`, ve escritores y vuelve a dormir.
+
+## Prioridad a escritores (evitar su starvation)
+
+<Solucion titulo="Ver versión con prioridad a escritores (es la de r-w-sol-example.c del curso)">
+
+```c
+int nr = 0, nw = 0, ww = 0;   // ww = escritores esperando
+
+Reader:
+    lock(&m);
+    while (nw > 0 || ww > 0) cond_wait(&cond_rd, &m);   // cede ante escritores que esperan
+    nr++;
+    unlock(&m);
+    read_data();
+    lock(&m);
+    if (--nr == 0 && ww > 0) cond_signal(&cond_wr);
+    unlock(&m);
+
+Writer:
+    lock(&m);
+    ww++;
+    while (nr > 0 || nw > 0) cond_wait(&cond_wr, &m);
+    ww--; nw++;
+    unlock(&m);
+    write_data();
+    lock(&m);
+    nw--;
+    if (ww > 0) cond_signal(&cond_wr);    // primero otro escritor
+    else        cond_broadcast(&cond_rd); // si no, todos los lectores
+    unlock(&m);
+```
+
+El `r-w-sol-example.c` de clase implementa exactamente esto como un `struct rw_monitor` con `begin_read`, `end_read`, `begin_write` y `end_write` (contadores `active_readers`, `active_writers` y `waiting_writers`). Ahora los **lectores** pueden sufrir starvation si llegan escritores sin parar. La versión justa alterna turnos, con un `turn` o lotes por fase, igual que en el [baño unisex](/monitores/problemas/).
+
+</Solucion>
+
+## La «solución ejemplo» de la diapositiva 25
+
+```c
+Reader:                                Writer:
+mutex_lock(&lock_data);                mutex_lock(&lock_data);      // turnstile
+  mutex_lock(&lock_nr); nr++;            mutex_lock(&lock_nr);
+  mutex_unlock(&lock_nr);                while (nr > 0) cond_wait(&cond, &lock_nr);
+mutex_unlock(&lock_data);                mutex_unlock(&lock_nr);
+read_data();                           write_data();
+mutex_lock(&lock_nr); nr--;            mutex_unlock(&lock_data);
+if (nr == 0) cond_signal(&cond);
+mutex_unlock(&lock_nr);
+```
+
+`lock_data` actúa como **torniquete**. Un escritor que llega lo toma y **no lo suelta** hasta terminar, así que los lectores nuevos se quedan en la puerta y los que ya estaban dentro terminan (`nr → 0`). Con eso se evita la starvation de escritores sin contadores extra, y los lectores siguen leyendo en paralelo entre escrituras.
+
+<Quiz
+	client:visible
+	id="rw"
+	preguntas={[
+		{ q: 'En la solución 1 (lightswitch con semáforos), ¿quién puede sufrir starvation?', opts: ['Los lectores', 'Los escritores', 'Nadie', 'Ambos'], ok: 1 },
+		{ q: '¿Por qué la solución con mutex (diap. 18–19) es incorrecta?', opts: ['Hay deadlock', 'Un lector bloquea `lock_data` y otro lector distinto lo desbloquea: el mutex tiene dueño', 'Los escritores entran juntos', 'No hay paralelismo'], ok: 1 },
+		{ q: 'En la solución 3, al salir un escritor hace `signal(cond_wr)` y `broadcast(cond_rd)`. En Mesa, ¿quién entra?', opts: ['Siempre el escritor', 'Siempre los lectores', 'Quien readquiera el lock primero; los demás re-evalúan su while', 'Nadie'], ok: 2 },
+		{ q: 'En la solución de la diap. 25, ¿qué papel cumple `lock_data`?', opts: ['Proteger nr', 'Torniquete: un escritor que lo toma impide que entren lectores nuevos', 'Condition variable', 'Ninguno'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['for_partial/pending_themes/09-OSL-Monitors_ReaderWriter.pdf', 'WSL ~/so/sem6/r-w-sequential.c, r-w-starvation.c, r-w-broadcast.c, r-w-sol-example.c', 'lab2/Resumenes/11-Lectores-Escritores.md']} />

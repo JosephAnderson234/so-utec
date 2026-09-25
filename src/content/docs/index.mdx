@@ -1,0 +1,52 @@
+---
+title: Sistemas Operativos · E1
+description: Web de estudio interactiva para el E1 de CS3015 Sistemas Operativos (UTEC 2026-II).
+template: splash
+tableOfContents: false
+---
+
+import Terminal from '../../components/Terminal.astro';
+
+<div class="so-hero not-content">
+	<div>
+		<p data-anim style="color: var(--sl-color-accent); font-family: var(--__sl-font-mono); font-size: .85rem; margin:0"><code style="background:none;padding:0;color:inherit;font-size:inherit">{'$ ./repasar --examen E1 --curso CS3015'}</code></p>
+		<h1 data-anim>Procesos, sincronización <span class="grad">y memoria</span>, a golpe de clic.</h1>
+		<p class="tag" data-anim>Teoría breve, simuladores y los 6 exámenes previos resueltos (verificados en WSL cuando hay código). Incluye los temas nuevos: <b>monitores y lectores–escritores</b>, <b>registros</b> y <b>memoria</b>.</p>
+		<div class="actions" data-anim>
+			<a class="so-btn primary" href="/mapa/">Ver el mapa del examen →</a>
+			<a class="so-btn" href="/examen/e1-2026-1/">Examen más reciente</a>
+			<a class="so-btn" href="/formulario/">Formulario</a>
+		</div>
+	</div>
+	<div class="term" data-anim>
+		<div class="bar"><i></i><i></i><i></i><span style="margin-left:.5rem">yiuseppe@wsl: ~/so</span></div>
+		<Terminal />
+	</div>
+</div>
+
+<div class="so-stats not-content">
+	<div><b data-count="9">0</b><span>simuladores interactivos</span></div>
+	<div><b data-count="6">0</b><span>exámenes previos (2021 → 2026)</span></div>
+	<div><b data-count="18">0</b><span>páginas de teoría</span></div>
+	<div><b data-count="60">0</b><span>flashcards y preguntas</span></div>
+</div>
+
+<div class="so-cards not-content">
+	<a class="so-card" href="/procesos/fork/"><span class="n">01</span><h3>Procesos y threads</h3><p>fork, exec, contar «Hello!», modelos many-to-one y fork con un mutex tomado.</p></a>
+	<a class="so-card" href="/mutex/algoritmos/"><span class="n">02</span><h3>Exclusión mutua</h3><p>Peterson, Hyman, Flaky y Bakery en un intercalador que encuentra contraejemplos solo.</p></a>
+	<a class="so-card" href="/hardware/registros/"><span class="n">03</span><span class="tagnew">nuevo</span><h3>Atómicas y registros</h3><p>TAS, CAS, spinlocks, false sharing y registros safe, regular y atómicos.</p></a>
+	<a class="so-card" href="/semaforos/productor-consumidor/"><span class="n">04</span><h3>Semáforos</h3><p>Productor–consumidor, Morris, aretes y stock: provoca los deadlocks tú mismo.</p></a>
+	<a class="so-card" href="/monitores/lectores-escritores/"><span class="n">05</span><span class="tagnew">nuevo</span><h3>Monitores</h3><p>Hoare vs Mesa, lectores–escritores, baño unisex y cine con código C.</p></a>
+	<a class="so-card" href="/memoria/paginacion/"><span class="n">06</span><span class="tagnew">nuevo</span><h3>Memoria</h3><p>Buddy, placement, segmentación y la calculadora de paginación de los exámenes.</p></a>
+</div>
+
+## Cómo usar esta web
+
+1. **Mira el [mapa del examen](/mapa/)**: qué preguntas se repiten año tras año y cuántos puntos valen.
+2. **Repasa por unidad** con la barra lateral. Cada página sigue el mismo orden: teoría → avisos «en el examen» → simulador → ejercicio con solución desplegable → quiz.
+3. **Resuelve un examen previo cronometrado** antes de abrir las soluciones.
+4. **Cierra con las [flashcards](/examen/flashcards/)**. Tu progreso se guarda en este navegador.
+
+:::caution[Sobre las soluciones]
+Los exámenes 2024-I y 2024-II traen solucionario oficial. Para 2026-1, 2025-2 y 2021/22 las soluciones son **propias** y están marcadas así. Todo el código C se compiló y ejecutó en WSL (`~/so/verif_parcial`).
+:::
