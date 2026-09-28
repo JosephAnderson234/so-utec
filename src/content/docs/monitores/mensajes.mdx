@@ -1,0 +1,109 @@
+---
+title: 'Paso de mensajes (send / receive)'
+description: 'Stallings §5.6: sincronización bloqueante/no bloqueante, rendezvous, direccionamiento directo/indirecto (mailboxes, puertos), formato, cola, exclusión mutua con mensajes, buffer acotado y lectores–escritores con un controlador.'
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+Cuando los procesos interactúan hacen falta dos cosas: **sincronización** (por ejemplo, exclusión mutua) y **comunicación** (intercambiar datos). El **paso de mensajes** da **ambas**, y además funciona igual en **sistemas distribuidos** que en una sola máquina.
+
+```c
+send(destino, mensaje);
+receive(origen, mensaje);
+```
+
+## Diseño (tabla 5.5)
+
+| Aspecto | Opciones |
+| --- | --- |
+| **Sincronización** | send bloqueante o no bloqueante; receive bloqueante, no bloqueante o con *test for arrival* |
+| **Direccionamiento** | **directo** (send nombra al destino; receive explícito o **implícito**) o **indirecto** (mailboxes: estáticos o dinámicos, con dueño) |
+| **Formato** | contenido de largo **fijo** o **variable**: una cabecera (origen, destino, largo, tipo, secuencia, prioridad) más un cuerpo |
+| **Disciplina de cola** | FIFO, por prioridad, o que el receptor elija |
+
+### Sincronización
+
+| Combinación | Qué pasa | Comentario |
+| --- | --- | --- |
+| **send bloqueante + receive bloqueante** | ambos esperan hasta la entrega: es un **rendezvous** | sincronización muy estrecha |
+| **send no bloqueante + receive bloqueante** | el emisor sigue; el receptor espera el mensaje | **la más útil**: un servidor espera pedidos y el cliente envía a varios destinos rápido |
+| **ambos no bloqueantes** | nadie espera | máxima libertad y máximo riesgo |
+
+**Riesgos:**
+- Un **send no bloqueante** con un error puede inundar el sistema de mensajes, y el programador necesita **acuses de recibo** para saber si llegaron.
+- Un **receive bloqueante** puede esperar **para siempre** si el mensaje se pierde (en sistemas distribuidos) o si el emisor falla.
+- Un **receive no bloqueante** pierde el mensaje si este llega después de haberlo intentado.
+- Alternativas: consultar antes si hay un mensaje, o recibir de **varias** fuentes a la vez.
+
+### Direccionamiento
+
+- **Directo:** `send` nombra al proceso destino. El `receive` puede ser **explícito** (nombra al emisor, como entre procesos que cooperan) o **implícito** (acepta de cualquiera, y el parámetro de origen se llena al recibir, como en un servidor de impresión).
+- **Indirecto:** los mensajes van a **mailboxes**, colas compartidas que **desacoplan** a emisores y receptores. Relaciones posibles:
+  - **uno a uno**: un enlace privado;
+  - **muchos a uno**: cliente/servidor. Ese mailbox se llama **puerto**; suele ser **estático**, del receptor, y muere con él;
+  - **uno a muchos**: *broadcast*;
+  - **muchos a muchos**: varios servidores atendiendo a varios clientes.
+- **Asociación:** estática, o dinámica con `connect` y `disconnect`. **Propiedad:** del proceso creador (muere con él) o del SO (se destruye con un comando explícito).
+
+## Exclusión mutua con mensajes (fig. 5.23)
+
+```c
+void P(int i) {
+    message msg;
+    while (true) {
+        receive(box, msg);     // tomar el "testigo" (bloqueante)
+        /* SC */
+        send(box, msg);        // devolverlo (no bloqueante)
+        /* resto */
+    }
+}
+main: create_mailbox(box); send(box, null); parbegin(P(1), …, P(n));
+```
+
+El mailbox empieza con **un** mensaje, que funciona como **token**. Supone que, si varios hacen `receive` a la vez, el mensaje se entrega a **uno solo**; y si no hay mensajes, todos esperan y al llegar uno se despierta **uno**. Es exactamente un **semáforo binario** hecho con mensajes.
+
+## Buffer acotado con mensajes (fig. 5.24)
+
+```c
+const int capacity = N; null = /* mensaje vacío */;
+void producer() { message pmsg;
+    while (true) { receive(mayproduce, pmsg); pmsg = produce(); send(mayconsume, pmsg); } }
+void consumer() { message cmsg;
+    while (true) { receive(mayconsume, cmsg); consume(cmsg); send(mayproduce, null); } }
+main: create_mailbox(mayproduce); create_mailbox(mayconsume);
+      for (int i = 1; i <= capacity; i++) send(mayproduce, null);   // N "permisos para producir"
+      parbegin(producer, consumer);
+```
+
+**`mayproduce`** hace el papel del semáforo `empty` (empieza con N mensajes vacíos) y **`mayconsume`** el de `full`: además de permisos, lleva **los datos**. Funciona con varios productores y consumidores, y también en un sistema distribuido.
+
+## Lectores–escritores con un controlador (fig. 5.27)
+
+Los lectores y escritores envían pedidos a un proceso **controlador**, que responde «OK» a su *mailbox*. `count` empieza en 100, que es más que el máximo de lectores:
+
+- **count > 0:** no hay escritor esperando. Primero atiende los `finished` de los lectores, luego los `writerequest` (**prioridad a escritores**: `count -= 100`) y después los `readrequest` (`count--`).
+- **count == 0:** solo queda el pedido del escritor. Le da OK, espera su `finished` y vuelve a `count = 100`.
+- **count < 0:** un escritor espera a que salgan los lectores activos, así que solo atiende `finished` (`count++`).
+
+## ¿Y la exclusión mutua?
+
+En la **cooperación por comunicación** no se comparte memoria, así que **la exclusión mutua no es un problema de control**. Sí pueden aparecer:
+- **deadlock**: dos procesos que esperan, cada uno, un mensaje del otro;
+- **starvation**: un proceso que nunca recibe respuesta mientras otros dos se comunican entre sí.
+
+<Quiz
+	client:visible
+	id="mensajes"
+	preguntas={[
+		{ q: 'Send bloqueante + receive bloqueante se llama…', opts: ['polling', 'rendezvous', 'broadcast', 'spinlock'], ok: 1 },
+		{ q: 'Según Stallings, la combinación más útil es…', opts: ['ambos bloqueantes', 'send no bloqueante + receive bloqueante', 'ambos no bloqueantes', 'send bloqueante + receive no bloqueante'], ok: 1 },
+		{ q: 'Un mailbox muchos a uno para cliente/servidor se llama…', opts: ['socket', 'puerto', 'pipe', 'buffer'], ok: 1 },
+		{ q: 'En la exclusión mutua con mensajes, el mailbox se inicializa con…', opts: ['0 mensajes', '1 mensaje (el token)', 'n mensajes', 'un mensaje por proceso'], ok: 1 },
+		{ q: 'En el buffer acotado con mensajes, mayproduce equivale a…', opts: ['mutex', 'el semáforo de espacios vacíos (empty)', 'full', 'nada'], ok: 1 },
+		{ q: 'Direccionamiento implícito significa que…', opts: ['el receptor no conoce de antemano al emisor; el origen se llena al recibir', 'no hay emisor', 'se usa un mailbox', 'el send es no bloqueante'], ok: 0 },
+	]}
+/>
+
+<Fuente archivos={['Stallings 9e §5.6 (tabla 5.5, figs. 5.21–5.24, 5.27)', 'lab 1/Resumenes/Procesos-Signals/01 (modelos de IPC)']} />

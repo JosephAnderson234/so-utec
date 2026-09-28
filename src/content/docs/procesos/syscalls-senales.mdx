@@ -1,0 +1,170 @@
+---
+title: System calls, exec, wait y señales
+description: 'Qué es una syscall y cómo se pasan parámetros, categorías, library call vs syscall, familia exec, wait/exit, zombie vs huérfano, IPC y señales POSIX (tabla, acciones, sigaction).'
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## System calls
+
+Una **system call** es el mecanismo por el que un programa en **modo usuario** pide un servicio al **kernel**. Cada syscall tiene un **número**: la *system-call interface* mantiene una tabla indexada por ese número, y el programa no necesita saber cómo está implementada, porque la API, en la biblioteca de soporte (*libc*), lo esconde.
+
+```text
+programa ──open()──▶ libc (API) ──▶ interfaz de syscalls ──trap: usuario→kernel──▶ sys_open() ──▶ retorno a modo usuario
+```
+
+**Tres formas de pasar parámetros:**
+1. **En registros:** la más simple. RISC-V (y Selfie) usa `a0`–`a7` y la instrucción `ecall`.
+2. **En un bloque o tabla en memoria**, pasando la dirección en un registro; se usa cuando no alcanzan los registros.
+3. **Apilándolos en el stack.**
+
+| Categoría | Ejemplos (Linux) |
+| --- | --- |
+| Control de procesos | `fork`, `execve`, `exit`, `wait`, `getpid`, `setuid`, `ptrace` |
+| Archivos | `open`, `close`, `read`, `write`, `link` |
+| Dispositivos | pedir o liberar un dispositivo, leer o escribir, consultar o cambiar atributos |
+| Información | hora y fecha, datos del sistema, atributos de procesos y archivos |
+| Comunicación | mensajes (`msgsnd`, `msgrcv`), memoria compartida (`shmat`, `shmctl`), sockets (`bind`, `connect`, `send`) |
+| Planificación | `sched_setscheduler`, `sched_getparam`, `sched_yield` |
+
+:::caution[Library call ≠ system call]
+`printf()` es una función de la **libc**, no una syscall: formatea en un buffer de usuario y **después** llama a `write()`. Las funciones `execl`, `execv` y `execvp` son **envoltorios** de la única syscall real, **`execve`**. `man 2` documenta syscalls; `man 3`, funciones de biblioteca.
+:::
+
+## exec: reemplazar la imagen
+
+`exec` **reemplaza** el espacio de direcciones del proceso por otro programa. Mantiene el **mismo PID** y no crea un proceso nuevo. **Si tiene éxito, nunca retorna.**
+
+| Sufijo | Significado |
+| --- | --- |
+| `l` | argumentos como **lista**: `execl(path, "ls", "-l", NULL)` |
+| `v` | argumentos como **vector**: `execv(path, argv)` |
+| `p` | busca el ejecutable en el **PATH** |
+| `e` | recibe un **entorno** (`envp`) explícito |
+
+```c
+if (execl("/bin/uname", "uname", argv[1], (char *) 0) == -1)
+    printf("execl failed\n");
+printf("This should never get executed!\n");   // solo se ejecuta si exec FALLÓ
+```
+
+`exec ps` en una shell **reemplaza la shell** por `ps`, y al terminar `ps` la sesión se cierra.
+
+## El ciclo fork → exec → exit → wait
+
+```c
+pid_t pid = fork();
+if (pid < 0) { fprintf(stderr, "Fork Failed"); return 1; }   // error: no hay hijo
+else if (pid == 0) { execlp("/bin/ls", "ls", NULL); }         // hijo: se convierte en ls
+else { wait(NULL); printf("Child Complete"); }                // padre: espera al hijo
+```
+
+- `exit(status)`: el proceso termina, el SO **libera sus recursos** y el estado queda disponible para el padre.
+- `pid = wait(&status)`: **bloquea** al padre hasta que termine **algún** hijo, y retorna su PID y su estado.
+- Opciones de ejecución: padre e hijo corren **concurrentemente**, o el padre **espera**. Opciones de recursos: el hijo comparte todos, algunos o ninguno.
+- El padre puede terminar a un hijo (con `abort` o `kill`) si excedió sus recursos, si ya no se necesita, o porque el padre mismo termina. **Terminación en cascada:** si el SO no permite huérfanos, al morir un proceso mueren todos sus descendientes.
+
+### Zombie vs huérfano
+
+| | **Zombie** | **Huérfano** |
+| --- | --- | --- |
+| Qué pasó | el **hijo terminó** y el padre **todavía no hizo `wait()`** | el **padre terminó** antes que el hijo |
+| Estado | entrada «muerta» en la tabla de procesos (conserva el PID y el estado de salida) | el hijo sigue vivo; lo **adopta init/systemd** (PID 1), que hace `wait` por él |
+| Cómo verlo | `ps aux` → STAT `Z` (`<defunct>`) | `ps -o ppid` → PPID = 1 |
+| Código de clase | `if (fork() == 0) exit(0); sleep(20);` | `if (fork() != 0) exit(0); else sleep(23);` |
+
+<Solucion titulo="Ejercicio (WSL ~/so/tree_forks/main.c): ¿qué imprime?">
+
+```c
+int j = 2; printf("P0\n");
+int f1 = fork();
+if (f1 == 0) j += 3; else j *= 2;
+fork();
+printf("j = %d\n", j);
+```
+
+- «P0» se imprime **una vez** si la salida es una **terminal** (buffer de línea: el `\n` lo vacía antes del fork). Pero con `./t | sort | uniq -c` en WSL salió **4 veces**: con un pipe el buffer es completo, «P0\n» sigue en el buffer de usuario al hacer fork y **cada copia del proceso lo imprime al salir**. Para evitarlo: `fflush(stdout)` antes de `fork()`.
+- Tras el primer fork: el hijo tiene `j = 5` y el padre `j = 4`. El segundo fork duplica **ambos**, así que quedan 4 procesos: se imprime `j = 4` dos veces y `j = 5` dos veces, **en cualquier orden**.
+- Cada proceso tiene su **copia** de `j`, así que los cambios de uno no afectan a otro.
+
+</Solucion>
+
+## IPC: procesos cooperantes
+
+Los procesos son **independientes** o **cooperantes**. Se coopera para compartir información, acelerar el cómputo, ganar modularidad o por conveniencia.
+
+| Modelo | Cómo | ✔ / ✘ |
+| --- | --- | --- |
+| **Paso de mensajes** | cola de mensajes gestionada por el **kernel** (`send` / `receive`) | ✔ sin conflictos de acceso y sirve en red · ✘ cada mensaje cruza el kernel |
+| **Memoria compartida** | una región mapeada en ambos procesos; el kernel solo la **establece** | ✔ lo más rápido · ✘ **hay que sincronizar** (ahí entran mutex y semáforos) |
+
+## Señales
+
+Una **señal** es una notificación de **software** (un número entero) que se entrega a un proceso. Una interrupción, en cambio, es sobre todo de **hardware**. La envía **otro proceso** (`kill`) o **el kernel**, y **no lleva argumentos**: solo el número.
+
+- **Síncrona:** la provoca el propio proceso. Por ejemplo, una división por cero genera `SIGFPE` y un acceso inválido, `SIGSEGV`.
+- **Asíncrona:** viene de fuera. Por ejemplo, `kill`, Ctrl+C o la muerte de un hijo (`SIGCHLD`).
+
+| # | Señal | Acción por defecto | Origen típico |
+| --- | --- | --- | --- |
+| 1 | SIGHUP | Terminar | cierre de la terminal |
+| 2 | **SIGINT** | Terminar | **Ctrl+C** |
+| 3 | SIGQUIT | Terminar + core | Ctrl+\\ |
+| 4 | SIGILL | Terminar + core | instrucción ilegal |
+| 6 | SIGABRT | Terminar + core | `abort()` |
+| 8 | **SIGFPE** | Terminar + core | división por cero |
+| 9 | **SIGKILL** | Terminar | **no se puede capturar ni ignorar** |
+| 11 | **SIGSEGV** | Terminar + core | referencia inválida a memoria |
+| 13 | SIGPIPE | Terminar | escribir en un pipe sin lectores |
+| 14 | SIGALRM | Terminar | `alarm()` |
+| 15 | **SIGTERM** | Terminar | **la que envía `kill` por defecto** («por favor, termina») |
+| 17 | SIGCHLD | Ignorar | un hijo terminó o se detuvo |
+| 18 | SIGCONT | Continuar | reanudar |
+| 19 | **SIGSTOP** | Detener | **no se puede capturar ni ignorar** |
+| 20 | SIGTSTP | Detener | **Ctrl+Z** |
+
+**Las 5 acciones por defecto:**
+- **Terminate**: termina el proceso.
+- **Term + Core**: termina y genera un *core dump*, una foto de los datos y la pila. Se usa cuando el proceso hizo algo ilegal.
+- **Ignore**: no pasa nada.
+- **Stop**: el proceso queda detenido (`T` en `ps`).
+- **Continue**: reanuda un proceso detenido.
+
+**Cómo se entrega una señal:**
+1. Ocurre un evento: una excepción, un `kill` o una interrupción.
+2. El SO **marca un bit** en el vector de **señales pendientes** del proceso.
+3. Cuando el SO está por **devolverle la CPU** a ese proceso, revisa el vector, limpia el bit y ejecuta la acción: la **por defecto** o el **handler** instalado.
+4. Si la acción no mata al proceso, este **continúa** donde estaba.
+
+```c
+static void myHandler(int signum) { printf("In myHandler with argument %d\n", signum); }
+
+struct sigaction sa;
+sa.sa_flags = 0;
+sa.sa_handler = myHandler;           // función a ejecutar
+sigemptyset(&sa.sa_mask);            // no bloquear otras señales durante el handler
+assert(sigaction(SIGINT, &sa, NULL) == 0);   // instalar para SIGINT
+while (1) { printf("Loop, %lu\n", i++); sleep(1); }   // Ctrl+C ya no mata: imprime "argument 2"
+```
+
+`sigaction` (POSIX) es más robusto que `signal` (C90): permite indicar flags y una **máscara**, y **bloquea automáticamente la misma señal** mientras corre el handler, lo que evita la reentrancia. Hay que usar `kill -9` o Ctrl+\\ para matar ese programa.
+
+Comandos: `kill -2 1234` y `kill -SIGINT 1234` son equivalentes; `kill 1234` envía SIGTERM; `kill -9 %1` actúa sobre un job en segundo plano. Solo puedes enviar señales a tus propios procesos, salvo que seas root.
+
+<Quiz
+	client:visible
+	id="senales"
+	preguntas={[
+		{ q: '¿Qué dos señales no pueden capturarse ni ignorarse?', opts: ['SIGINT y SIGTERM', 'SIGKILL y SIGSTOP', 'SIGSEGV y SIGFPE', 'SIGCHLD y SIGCONT'], ok: 1 },
+		{ q: '`kill 1234` sin opciones envía…', opts: ['SIGKILL', 'SIGTERM', 'SIGINT', 'SIGHUP'], ok: 1 },
+		{ q: 'El hijo terminó y el padre no hizo wait(). El hijo es…', opts: ['huérfano', 'zombie', 'daemon', 'suspendido'], ok: 1 },
+		{ q: '¿Cuál es la única syscall real de la familia exec?', opts: ['execl', 'execvp', 'execve', 'execlp'], ok: 2 },
+		{ q: 'printf() es…', opts: ['una syscall', 'una función de biblioteca que termina llamando a write()', 'una instrucción privilegiada', 'una señal'], ok: 1 },
+		{ q: 'Una división por cero genera una señal…', opts: ['asíncrona SIGINT', 'síncrona SIGFPE', 'asíncrona SIGCHLD', 'ninguna'], ok: 1 },
+		{ q: 'El modelo de IPC más rápido, pero que exige sincronización explícita, es…', opts: ['paso de mensajes', 'memoria compartida', 'señales', 'pipes'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['lab 1/Resumenes/Procesos-Signals/01-Procesos-Syscalls-Signals.md (02-OSL-Processes-Syscalls-Signals)', 'WSL ~/so/OST-02-Processes_Syscalls_Signals/{zombie,orphan,fork1,fork2,sigaction}.c', 'WSL ~/so/tree_forks/main.c', 'Stallings 9e tablas 2.6–2.7']} />

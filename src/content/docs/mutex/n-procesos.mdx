@@ -1,0 +1,113 @@
+---
+title: 'N procesos: Dijkstra 1965 y compañía'
+description: 'Por qué el vector de interés no generaliza, el paper de Dijkstra (b[], c[], k) con sus 4 propiedades, el "Almost Dijkstra" y su contraejemplo de starvation, la versión del lab, filtro/torneo y la línea histórica.'
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+## El reto
+
+Con 2 procesos basta un `turn` binario para desempatar. Con **N**, varios compiten a la vez y un solo `order` no alcanza. El intento ingenuo del lab 06 muestra el problema:
+
+```c
+interest[i] = 1;
+while (others_are_interested()) ;   // si todos marcan a la vez → deadlock
+/* SC */
+interest[i] = 0;
+```
+
+## Dijkstra (1965): *«Solution of a Problem in Concurrent Programming Control»*
+
+Fue la **primera** solución para **N procesos** usando solo lecturas y escrituras atómicas de **una palabra** (sin test-and-set), publicada en CACM 8(9). Exige cuatro propiedades:
+
+- **(a) Simetría:** ningún proceso tiene prioridad fija.
+- **(b)** Nada se supone sobre las **velocidades**, ni que sean constantes.
+- **(c)** Un proceso **detenido fuera** de su SC no bloquea a los demás.
+- **(d)** Nada de bloqueo *«after you – after you»*: la decisión no se posterga para siempre.
+
+```text
+boolean array b[1..N], c[1..N]   (todos en true al inicio; b[i] y c[i] solo los escribe P_i)
+integer k                         (valor inicial irrelevante)
+
+Li0: b[i] := false                         ← "quiero entrar"
+Li1: if k ≠ i then begin
+Li2:     c[i] := true
+Li3:     if b[k] then k := i               ← si el dueño del turno no quiere entrar, lo tomo
+         go to Li1
+     end
+     else begin
+Li4:     c[i] := false                     ← "estoy a punto de entrar"
+         for j := 1 step 1 until N do
+             if j ≠ i and not c[j] then go to Li1
+     end
+     critical section
+     c[i] := true;  b[i] := true
+     remainder of the cycle;  go to Li0
+```
+
+**Intuición:**
+- `b[i] = false` significa que P_i está interesado.
+- `c[i] = false` significa que P_i está en la etapa final (a punto de entrar o dentro).
+- `k` es un **árbitro dinámico**: cuando el dueño del turno no está interesado (`b[k]` en true), cualquiera puede apropiárselo.
+
+**Seguridad:** para entrar hay que poner `c[i] = false` y **luego** ver todos los demás `c[j] = true`. Si dos lo lograran, alguno habría visto el `c` del otro en false. **Contradicción.**
+
+**Sin bloqueo *after you*:** si el dueño de `k` no compite, `b[k] = true` y alguno se apropia de `k`; en cuanto lo hace, `b[k]` pasa a false y nadie más puede robarlo. Los demás, al no ser `k`, ponen `c = true` y vuelven a Li1, así que el dueño de `k` termina viendo todos los `c` en true y entra.
+
+:::caution[Lo que NO garantiza]
+Dijkstra 1965 garantiza que **alguien** entra, pero **no que tú entres**: un proceso puede ser adelantado indefinidamente. **Knuth (1966)** dio la primera solución con espera acotada; después vinieron **Lamport (Bakery, 1974, FCFS)** y **Peterson (1981)**.
+:::
+
+## «Almost Dijkstra» (demostraciones del curso)
+
+```text
+flag[i] = true;
+while (∃ j ≠ i : flag[j]) {
+    if (turn != i) {
+        flag[i] = false;
+        while (turn != -1) ;
+        turn = i;
+        flag[i] = true;
+    }
+}
+/* SC */
+turn = -1;  flag[i] = false;
+```
+
+Cumple **exclusión mutua** y **no tiene deadlock**, pero **no es starvation-free**.
+
+<Solucion titulo="Contraejemplo de starvation">
+
+1. P0 está en la SC por un buen rato: `flag[0] = T` y `turn` vale −1 o 0.
+2. Los demás quieren entrar. Todos esperan `turn == -1`, y cuando llega, cada uno escribe `turn = i`; gana el **último** en escribir, digamos Pk.
+3. Pk queda esperando a que `flag[0]` pase a F.
+4. P0 sale: `turn = -1` y `flag[0] = F`.
+5. Antes de que Pk vuelva a ejecutar, **otro** proceso encuentra `turn == -1` y le **roba** el turno. Si el entrelazado es siempre «de mala suerte», Pk no entra nunca.
+
+Es exactamente el bloqueo *«after you – after you»* que el Dijkstra real evita con los **dos** arreglos `b[]` y `c[]`.
+
+</Solucion>
+
+La **versión del laboratorio** (con `order = -1` e `interest[]`) es este mismo esquema. En el [intercalador](/mutex/algoritmos/) con N = 2, la búsqueda exhaustiva confirma **✔ mutex, ✔ deadlock-free, ✘ starvation**.
+
+## Filtro y torneo (generalizar Peterson)
+
+- **Algoritmo de filtro:** N − 1 niveles, cada uno con una «víctima». En cada nivel, un proceso espera mientras sea la víctima y haya alguien en su nivel o en uno superior. En cada nivel queda al menos un proceso atrás, así que al último nivel llega uno solo.
+- **Árbol de torneo:** los procesos juegan partidos de Peterson de a dos. El ganador de cada partido sube un nivel y el de la raíz entra. Es lo que anotó el profesor en el PC1 2021: *«Peterson, tournament of 2 processes»*.
+- **Bakery de Lamport:** números de turno, orden FCFS y [demostración completa](/mutex/bakery/).
+
+## Línea histórica
+
+| Año | Algoritmo | Procesos | Aporte |
+| --- | --- | --- | --- |
+| 1965 | **Dekker** (reportado por Dijkstra) | 2 | el primero correcto |
+| 1965 | **Dijkstra** | N | el primero para N; sin espera acotada |
+| 1965 | **Semáforos** (Dijkstra) | — | abstracción P/V que evita el busy waiting |
+| 1966 | Hyman | 2 | publicado como mejora de Dekker, era **incorrecto** |
+| 1966 | Knuth | N | la primera espera acotada |
+| 1974 | **Bakery** (Lamport) | N | FCFS; ni siquiera necesita registros atómicos |
+| 1981 | **Peterson** | 2 (y N) | el más simple |
+| 1970s | **Monitores** (Hoare, Brinch Hansen) | — | la abstracción de lenguaje |
+
+<Fuente archivos={['lab2/dijskstra proff.pdf (paper Dijkstra 1965)', 'lab2/Resumenes/06-Dijkstra-Paper-1965.md', 'lab2/06-OSL-Mutual_exclusion algorithms_demostrations.pdf → Resumenes/05', 'lab2/06-OSL-Mutex.pdf', 'Herlihy & Shavit, cap. 2 (filtro, Bakery)']} />

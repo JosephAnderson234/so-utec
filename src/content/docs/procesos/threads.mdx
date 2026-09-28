@@ -1,88 +1,264 @@
 ---
-title: Modelos de threads y pthreads
-description: ULT vs KLT, many-to-one, fork con mutex tomado, pthreads y la race de argumentos del E1 2026-1.
+title: 'Threads: teoría, modelos y pthreads'
+description: 'Stallings cap. 4 completo + laboratorio: proceso vs thread, qué se comparte, beneficios con cifras, ULT/KLT/combinado, relaciones thread:proceso, Amdahl, Windows/Solaris/Linux, pthreads y trampas de examen.'
 ---
 
+import Amdahl from '../../../components/sim/Amdahl.tsx';
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
 
-## ULT, KLT y modelos de mapeo
+## Proceso = dos ideas independientes
 
-| Modelo | Mapeo | Si un hilo hace una syscall bloqueante… | Paralelismo en multicore |
-| --- | --- | --- | --- |
-| **Many-to-One** (ULT puros, green threads) | N usuario → 1 kernel | **se bloquea todo el proceso** | No |
-| **One-to-One** (Linux NPTL, Windows) | 1 → 1 | solo ese hilo | Sí |
-| **Many-to-Many** (Solaris antiguo) | M → N | el kernel sigue con otro KLT | Sí |
+Stallings separa lo que el capítulo 3 llamaba «proceso» en dos conceptos:
 
-**Ventajas de los ULT:** el cambio de hilo no entra al kernel (es barato) y cada aplicación puede tener su propio planificador. **Desventajas:** una syscall bloqueante detiene todo el proceso y no aprovechan varios núcleos. La técnica de *jacketing* intenta mitigarlo con E/S no bloqueante.
+| Concepto | Unidad | Qué incluye |
+| --- | --- | --- |
+| **Propiedad de recursos** | el **proceso** o *task*: la unidad de **asignación de recursos** y de **protección** | espacio de direcciones virtual (la imagen), acceso protegido a CPU, archivos, E/S y otros procesos |
+| **Planificación y ejecución** | el **thread** o *lightweight process*: la unidad de **despacho** | estado de ejecución, contexto guardado (un **PC independiente**), **pila propia**, almacenamiento estático por hilo y acceso a la memoria del proceso |
 
-:::note[En el examen · E1 2026-1 P1.1]
-Many-to-One y `read()` sobre un socket sin datos → **B: todo el proceso se bloquea**. El kernel solo ve un hilo, lo pasa a estado de espera y el planificador de usuario nunca recupera la CPU.
+:::note[Terminología inconsistente]
+*Lightweight process* puede significar (1) thread, (2) *kernel-level thread* o (3), en Solaris, la entidad que mapea ULTs a KLTs. En los mainframes de IBM, *address space* ≈ proceso y *task* ≈ thread.
 :::
 
-## fork() con un mutex tomado
+**Multithreading** es la capacidad del SO de soportar **varias rutas de ejecución concurrentes dentro de un proceso**. Hay cuatro combinaciones:
+- 1 proceso con 1 hilo (MS-DOS);
+- 1 proceso con varios hilos (la JVM);
+- varios procesos con 1 hilo cada uno (UNIX clásico);
+- varios procesos con varios hilos cada uno (Windows, Solaris, Linux).
+
+### Qué comparte y qué no
+
+| Privado de cada hilo | Compartido por todos los hilos del proceso |
+| --- | --- |
+| PC, registros, **stack** (y pila de kernel) | código (text), **variables globales**, **heap** |
+| estado de ejecución, **TCB** (Thread Control Block) | archivos abiertos, señales y handlers, directorio actual |
+| variables locales, *thread-local storage* | el PCB y el espacio de direcciones |
+
+**Modelo con un solo hilo:** PCB + espacio de usuario + pila de usuario + pila de kernel. **Modelo multihilo:** **un** PCB y **un** espacio de direcciones, pero **un TCB, una pila de usuario y una pila de kernel por hilo**. Por eso, si un hilo modifica una variable global, los demás la ven; y si un hilo abre un archivo, los otros pueden leerlo.
+
+**`errno` y las globales:** el hilo 1 hace `access()` y deja un valor en `errno`; antes de que lo lea, el hilo 2 hace `open()` y lo sobrescribe. Por eso `errno` es **thread-local**: cada hilo tiene sus propias «globales privadas».
+
+### Beneficios (con cifras)
+
+1. **Crear un hilo es ~10× más rápido que crear un proceso** (medido por los desarrolladores de Mach).
+2. **Terminarlo** también es más rápido.
+3. **Cambiar entre hilos** del mismo proceso es más barato que cambiar entre procesos. En Linux, si el directorio de páginas del hilo entrante es el mismo, el cambio es casi un salto; un cambio de hilo cuesta ≈100 ns frente a los milisegundos del cambio de proceso.
+4. **Se comunican sin el kernel**: comparten memoria y archivos, así que no necesitan IPC.
+
+| Latencia (µs, VAX, tabla 4.1) | ULT | KLT | Procesos |
+| --- | --- | --- | --- |
+| Null Fork | **34** | 948 | 11 300 |
+| Signal-Wait | **37** | 441 | 1 840 |
+
+Hay un orden de magnitud entre ULT y KLT, y otro entre KLT y procesos. **Pero:** si casi todos los cambios de hilo requieren entrar al kernel, los ULT no rinden mucho mejor que los KLT.
+
+**Cuatro usos típicos (Letwin):**
+1. **Primer y segundo plano:** en una hoja de cálculo, un hilo lee los comandos y otro recalcula.
+2. **Procesamiento asíncrono:** un hilo guarda un respaldo en disco cada minuto.
+3. **Velocidad de ejecución:** calcular un lote mientras se lee el siguiente, o usar varios núcleos.
+4. **Estructura modular:** un hilo por cada fuente o destino de E/S.
+
+Otros ejemplos: un servidor de archivos que crea un hilo por petición; dos RPC a dos hosts, que con dos hilos esperan **concurrentemente** incluso con una sola CPU.
+
+**Acciones a nivel de proceso:** la **suspensión** (*swap out*) y la **terminación** afectan a **todos** los hilos, porque comparten el espacio de direcciones. Por eso los hilos **no tienen estados de suspensión**: sus estados son solo **Running, Ready y Blocked**. Hay cuatro operaciones: **Spawn** (con su propio contexto y pila, pasa a Ready), **Block** (guarda registros, PC y SP), **Unblock** (pasa a Ready) y **Finish** (libera su contexto y sus pilas).
+
+**Pregunta de diseño clave:** ¿el bloqueo de un hilo bloquea a todo el proceso? La respuesta depende de si los hilos son ULT o KLT.
+
+## ULT vs KLT vs combinado
+
+| | **ULT** (hilos de usuario) | **KLT** (hilos de kernel) |
+| --- | --- | --- |
+| Quién los gestiona | una **biblioteca** en espacio de usuario; **el kernel no sabe que existen** | el **kernel**; la aplicación solo usa una API (Windows) |
+| Cambio de hilo | **sin modo kernel**: ahorra 2 cambios de modo | requiere pasar por el kernel |
+| Planificación | **a medida de la aplicación** (round-robin, prioridades…) | la del SO |
+| Portabilidad | corren en **cualquier SO** | necesitan soporte del kernel |
+| Syscall bloqueante | **bloquea TODO el proceso** | solo ese hilo; el kernel ejecuta otro del mismo proceso |
+| Varios núcleos | **no**: el kernel asigna el proceso a una sola CPU | **sí**: hilos del mismo proceso corren en paralelo |
+| Kernel multihilo | — | las propias rutinas del kernel pueden ser multihilo |
+
+**Paradoja de los ULT (fig. 4.6):** si el hilo 2 del proceso B hace una E/S, **el kernel bloquea a B**, pero para la biblioteca el hilo 2 **sigue en Running**. Si expira el quantum de B, B pasa a Ready y el hilo 2 sigue «Running» para la biblioteca. Un proceso puede incluso ser interrumpido **a mitad de un cambio de hilo** dentro de la biblioteca; al reanudarse, lo completa.
+
+**Jacketing:** convierte una syscall bloqueante en no bloqueante. Una rutina *jacket* revisa si el dispositivo está ocupado; si lo está, cede el control a otro hilo y vuelve a intentar más tarde. La alternativa, usar procesos en vez de hilos, pierde la ventaja de los hilos.
+
+**Combinado (Solaris antiguo):** los hilos se crean y se planifican casi por completo en espacio de usuario, y se mapean sobre un número **menor o igual** de KLT, ajustable. Junta lo mejor de ambos: paralelismo y bloqueos que no detienen todo el proceso.
+
+### Dos tablas que NO son la misma
+
+**(a) Mapeo de hilos de usuario a hilos de kernel** (lo que pregunta el E1 2026-1):
+
+| Modelo | Mapeo | Syscall bloqueante | Paralelismo |
+| --- | --- | --- | --- |
+| **Many-to-One** (ULT puros, *green threads*) | N usuario → 1 kernel | **bloquea todo el proceso** | No |
+| **One-to-One** (Linux NPTL, Windows) | 1 → 1 | solo ese hilo | Sí |
+| **Many-to-Many / two-level** | M → N (N ≤ M) | el kernel ejecuta otro KLT | Sí |
+
+**(b) Relación hilos:procesos** (tabla 4.2 de Stallings):
+
+| Hilos:Procesos | Descripción | Ejemplos |
+| --- | --- | --- |
+| **1:1** | cada hilo es un proceso con su espacio y sus recursos | UNIX tradicional |
+| **M:1** | un proceso con muchos hilos | Windows NT, Solaris, Linux, OS/2, OS/390, Mach |
+| **1:M** | un hilo **migra** entre espacios de direcciones, incluso entre máquinas | Ra (Clouds), Emerald |
+| **M:N** | combina ambos: *dominios* estáticos + hilos que se mueven entre dominios | TRIX |
+
+:::note[E1 2026-1 · P1.1]
+Many-to-One y `read()` sobre un socket sin datos → **B: todo el proceso se bloquea**. El kernel solo ve un hilo, lo pasa a espera, y el planificador de usuario nunca recupera la CPU.
+:::
+
+### Cuatro formas de implementar hilos (diapositivas del curso)
+
+| Opción | Idea | Ejemplo |
+| --- | --- | --- |
+| **A** | biblioteca de usuario en **un proceso multihilo**; el kernel reparte tiempo entre procesos | los *green threads* del primer Java |
+| **B** | **muchos procesos de un solo hilo**, multiplexados por una biblioteca o una VM | Erlang, Haskell |
+| **C** | **scheduler activations**: el kernel asigna CPUs a la biblioteca y hace un *upcall* cuando un hilo se bloquea | Windows (UMS) |
+| **D** | **hilos de kernel** directos: simple, pero con muchas transiciones usuario/kernel | Linux, macOS, Windows |
+
+## Multicore y la ley de Amdahl
+
+<Amdahl client:visible />
+
+**Aplicaciones que escalan bien con más núcleos:**
+- nativas multihilo (Lotus Domino, Siebel CRM);
+- multiproceso (Oracle, SAP, PeopleSoft);
+- **Java**, porque la JVM es un proceso multihilo (Tomcat, WebSphere);
+- **multiinstancia**, varias copias de la aplicación, quizá virtualizadas.
+
+**Caso Valve (motor Source):**
+- **Threading grueso** (un sistema por núcleo): 2× en casos artificiales, pero apenas **1.2×** en juego real.
+- **Threading fino:** difícil de gestionar.
+- **Híbrido:** el que más prometía. Por ejemplo, la mezcla de sonido fija en un núcleo y el *rendering* repartido jerárquicamente.
+
+Como el >95 % de los accesos a la *world list* eran lecturas, usaron **single-writer / multiple-readers**: es el patrón de [lectores–escritores](/monitores/lectores-escritores/).
+
+## Hilos en SO reales
+
+**Windows:**
+- Una **aplicación** tiene uno o más procesos, y cada **proceso** es un objeto con token de seguridad, espacio virtual y una tabla de *handles*, con **al menos un hilo** (el *primary thread*).
+- Otras entidades: *job objects* (grupos de procesos), *thread pools*, **fibers** (planificados a mano, **sin preemption**) y **UMS** (planificación en modo usuario).
+- **6 estados de hilo:** Ready, **Standby** (elegido para la siguiente CPU), Running, Waiting, **Transition** (listo, pero su pila está fuera de memoria) y Terminated.
+- En Windows 8–10 (Metro/UWP), solo la app en primer plano corre; las demás se suspenden, y las tareas de fondo reciben 1 s de CPU por hora.
+
+**Solaris:**
+- Cuatro conceptos: **proceso**, **ULT**, **LWP** (el mapeo de ULT a hilo de kernel, **siempre 1 LWP = 1 hilo de kernel**) e **hilos de kernel**. Hay además hilos de kernel sin LWP, para funciones del sistema.
+- Estados: RUN, ONPROC, SLEEP, STOP, ZOMBIE, FREE, PINNED e IDLE.
+- **Las interrupciones son hilos:** tienen alta prioridad, el hilo interrumpido queda *pinned* a su CPU y se usa la sincronización normal en vez de enmascarar interrupciones. Así rinde más.
+
+**Linux:**
+- Un proceso o *task* es un `task_struct` (estado, planificación, IDs, IPC, enlaces a padre, hermanos e hijos, tiempos, archivos, espacio de direcciones y contexto de CPU).
+- **No distingue hilos de procesos:** un hilo es un `clone()` que comparte recursos. El `pid` identifica al hilo y el `tgid` al proceso, que es lo que `ps` muestra como PID.
+- `fork()` es `clone()` sin flags de compartición. Cada hilo sigue teniendo **su propia pila**.
+- **Namespaces** (`mnt`, `pid`, `net`, `ipc`, `uts`, `user`; con `clone(CLONE_NEW*)` o `unshare`) y **cgroups** (contabilidad y límites de recursos a través de un VFS en `/sys/fs/cgroup`) son la base de los **contenedores** (Docker, LXC, Kubernetes).
+
+**Android:** cada app corre en su propio proceso y sandbox, con los estados de *Activity* (activa, pausada, detenida…); el sistema mata procesos por importancia cuando falta memoria. **macOS / GCD:** *blocks* (funciones anónimas) encoladas en *dispatch queues* seriales o concurrentes, sobre un *thread pool*.
+
+## Concurrencia vs paralelismo
+
+- **Concurrencia** (propiedad del software): varias tareas **progresan en el mismo intervalo** de tiempo, intercalándose.
+- **Paralelismo** (propiedad del hardware): varias tareas se ejecutan **en el mismo instante**, en núcleos distintos.
+
+¿Dos hilos pueden ser concurrentes en un solo núcleo? **Sí**, por *time slicing*. ¿Pueden ser paralelos en un solo núcleo? **No.** Todo paralelismo es concurrencia, pero no toda concurrencia es paralelismo.
+
+**Ilusión frente a realidad:** el programador imagina un procesador por hilo, pero los hilos avanzan a **velocidad variable** y pueden interrumpirse **entre dos instrucciones cualesquiera**. El programa debe ser correcto para **toda** intercalación posible; esa es la raíz de las *race conditions*.
+
+## pthreads
+
+```c
+int  pthread_create(pthread_t *t, const pthread_attr_t *attr, void *(*f)(void *), void *arg); // 0 si OK
+int  pthread_join(pthread_t t, void **retval);   // bloquea hasta que t termine; recoge su valor de retorno
+void pthread_exit(void *retval);                 // termina SOLO este hilo (return en f equivale a esto)
+pthread_attr_init(&a); pthread_attr_setdetachstate(&a, PTHREAD_CREATE_JOINABLE); // o DETACHED
+```
+
+- `pthread_create` **no bloquea**: el hilo principal sigue, y el orden de impresión entre `main` y el hilo **no está garantizado**.
+- Firma **obligatoria**: `void *f(void *)`. Se compila con `-pthread`.
+- `pthread_create` devuelve un **código de error** (no usa `errno`).
+- Un `pthread_exit` dentro de una función anidada termina el hilo **ahí mismo**, sin ejecutar el código que sigue.
+- **Límites:** `/proc/sys/kernel/threads-max` y `prlimit --nproc`. Cada hilo necesita su propia pila, así que 60 000 hilos pueden fallar.
+
+| | `fork()` | `pthread_create()` |
+| --- | --- | --- |
+| Crea | un **proceso** (nuevo PID/tgid) | un **hilo** en el mismo proceso (mismo tgid) |
+| Memoria | **separada** (COW) | **compartida** |
+| Comunicación | IPC (pipes, shm, señales, sockets) | variables compartidas (y el riesgo de *races*) |
+| Costo | alto (tablas de páginas y task) | bajo (una pila y un contexto) |
+| Espera | `wait` | `pthread_join` |
+| Terminar | `exit` termina el proceso **y todos sus hilos** | `pthread_exit` termina **solo ese hilo** |
+| Fallas | aisladas | un hilo puede corromper a todo el proceso |
+
+<Solucion titulo="Laboratorio: miturno.c — ¿se ejecuta tuTurno()?">
+
+```c
+void miTurno() { while (1) { sleep(1); printf("Es mi turno!\n"); } }
+void tuTurno() { while (1) { sleep(2); printf("Es tu turno!\n"); } }
+int main() { miTurno(); tuTurno(); }
+```
+
+**No.** Son llamadas a funciones **normales**: `miTurno()` tiene un bucle infinito y nunca retorna, así que `main` nunca llega a `tuTurno()`. La solución es crear un hilo: `pthread_create(&t, NULL, miTurno, NULL); tuTurno();`, con la firma `void *miTurno(void *)`.
+
+**Variante:** `miTurno` es un hilo que hace 8 iteraciones de 1 s, `tuTurno` hace 3 de 2 s en `main`, y **no hay `pthread_join`**. A los ~6 s, `main` retorna y **el proceso entero termina**, matando al hilo. Se imprimen los 3 «Tu turno» pero solo ~5–6 de los 8 «Mi turno». La corrección es `pthread_join(miThread, NULL)` antes del `return`.
+
+</Solucion>
+
+<Solucion titulo="Laboratorio: contar hasta 2·BIG con dos hilos">
+
+Dos hilos ejecutan `for (i < 100 000 000) counter++;` sobre un `counter` global. `counter++` **no es atómico**: es un *load*, un *add* y un *store*. Si se intercalan, se **pierden incrementos**, y el resultado es **menor que 200 000 000 y distinto en cada ejecución**. Es más rápido, pero incorrecto. La solución es un **mutex** alrededor de `counter++`, un `atomic_fetch_add`, o mejor aún que cada hilo acumule en una variable local y sume al final.
+
+</Solucion>
+
+**`matmul.c`:** reparte las filas entre `NCORES` hilos y pasa `&row[i]`, un puntero a **su propio** elemento, nunca a la variable del bucle. Es el patrón **fork–join**.
+
+## fork() con un mutex tomado (E1 2026-1 · P1.2)
 
 ```c
 pthread_mutex_lock(&mutex_global);
 pid_t pid = fork();
 if (pid == 0) {                       // hijo
     pthread_mutex_lock(&mutex_global); // ← aquí
-    ...
 ```
 
-El hijo hereda la memoria **con el mutex en estado bloqueado**. En este código el que lo bloqueó fue justamente el hilo que hizo `fork`. Para un `PTHREAD_MUTEX_NORMAL`, volver a bloquearlo es un **auto-deadlock**. Y si lo hubiera tomado otro hilo, ese hilo **no existe en el hijo** y nadie lo liberará jamás. Respuesta: **B, deadlock**. Por eso existe `pthread_atfork()`.
-
-## pthreads en 30 segundos
-
-```c
-pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;   // inicialización estática
-pthread_mutex_lock(&m);   /* SC */   pthread_mutex_unlock(&m);
-pthread_create(&tid, NULL, rutina, (void *) arg); // arg: void*
-pthread_join(tid, NULL);
-```
+El hijo hereda la memoria **con el mutex bloqueado**. Aquí lo bloqueó el mismo hilo que hizo `fork`, así que para un `PTHREAD_MUTEX_NORMAL` volver a bloquearlo es un **auto-deadlock**. Y si lo hubiera tomado otro hilo, ese hilo **no existe en el hijo** (fork solo copia el hilo que llama). Respuesta: **B, deadlock**. Por eso existe `pthread_atfork()`.
 
 - `unlock` desde un hilo que **no** es el dueño, con un mutex NORMAL, es **comportamiento indefinido** (E1 2026-1 P1.6 → **C**). Con `PTHREAD_MUTEX_ERRORCHECK` se obtiene `EPERM`.
-- Un mutex no es un semáforo binario: tiene **dueño**. Para pasar tokens entre hilos se usa un semáforo.
+- Un mutex no es un semáforo binario: tiene **dueño**.
 
 ## Ejercicio E1 2026-1 · Pregunta 4 (6 pts)
 
-Main crea 4 hilos pasando **la dirección de la misma `ConfigThread arg_struct`** local, y la modifica en cada iteración del `for`. Supón que el planificador ejecuta todo el `for` antes de que cualquier hilo lea sus argumentos.
+Main crea 4 hilos pasando **la dirección de la misma `ConfigThread arg_struct`** local, y la modifica en cada iteración del `for`. Supón que el planificador ejecuta todo el `for` antes de que algún hilo lea sus argumentos.
 
 <Solucion titulo="Ver solución (verificada en WSL)">
 
 **1) Espacios [1]–[5]:**
 
 ```c
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;                 // [1]
-pthread_mutex_lock(&mutex);                                        // [2]
-pthread_mutex_unlock(&mutex);                                      // [3]
-pthread_create(&threads[i], NULL, rutina_hilo, (void *) &arg_struct); // [4]
-pthread_join(threads[i], NULL);                                    // [5]
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;                     // [1]
+pthread_mutex_lock(&mutex);                                            // [2]
+pthread_mutex_unlock(&mutex);                                          // [3]
+pthread_create(&threads[i], NULL, rutina_hilo, (void *) &arg_struct);  // [4]
+pthread_join(threads[i], NULL);                                        // [5]
 ```
 
-**2) Race estructural:** los 4 hilos reciben **el mismo puntero** `&arg_struct`. Cuando por fin leen, el `for` ya escribió la última iteración (`i = 3`):
-
-- Todos leen `local_id = 3` y `local_mult = 3 · 10 = 30`.
-- `acumulador_global` $= 4 \times 30 = \mathbf{120}$ en vez de $0 + 10 + 20 + 30 = 60$.
-
-El mutex protege la suma, pero **no** la lectura de los argumentos. Lo forcé con una barrera en WSL y la salida fue `id=3 mult=30` ×4 y `Acumulador final: 120`.
-
-**Corrección:** usar un arreglo `ConfigThread args[n]` y pasar `&args[i]`, o reservar memoria con `malloc` por hilo.
+**2) Race estructural:** los 4 hilos reciben **el mismo puntero**. Cuando leen, el `for` ya escribió la iteración `i = 3`, así que todos leen `local_id = 3` y `local_mult = 30`, y `acumulador_global` $= 4 \times 30 = \mathbf{120}$ en vez de 60. El mutex protege la suma, pero no la lectura de los argumentos. Lo verifiqué en WSL con una barrera: `id=3 mult=30` ×4 y un resultado de 120. **Corrección:** usar `ConfigThread args[n]` y pasar `&args[i]`, o un `malloc` por hilo.
 
 </Solucion>
-
-## Quiz
 
 <Quiz
 	client:visible
 	id="threads"
 	preguntas={[
-		{ q: 'Dos hilos incrementan `stats.contador_hilo1` y `stats.contador_hilo2` (campos vecinos del mismo struct). No hay race, pero es lentísimo. ¿Por qué?', opts: ['Inversión de prioridad', 'False sharing: ambos campos están en la misma línea de caché y cada escritura invalida la del otro núcleo', 'Deadlock de la MMU', 'El compilador serializa los hilos'], ok: 1, why: 'Se soluciona con padding o alineando cada contador a 64 bytes (`alignas(64)`).' },
-		{ q: '¿Qué comparten los hilos de un mismo proceso?', opts: ['Stack y registros', 'Espacio de direcciones, archivos abiertos y globales', 'Solo el heap', 'Nada'], ok: 1, why: 'Cada hilo tiene su propio stack, registros, PC y TCB; lo demás lo comparte.' },
-		{ q: 'En Many-to-One, ¿se ejecutan dos hilos del mismo proceso en paralelo en dos núcleos?', opts: ['Sí', 'No, el kernel solo ve un hilo', 'Solo si hay hyperthreading', 'Solo con mutex'], ok: 1 },
-		{ q: '`pthread_mutex_unlock` por un hilo que no es dueño (mutex NORMAL):', opts: ['Funciona: pasa el token', 'Devuelve EPERM', 'Comportamiento indefinido', 'Segfault garantizado'], ok: 2, why: 'EPERM solo con PTHREAD_MUTEX_ERRORCHECK o RECURSIVE.' },
+		{ q: 'La unidad de DESPACHO es…', opts: ['el proceso', 'el thread', 'el PCB', 'el espacio de direcciones'], ok: 1 },
+		{ q: '¿Qué NO comparten los hilos de un mismo proceso?', opts: ['Heap', 'Variables globales', 'Stack y registros', 'Archivos abiertos'], ok: 2 },
+		{ q: '¿Por qué los hilos no tienen estado «suspendido»?', opts: ['Porque no se bloquean', 'Porque el swap out es a nivel de proceso y afecta a todos sus hilos', 'Porque siempre están en memoria', 'Porque lo prohíbe POSIX'], ok: 1 },
+		{ q: 'Ventaja de los ULT sobre los KLT:', opts: ['Aprovechan varios núcleos', 'El cambio de hilo no requiere modo kernel', 'Una syscall no bloquea a los demás', 'El kernel los planifica'], ok: 1 },
+		{ q: 'Con ULT puros, un hilo hace una E/S bloqueante. Para la biblioteca de hilos, ese hilo está…', opts: ['Blocked', 'Running (aunque el proceso está bloqueado)', 'Ready', 'Terminated'], ok: 1 },
+		{ q: 'f = 0.9 y N = 8. Speedup según Amdahl:', opts: ['8', '7.2', '≈ 4.7', '≈ 9'], ok: 2, why: '$1/(0.1 + 0.9/8) = 1/0.2125 \\approx 4.7$.' },
+		{ q: 'En Linux, un hilo es…', opts: ['un objeto distinto del proceso', 'un task_struct creado con clone(CLONE_VM | …) que comparte el tgid', 'un LWP', 'un fiber'], ok: 1 },
+		{ q: 'Solaris: un LWP se asocia con…', opts: ['muchos hilos de kernel', 'exactamente un hilo de kernel', 'ningún hilo de kernel', 'un proceso completo'], ok: 1 },
+		{ q: 'main termina con return sin hacer join, y un hilo sigue trabajando. ¿Qué pasa?', opts: ['El hilo termina su trabajo igual', 'Todo el proceso termina y el hilo muere', 'El hilo queda zombie', 'El SO espera al hilo'], ok: 1 },
+		{ q: 'Estado de hilo en Windows «elegido para correr a continuación en una CPU»:', opts: ['Ready', 'Standby', 'Transition', 'Waiting'], ok: 1 },
+		{ q: 'Dos hilos incrementan campos vecinos de un struct y el programa es lentísimo, aunque no hay race. ¿Por qué?', opts: ['Inversión de prioridad', 'False sharing', 'Deadlock', 'El compilador serializa'], ok: 1 },
 	]}
 />
 
-<Fuente archivos={['for_partial/Evaluaciones_OS_20261 (1).pdf (P1, P4)', 'lab 1/Resumenes/Stallings/03-Threads-Fundamentos-y-Tipos.md', 'WSL ~/so/threads/thread-struct-arguments.c', 'WSL ~/so/verif_parcial/argrace.c']} />
+<Fuente archivos={['Stallings 9e, cap. 4 (§4.1–4.9)', 'lab 1/Resumenes/Stallings/03-Threads-Fundamentos-y-Tipos.md', 'lab 1/Resumenes/Stallings/04-Threads-en-SO-Reales.md', 'lab 1/Resumenes/Threads/01-Threads-Intro.md, 02-Threads.md (04-OSL-Threads)', 'lab2/Resumenes/12-Stallings-Cap4-Threads.md', 'WSL ~/so/threads/*.c', 'for_partial/Evaluaciones_OS_20261 (1).pdf']} />

@@ -1,69 +1,170 @@
 ---
-title: Operaciones atómicas y spinlocks
-description: test-and-set, compare-and-swap, exchange, fetch-and-add, spinlocks, deshabilitar interrupciones y false sharing.
+title: 'Soporte de hardware: atómicas, spinlocks e interrupciones'
+description: 'Stallings §5.3 + clases 04/05/07: por qué el lock ingenuo falla (check-then-act y caché), TAS/TSL, XCHG, CAS, FAA, spinlocks, espera acotada con waiting[], deshabilitar interrupciones y el lock en kernel, futex, Peterson en x86 (probado), false sharing y semáforos con TAS.'
 ---
 
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
 
-Una **operación atómica** es indivisible: ningún otro hilo o núcleo ve un estado intermedio. El hardware la garantiza bloqueando el bus o la línea de caché (`lock` prefix en x86, LL/SC en ARM y RISC-V).
+## Por qué un flag no basta (diapositivas Sem05)
 
-## Las primitivas
-
-```c
-bool test_and_set(bool *p)            { bool old = *p; *p = true; return old; }      // atómico
-bool compare_and_swap(int *p, int e, int n) { if (*p == e) { *p = n; return true; } return false; }
-int  exchange(int *p, int v)          { int old = *p; *p = v; return old; }
-int  fetch_and_add(int *p, int d)     { int old = *p; *p += d; return old; }
+```asm
+T1: cmp byte [lock_flag], 0   ; ¿libre?          T2: cmp byte [lock_flag], 0
+    jne T1                                          jne T2
+    mov byte [lock_flag], 1   ; tomar (¡NO atómico!)    mov byte [lock_flag], 1
 ```
 
-C11: `atomic_flag_test_and_set`, `atomic_compare_exchange_strong`, `atomic_exchange` y `atomic_fetch_add`.
+1. **Check-then-act:** T1 y T2 leen 0 antes de que alguno escriba 1, así que **los dos entran**.
+2. **Lecturas obsoletas (*stale reads*):** cada núcleo gira sobre **su copia en caché**. Si la liberación no se propaga, el otro puede girar sin ver el 0.
 
-## Spinlock
+**Soluciones:** instrucciones atómicas, deshabilitar interrupciones o mecanismos más sofisticados (semáforos y monitores).
+
+## Las instrucciones atómicas
+
+Una operación **atómica** es indivisible: nadie ve un estado intermedio. El hardware la garantiza con un **lock del bus o de la línea de caché** (prefijo `lock` en x86) o con LL/SC en ARM y RISC-V. El pseudocódigo en C de abajo solo describe la **semántica**: en la CPU cada operación es **una instrucción**.
 
 ```c
-atomic_flag lock = ATOMIC_FLAG_INIT;
-void acquire() { while (atomic_flag_test_and_set(&lock)) ; }   // busy wait
-void release() { atomic_flag_clear(&lock); }
+int  test_and_set(int *p)             { int old = *p; *p = 1;   return old; }  // TAS / TSL
+void exchange(int *reg, int *mem)     { int t = *mem; *mem = *reg; *reg = t; } // XCHG
+int  compare_and_swap(int *w, int testval, int newval)                          // CAS / CMPXCHG
+                                      { int old = *w; if (old == testval) *w = newval; return old; }
+int  fetch_and_add(int *p, int inc)   { int old = *p; *p = old + inc; return old; } // XADD
 ```
 
-- ✔ Mutex, ✔ deadlock-free, **✘ starvation-free** (no hay orden: quien gana el TAS es arbitrario).
-- **Busy waiting**: consume CPU mientras espera. Es aceptable cuando la SC es cortísima o cuando **no se puede bloquear**.
+- **TAS, XCHG y CAS** sirven para construir **locks**. **FAA** protege un **contador** sin lock: `counter++` se vuelve correcto sin sección crítica.
+- En C11: `atomic_flag_test_and_set`, `atomic_exchange`, `atomic_compare_exchange_strong`, `atomic_fetch_add`. En GCC: `__sync_*` y `__atomic_*`.
 
-:::note[E1 2024-I · P5]
-«En rutinas de kernel donde no se puede bloquear, ¿cómo harías exclusión mutua?» → **spinlocks**: no duermen y el overhead del busy waiting es despreciable porque la SC es corta. En un monoprocesador además se **deshabilitan interrupciones**.
-:::
+```asm
+; Spinlock correcto con XCHG (diapositivas Sem05)
+spin_lock:   mov  al, 1
+             xchg al, [lock_flag]   ; intercambio atómico AL ↔ lock_flag
+             test al, al            ; ¿estaba libre (AL = 0)?
+             jnz  spin_lock         ; no: seguir girando
+             ret
+spin_unlock: mov  byte [lock_flag], 0
+             ret
+```
+
+```asm
+; TSL (Tanenbaum): enter_region
+enter_region: TSL REGISTER, LOCK    ; copia LOCK al registro y pone LOCK = 1
+              CMP REGISTER, #0      ; ¿era 0?
+              JNE enter_region      ; no: reintentar
+              RET
+```
+
+**Protocolo con `exchange` (Stallings):** cada proceso tiene una `key` local. Se cumple el invariante $\text{bolt} + \sum_i \text{key}_i = n$. Si `bolt == 0`, nadie está en la SC; si `bolt == 1`, está justo el proceso que tiene `key == 0`.
+
+### Ventajas y desventajas (tabla de Stallings)
+
+| ✔ Ventajas | ✘ Desventajas |
+| --- | --- |
+| sirve para **cualquier** número de procesos, con una o varias CPUs | **busy waiting**: consume CPU mientras espera |
+| simple y fácil de verificar | **starvation posible**: quién entra al liberarse es arbitrario |
+| soporta varias SC (una variable por SC) | **deadlock posible por prioridades**: uno de baja prioridad tiene el lock, lo expropia uno de alta que gira por el mismo lock, y el de baja nunca vuelve a correr (**inversión de prioridad**) |
+
+## Espera acotada con TAS (arreglo `waiting[]`)
+
+TAS y CAS solos **no** garantizan espera acotada. Esta es la versión que muestran las diapositivas:
+
+```c
+bool waiting[n];  bool lock = false;
+do {
+    waiting[i] = true;  bool key = true;
+    while (waiting[i] && key) key = test_and_set(&lock);   // entra por TAS o porque le pasan el turno
+    waiting[i] = false;
+    /* SC */
+    int j = (i + 1) % n;
+    while (j != i && !waiting[j]) j = (j + 1) % n;          // busca al siguiente que espera (circular)
+    if (j == i) lock = false;                                // nadie espera: libera
+    else        waiting[j] = false;                          // le pasa el turno directo a j
+    /* resto */
+} while (true);
+```
+
+Cada proceso espera como mucho **n − 1** turnos, porque el turno se pasa en orden circular.
+
+**Ticket lock** (FAA): `my = fetch_and_add(&next, 1); while (serving != my); … serving++;`. Es **FIFO**: la versión en hardware de Bakery.
 
 ## Deshabilitar interrupciones
 
-`disable_interrupts(); SC; enable_interrupts();` funciona **solo en monoprocesador**, porque en multicore otro núcleo sigue ejecutando. Además es peligroso darlo a procesos de usuario y degrada el sistema si la SC es larga.
+Mientras no haya interrupciones, el dispatcher no puede quitarle la CPU al proceso (salvo que ceda voluntariamente), así que **no hay intercalado**.
 
-## Ticket lock (spinlock justo)
+- ✘ **Solo funciona con una CPU**: con varias, otro núcleo sigue ejecutando.
+- ✘ Es peligroso en modo usuario: un bucle infinito con las interrupciones apagadas cuelga el sistema.
+- ✘ Si la SC es larga, se pierden las garantías de tiempo de respuesta.
+- ✔ Es aceptable **dentro del kernel**, por poco tiempo (handlers, planificador).
+
+**El lock del kernel (versión correcta):** las interrupciones se deshabilitan **solo alrededor de la variable del lock**, no durante toda la SC.
 
 ```c
-atomic_int next = 0, serving = 0;
-void acquire() { int my = atomic_fetch_add(&next, 1); while (serving != my) ; }
-void release() { serving++; }
+Acquire() {                               Release() {
+    disable interrupts;                       disable interrupts;
+    if (value == BUSY) {                      if (anyone on wait queue) {
+        put thread on wait queue;                 take thread off wait queue;
+        go to sleep();   // ¿y las interrupciones?  place on ready queue;
+    } else value = BUSY;                      } else value = FREE;
+    enable interrupts;                        enable interrupts;
+}                                         }
 ```
 
-Es la versión en hardware de Bakery: FIFO y **starvation-free**.
+**¿Cuándo se vuelven a habilitar las interrupciones al dormir?**
+- **Antes** de encolarse: `Release` podría no verlo en la cola, y no lo despierta.
+- **Después** de encolarse pero **antes** de `sleep()`: `Release` lo pasa a listo, pero el hilo igual ejecuta `sleep()` y **el despertar se pierde** (queda dormido para siempre con el lock).
+- **Solución:** las habilita **el siguiente hilo** que recibe la CPU, dentro del planificador, después del cambio de contexto. Al despertar, el hilo vuelve a `Acquire` y las habilita ahí.
 
-## Implementar un semáforo con TAS (E1 2022 · P2b)
+## ¿Spin o bloquear?
+
+| | Spinlock (busy wait) | Lock bloqueante (mutex, semáforo) |
+| --- | --- | --- |
+| CPU mientras espera | la consume | 0: el hilo duerme |
+| Costo de adquirir | mínimo (sin syscall) | cambio de contexto al dormir y al despertar |
+| Cuándo conviene | SC **muy cortas**, multicore, **en el kernel donde no se puede dormir** (handlers de interrupción) | esperas largas o impredecibles |
+
+:::note[E1 2024-I · P5]
+«¿Cómo harías exclusión mutua en rutinas del kernel donde no se puede bloquear?». Con **spinlocks**: no duermen, y el costo del busy waiting es despreciable porque la SC es corta. En monoprocesador, además, se deshabilitan las interrupciones.
+:::
+
+**FUTEX (*Fast Userspace muTEX*):** es lo que usa `pthread_mutex_t` en Linux. **Sin contención**, se resuelve en espacio de usuario con **una** instrucción atómica. **Con contención**, se hace una syscall:
+- `futex_wait(addr, val)`: el kernel verifica **atómicamente** que `*addr == val` antes de dormir al hilo, y así evita el *lost wake-up*;
+- `futex_wake(addr, n)`: despierta hasta n hilos.
+
+## ¿Peterson y Dekker funcionan en hardware real? (probado)
+
+Las demostraciones suponen **consistencia secuencial**. Pero x86 usa **TSO**: una escritura puede quedar en el *store buffer* mientras se ejecuta una **lectura posterior** (reordenamiento *store → load*). Eso es exactamente lo que rompe a Peterson: `flag[i] = 1; turn = j;` queda en el buffer y, al mismo tiempo, se lee `flag[j]`.
+
+Lo compilé con `-O2`, variables `volatile`, 2 hilos y 5·10⁶ iteraciones cada uno (`~/so/verif_parcial/peter.c`, en un x86 de 12 núcleos):
+
+```text
+sin barrera: counter=9999439 esperado=10000000  FALLA
+sin barrera: counter=9999503 esperado=10000000  FALLA
+sin barrera: counter=9999538 esperado=10000000  FALLA
+con mfence:  counter=10000000 esperado=10000000  OK
+con mfence:  counter=10000000 esperado=10000000  OK
+```
+
+**Conclusión:** `volatile` **no basta**, porque solo evita que el compilador cachee la variable, no que la CPU reordene. Hace falta una **barrera de memoria** (`__sync_synchronize()` o `atomic_thread_fence`, que genera `mfence`) entre la escritura de `turn` y la lectura de `flag[j]`. *(El resumen previo de lab2 decía que «en x86 sí pasan la prueba»: la ejecución lo desmiente.)*
+
+## False sharing (E1 2026-1 · P1.5)
+
+Dos hilos escriben variables **distintas** que están en la **misma línea de caché** (64 B). Cada escritura invalida la línea en el otro núcleo (protocolo MESI), así que la línea «rebota» entre núcleos y el rendimiento se desploma, **aunque no haya race lógica**. La solución es *padding* o `alignas(64)`.
+
+## Semáforo con TAS (E1 2022 · P2b)
 
 <Solucion titulo="Solución (Stallings fig. 5.14 · busy wait mínimo)">
 
-El TAS solo protege **las pocas instrucciones** que modifican el semáforo. La espera larga se hace **bloqueando**, no girando.
+El TAS solo protege **las pocas instrucciones** que modifican el semáforo; la espera larga se hace **bloqueando**.
 
 ```c
 typedef struct { int flag; int count; queue_t q; } semaphore;
 
 void semWait(semaphore *s) {
-    while (test_and_set(&s->flag)) ;     // spin corto: solo para entrar
+    while (test_and_set(&s->flag)) ;     // spin corto, solo para entrar
     s->count--;
     if (s->count < 0) {
         enqueue(&s->q, self());
-        block_and_clear(&s->flag);       // bloquear y poner flag = 0 atómicamente
+        block_and_clear(&s->flag);       // bloquear y poner flag = 0, ATÓMICAMENTE
     } else
         s->flag = 0;
 }
@@ -72,28 +173,28 @@ void semSignal(semaphore *s) {
     while (test_and_set(&s->flag)) ;
     s->count++;
     if (s->count <= 0)
-        ready(dequeue(&s->q));           // mover a la cola de listos
+        ready(dequeue(&s->q));
     s->flag = 0;
 }
 ```
 
-**Por qué es correcto:** `flag` hace que las secciones de `semWait` y `semSignal` sean mutuamente excluyentes (TAS es atómico), así que `count` y la cola son consistentes. El busy wait dura unas pocas instrucciones, nunca todo el tiempo de espera del recurso. El punto delicado es que **bloquear y liberar `flag`** deben ser atómicos; si no, un `semSignal` puede colarse entre ambos y perder el wake-up.
+**Por qué es correcto:** `flag` hace mutuamente excluyentes a `semWait` y `semSignal`, así que `count` y la cola quedan consistentes. El giro dura unas pocas instrucciones, nunca toda la espera del recurso. El punto delicado es que **bloquear y liberar `flag`** debe ser atómico (lo hace el kernel, como en el lock de arriba); si no, un `semSignal` puede colarse entre ambos y perder el despertar.
 
 </Solucion>
-
-## False sharing (E1 2026-1 · P1.5)
-
-Dos hilos escriben variables **distintas** que están en la **misma línea de caché** (64 B). Cada escritura invalida la copia del otro núcleo (protocolo MESI), así que la línea «rebota» entre núcleos y el rendimiento se desploma aunque no haya race lógica. La solución es padding o `alignas(64)`.
 
 <Quiz
 	client:visible
 	id="atomicas"
 	preguntas={[
-		{ q: 'Un spinlock con test-and-set es…', opts: ['Mutex, deadlock-free y starvation-free', 'Mutex y deadlock-free, pero no starvation-free', 'No es mutex', 'Solo funciona en monoprocesador'], ok: 1 },
+		{ q: 'Un spinlock con test-and-set es…', opts: ['mutex, deadlock-free y starvation-free', 'mutex y deadlock-free, pero no starvation-free', 'no es mutex', 'solo para monoprocesador'], ok: 1 },
 		{ q: '¿Deshabilitar interrupciones sirve en multicore?', opts: ['Sí', 'No, otros núcleos siguen ejecutando', 'Solo con hyperthreading', 'Solo en modo usuario'], ok: 1 },
-		{ q: '`compare_and_swap(&x, 5, 7)` con x = 6:', opts: ['x = 7, retorna true', 'x = 6, retorna false', 'x = 5', 'bloquea'], ok: 1 },
-		{ q: '¿Qué es una operación atómica?', opts: ['Una que usa un mutex', 'Una indivisible: no puede ser interrumpida ni observada a medias', 'Una del kernel', 'Una de un solo ciclo de reloj'], ok: 1 },
+		{ q: '`compare_and_swap(&x, 5, 7)` con x = 6:', opts: ['x = 7, retorna 5', 'x = 6, retorna 6 (no cambia)', 'x = 5', 'bloquea'], ok: 1 },
+		{ q: '¿Qué primitiva sirve para un contador compartido SIN lock?', opts: ['test_and_set', 'fetch_and_add', 'exchange', 'deshabilitar interrupciones'], ok: 1 },
+		{ q: 'Peterson con variables volatile en x86 multicore…', opts: ['siempre funciona', 'puede fallar: TSO reordena store→load; hace falta una barrera (mfence)', 'nunca compila', 'provoca deadlock'], ok: 1 },
+		{ q: 'Lock en el kernel: si se habilitan las interrupciones DESPUÉS de encolarse pero ANTES de sleep()…', opts: ['todo funciona', 'se puede perder el despertar y el hilo duerme para siempre', 'hay doble entrada a la SC', 'el kernel entra en pánico'], ok: 1 },
+		{ q: 'La ventaja de FUTEX sobre un lock que siempre hace syscall:', opts: ['nunca duerme', 'sin contención se resuelve en espacio de usuario con una instrucción atómica', 'es FIFO', 'funciona sin hardware atómico'], ok: 1 },
+		{ q: 'Un proceso de baja prioridad tiene un spinlock y lo expropia uno de alta prioridad que gira por ese lock…', opts: ['livelock', 'deadlock por inversión de prioridad', 'false sharing', 'nada'], ok: 1 },
 	]}
 />
 
-<Fuente archivos={['lab2/07-OSL-Atomic_Operations.pdf', 'lab2/Resumenes/08-Operaciones-Atomicas.md', 'WSL ~/so/sem4/07_mutex/spin.c, compare-exchange.c, atomic_inc.c', 'for_partial/E1_OS_2021_2022_Solver.pdf (E1 2022 P2b)']} />
+<Fuente archivos={['Stallings §5.3', 'lab2/Sem4_04-OST-Mutex mechanisms.pdf → Resumenes/02', 'lab2/Sem05_05-OST-Mutex mechanisms monitors.pdf (diap. 3–20)', 'lab2/07-OSL-Atomic_Operations.pdf → Resumenes/08 y 08-Solucion', 'lab2/Resumenes/07-Locks-Semaphores-Pthreads-Futex.md', 'WSL ~/so/sem4/07_mutex/{spin,compare-exchange,atomic_inc,mutex_lock}.c', 'WSL ~/so/verif_parcial/peter.c', 'for_partial/E1_OS_2021_2022_Solver.pdf (E1 2022 P2b)']} />

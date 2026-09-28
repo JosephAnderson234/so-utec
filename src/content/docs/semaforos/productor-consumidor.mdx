@@ -1,5 +1,5 @@
 ---
-title: Productor–consumidor y deadlock
+title: 'Productor–consumidor: de la versión sin sincronización al monitor'
 description: Buffer acotado con semáforos, el error de orden del E1 2026-1 y los deadlocks del stock y los aretes (E1 2024-I), en un simulador.
 ---
 
@@ -7,7 +7,87 @@ import SemaphoreSim from '../../../components/sim/SemaphoreSim.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
 
-## Buffer acotado (bounded buffer)
+## El problema
+
+Un **productor** deja ítems en un **buffer de tamaño N** y un **consumidor** los saca. Ejemplos de clase: una **máquina de gaseosas** (el repartidor no puede meter más de lo que cabe y el cliente no puede sacar de una máquina vacía) y el **pipeline de gcc** (`cpp | cc1 | cc2 | as | ld`). El buffer existe para que ambos **no tengan que trabajar al mismo ritmo** (*lockstep*).
+
+**Tres restricciones:**
+1. El consumidor **espera** si el buffer está vacío (restricción de planificación).
+2. El productor **espera** si está lleno (restricción de planificación).
+3. **Uno a la vez** manipula el buffer (exclusión mutua).
+
+**Buffer circular:** un índice `f` para insertar, un índice `i` para extraer y un contador `c`. Con `i == f` el buffer puede estar **vacío** (`c == 0`) o **lleno** (`c == N`). Por eso hace falta el contador.
+
+## La evolución (laboratorio 08)
+
+**1. Sin sincronización** (`prod-cons-no-sync.c`) produce dos bugs distintos:
+- el consumidor lee **antes** de que haya algo, por ejemplo `item = -1`: falta la restricción 1;
+- el productor **sobrescribe** ítems no leídos (desborda el buffer): falta la restricción 2.
+
+**2. Busy waiting** (`while (c == N);` y `while (c == 0);`):
+- corrige la lógica, pero `c++` y `c--` **no son atómicos** (`mov`, `inc`, `mov`), así que se pierden actualizaciones. La solución es `atomic_inc` o un mutex;
+- además, desperdicia CPU.
+
+**3. Dormir «a mano»** (`if (c == 0) sleep(); … if (c == 1) wakeup_consumer();`) causa un **lost wake-up**. Entre que el consumidor evalúa `c == 0` y ejecuta `sleep()`, el productor produce y llama a `wakeup` **antes** de que el consumidor duerma: el aviso se pierde y el consumidor duerme para siempre. **Revisar la condición y dormir debe ser atómico.**
+
+**4. FUTEX:** `while (c == 0) futex_wait(&c, 0);`. El kernel comprueba **atómicamente** que `c` siga valiendo 0 antes de dormir; si ya cambió, retorna de inmediato.
+
+**5. Semáforos**, la solución canónica. Con **1 productor y 1 consumidor** ni siquiera hace falta un mutex, porque cada uno toca solo su extremo del buffer:
+
+```c
+semaphore full = 0, empty = N;
+Producer: while (1) { wait(empty); f = (f+1)%N; buffer[f] = produce(); signal(full);  }
+Consumer: while (1) { wait(full);  i = (i+1)%N; consume(buffer[i]);    signal(empty); }
+```
+
+**6. Con varios productores o consumidores** hace falta un **mutex** para los índices compartidos. Esta es la versión completa, con **un semáforo por restricción**:
+
+```c
+Semaphore fullSlots = 0;           // restricción del consumidor
+Semaphore emptySlots = bufSize;    // restricción del productor
+Semaphore mutex = 1;               // exclusión mutua
+
+Producer(item) {                   Consumer() {
+    emptySlots.P();                    fullSlots.P();
+    mutex.P();                         mutex.P();
+    Enqueue(item);                     item = Dequeue();
+    mutex.V();                         mutex.V();
+    fullSlots.V();                     emptySlots.V();
+}                                      return item; }
+```
+
+**Preguntas de la diapositiva:**
+- **¿Por qué la asimetría?** Cada uno hace P sobre el recurso que **consume** y V sobre el que **produce**: el productor consume espacios vacíos y produce ítems; el consumidor, al revés.
+- **¿Importa el orden de los P?** **Sí.** Invertirlos puede causar **deadlock**: te bloqueas sosteniendo `mutex`.
+- **¿Importa el orden de los V?** **No** para la corrección; solo puede afectar la eficiencia de la planificación.
+- **¿Y con 2 productores o 2 consumidores?** Hace falta el `mutex` sobre `Enqueue` y `Dequeue`, porque compiten por el mismo índice.
+
+<Solucion titulo="Stallings fig. 5.9: el bug sutil con semáforos binarios (n, s, delay)">
+
+```c
+int n; binary_semaphore s = 1, delay = 0;
+producer: produce(); semWaitB(s); append(); n++; if (n == 1) semSignalB(delay); semSignalB(s);
+consumer: semWaitB(delay);
+          while (1) { semWaitB(s); take(); n--; semSignalB(s); consume(); if (n == 0) semWaitB(delay); }
+```
+
+**Bug:** el consumidor deja `n = 0` y sale de la SC. **Antes** de que evalúe `if (n == 0)`, el productor agrega un ítem (`n = 1`) y hace `semSignalB(delay)`. Luego el consumidor ve `n == 1` y **no** espera. En la siguiente vuelta consume ese ítem, pero `delay` quedó en 1: después consumirá **de un buffer vacío** y `n` llegará a **−1**.
+
+Mover el `if` **dentro** de la SC no sirve, porque produce deadlock. **Corrección:** copiar `n` a una variable local **dentro** de la SC (`m = n;`) y preguntar por `m` afuera. La versión limpia usa semáforos **contadores**: `semWait(n); semWait(s); take(); semSignal(s);`.
+
+</Solucion>
+
+**Con monitor** (Hoare, notación de Stallings), el **monitor garantiza la exclusión mutua solo**; el programador pone únicamente las restricciones de planificación:
+
+```c
+monitor boundedbuffer;  char buffer[N]; int nextin, nextout, count; cond notfull, notempty;
+void append(char x) { if (count == N) cwait(notfull);  buffer[nextin] = x; nextin = (nextin+1)%N; count++; csignal(notempty); }
+void take(char *x)  { if (count == 0) cwait(notempty); *x = buffer[nextout]; nextout = (nextout+1)%N; count--; csignal(notfull); }
+```
+
+En Mesa o con pthreads, esos `if` deben ser **`while`**.
+
+## Buffer acotado en pthreads (semáforos POSIX)
 
 ```c
 sem_t mutex;   // = 1  exclusión mutua sobre el buffer
@@ -24,7 +104,7 @@ void *productor(void *arg) {         void *consumidor(void *arg) {
 }                                    }
 ```
 
-**Regla:** primero el semáforo de **conteo** y después `mutex`. Nunca te bloquees sosteniendo `mutex`. El orden de los `sem_post` **no** importa (post no bloquea).
+**Regla:** primero el semáforo de **conteo** y después `mutex`. Nunca te bloquees sosteniendo `mutex`. El orden de los `sem_post` **no** importa, porque `post` no bloquea.
 
 ## Simulador
 

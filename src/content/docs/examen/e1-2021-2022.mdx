@@ -14,7 +14,7 @@ El PDF `E1_OS_2021_2022_Solver.pdf` está **escaneado** y trae anotaciones a man
 
 <Solucion>
 
-Ver [requisitos](/mutex/requisitos/#requisitos-de-la-exclusión-mutua-stallings-52): solo uno en la SC; quien está fuera de la SC no interfiere; sin deadlock ni starvation; entrada inmediata si la SC está libre; sin supuestos de velocidad; tiempo finito en la SC.
+Ver [requisitos](/mutex/requisitos/#los-6-requisitos-stallings-52): solo uno en la SC; quien está fuera de la SC no interfiere; sin deadlock ni starvation; entrada inmediata si la SC está libre; sin supuestos de velocidad; tiempo finito en la SC.
 
 </Solucion>
 
@@ -29,7 +29,7 @@ operation release_lock(i) is FLAG[i] ← down
 
 <Solucion>
 
-Nota del profesor: *«Peterson, tournament of 2 processes»*. **Mutex ✔, deadlock-free ✔, starvation-free ✔.** Demostraciones en [algoritmos](/mutex/algoritmos/#peterson-pc1-2021). La nota manuscrita del profesor pide extenderlo a 3 y 4 hilos: se hace con un árbol de torneo de Peterson o con el algoritmo de filtro.
+Nota del profesor: *«Peterson, tournament of 2 processes»*. **Mutex ✔, deadlock-free ✔, starvation-free ✔.** Demostraciones en [algoritmos](/mutex/algoritmos/#peterson-en-el-pc1-2021). La nota manuscrita del profesor pide extenderlo a 3 y 4 hilos: se hace con un árbol de torneo de Peterson o con el algoritmo de filtro.
 
 </Solucion>
 
@@ -63,7 +63,7 @@ Nota del profesor: *«car_filled and passenger_released cannot guarantee order, 
 
 <Solucion>
 
-Ver [atómicas](/hardware/atomicas/#implementar-un-semáforo-con-tas-e1-2022--p2b). El TAS protege solo la actualización de `count` y de la cola; la espera larga se hace bloqueando.
+Ver [atómicas](/hardware/atomicas/#semáforo-con-tas-e1-2022--p2b). El TAS protege solo la actualización de `count` y de la cola; la espera larga se hace bloqueando.
 
 </Solucion>
 

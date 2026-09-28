@@ -1,19 +1,108 @@
 ---
-title: 'Algoritmos: Peterson, Hyman, Flaky…'
-description: Intercalador interactivo que encuentra contraejemplos de exclusión mutua y deadlock en los algoritmos de los exámenes.
+title: 'Algoritmos de 2 procesos: de los intentos a Peterson'
+description: 'La progresión completa (lock ingenuo, alternancia, interés, cortesía, interés+alternancia, Dekker, Peterson), Hyman y Flaky de los exámenes, con un intercalador que verifica exhaustivamente mutex, deadlock, progreso y starvation.'
 ---
 
 import MutexStepper from '../../../components/sim/MutexStepper.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
 
-## Intercalador
+## Intercalador con verificación exhaustiva
 
-Elige un algoritmo y juega de planificador. El botón **Buscar contraejemplo** recorre **todo** el espacio de estados con BFS y reproduce la traza más corta que rompe la exclusión mutua o que lleva a deadlock. Si no existe ninguna, lo dice.
+Elige un algoritmo y juega de planificador: cada clic ejecuta **una línea**. Hay dos buscadores que recorren **todo** el espacio de estados:
+- **🔎 Buscar contraejemplo:** la traza más corta que rompe la **exclusión mutua**, lleva a **deadlock** o viola el **progreso**.
+- **⏳ ¿Starvation?:** busca con el algoritmo de Tarjan una componente del grafo en que un proceso quiere entrar **para siempre** mientras el otro **sigue entrando**, con ambos planificados (planificación justa).
 
-<MutexStepper client:visible />
+<MutexStepper client:visible algo="naive-lock" />
 
-## Peterson (PC1 2021)
+### Veredicto verificado
+
+| Algoritmo | Exclusión mutua | Deadlock-free | Progreso | Starvation-free |
+| --- | :-: | :-: | :-: | :-: |
+| Lock ingenuo (`while (lock); lock = 1`) | ✘ (6 pasos) | ✔ | ✔ | ✘ |
+| Alternancia estricta (`order`) | ✔ | ✔ | **✘** (1 paso) | — (el problema es el progreso) |
+| Intento 2 de Dekker: esperar y luego flag | ✘ (6 pasos) | ✔ | ✔ | ✘ |
+| Intento 3 de Dekker: flag y luego esperar | ✔ | **✘** (4 pasos) | ✔ | ✘ (por el deadlock) |
+| Interés + alternancia con **if** (clase 05) | **✘** (7 pasos) | ✔ | ✔ | — |
+| Interés + alternancia con **while** (lab 06) | ✔ | ✔ | ✔ | **✘** |
+| **Dekker** | ✔ | ✔ | ✔ | ✔ |
+| **Peterson** | ✔ | ✔ | ✔ | ✔ |
+| Dijkstra del lab (N = 2) | ✔ | ✔ | ✔ | ✘ |
+| Hyman (E1 2026-1) | **✘** (9 pasos) | ✔ | ✔ | ✘ |
+| Flaky (E1 2024-I) | ✔ | **✘** (6 pasos) | ✔ | ✘ |
+
+La tabla sale de ejecutar los dos buscadores sobre cada algoritmo. Todos suponen lecturas y escrituras atómicas y ejecución en el orden del código (consistencia secuencial).
+
+## La progresión: por qué cada intento falla
+
+**Intento 1 · lock ingenuo.** Leer `lock != 0` y luego escribir `lock = 1` es un *check-then-act* no atómico. Si ambos leen 0 antes de escribir, **los dos entran**. Hace falta **test-and-set**.
+
+**Intento 2 · alternancia estricta** (`while (order != i); SC; order = j;`). Hay exclusión mutua, pero:
+- obliga a alternar 0, 1, 0, 1 (si P0 quiere entrar 1 vez por hora y P1 1000 veces, P1 queda al ritmo de P0);
+- **si un hilo se detiene fuera de la SC**, o termina, **el otro no vuelve a entrar nunca**. Viola el requisito 2 y la propiedad (c) de Dijkstra.
+
+**Intento 3 · vector de interés** (`interest[i] = T; while (interest[j]);`). Si ambos marcan su interés, **deadlock**. La versión que primero **espera y después marca** (intento 2 de Stallings) rompe la exclusión mutua.
+
+**Intento 4 · cortesía** (`while (interest[j]) { interest[i] = F; sleep; interest[i] = T; }`). Si ambos van al mismo paso, **livelock**: ceden y reintentan sincronizados para siempre. Se rompe con un poco de asimetría, pero sigue siendo un bug.
+
+**Interés + alternancia.** La clase 05 (diap. 46) propone solo esperar a `order` si el otro está interesado, y pregunta: *«¿puedes dar un ejemplo donde no basta?»*
+
+<Solucion titulo="Respuesta: contraejemplo de la diapositiva 49 (verificado)">
+
+Con `order = 0` y ambos `interest` en F:
+
+| # | P0 | P1 | interest | order |
+| - | --- | --- | --- | - |
+| 1 | | `interest[1] = T` | [F, T] | 0 |
+| 2 | | `if (interest[0])`: es **F**, así que **salta** la espera | | 0 |
+| 3 | `interest[0] = T` | *(a punto de entrar)* | [T, T] | 0 |
+| 4 | `if (interest[1])`: T, así que evalúa `while (order != 0)` | | | 0 |
+| 5 | `order == 0`, así que **entra a la SC** | **entra a la SC** | | 0 |
+
+El que salta el `if` **nunca mira `order`**, y el otro tiene justo el turno a su favor, así que entran ambos. La corrección es hacer que la espera por `order` se evalúe siempre que haya conflicto, como en Dekker o Peterson.
+
+</Solucion>
+
+El **lab 06 (Listing 5)** usa la versión con `while` (ceder, esperar `order`, reintentar). La búsqueda exhaustiva dice: ✔ exclusión mutua, ✔ deadlock-free, **✘ starvation**. P0 baja su interés, pasa la espera porque `order` ya es 0, y en esa ventana P1 lo adelanta. Al salir, P1 deja `order = 0` de nuevo. *(El resumen previo de lab2 decía que esta versión era «≈ Peterson y sin starvation»: no es cierto.)*
+
+## Dekker (el primero correcto, 1965)
+
+```c
+flag[i] = true;
+while (flag[j]) {             // ¿el otro también quiere?
+    if (turn == j) {          // y es su turno: me aparto
+        flag[i] = false;
+        while (turn == j) ;   // espero a que me ceda el turno
+        flag[i] = true;       // vuelvo a intentarlo
+    }
+}
+/* SC */
+turn = j;                     // al salir, le cedo el turno
+flag[i] = false;
+```
+
+Combina los **flags** (intentos 2–4) con el **turn** del intento 1.
+
+- **Exclusión mutua:** cada proceso levanta su flag **antes** de mirar el del otro, así que es imposible que ambos hayan visto al otro en F justo antes de entrar.
+- **Deadlock-free:** `turn` vale 0 **o** 1, así que exactamente uno cede.
+- **Starvation-free:** el que cede baja su flag (dejando entrar al otro) y el otro, al salir, hace `turn = j`, lo que lo libera. Cada uno cede a lo sumo una vez.
+
+## Peterson (1981)
+
+```c
+flag[i] = true;          // quiero entrar
+turn = j;                // pero te cedo la prioridad
+while (flag[j] && turn == j) ;
+/* SC */
+flag[i] = false;
+```
+
+Es mucho más simple que Dekker y se generaliza a N procesos (algoritmo de filtro o árbol de torneos). **La demostración de ausencia de bloqueo del libro** analiza tres casos: si P0 está bloqueado, entonces `flag[1] = T` y `turn = 1`. Pero:
+1. P1 no puede estar desinteresado, porque tiene su flag en T;
+2. P1 no puede estar esperando, porque con turn = 1 puede entrar;
+3. P1 no puede monopolizar la SC, porque antes de cada entrada hace `turn = 0`.
+
+### Peterson en el PC1 2021
 
 ```text
 acquire_lock(i):  FLAG[i] ← up;  AFTER_YOU ← i;
@@ -21,19 +110,19 @@ acquire_lock(i):  FLAG[i] ← up;  AFTER_YOU ← i;
 release_lock(i):  FLAG[i] ← down
 ```
 
-`AFTER_YOU` es la *víctima*: el último que la escribe es quien cede.
+`AFTER_YOU` es la *víctima*: el último que la escribe cede el paso.
 
 <Solucion titulo="Solución PC1 2021 P1(b): mutex, starvation y deadlock">
 
-- **Exclusión mutua ✔.** Por contradicción, igual que en [requisitos](/mutex/requisitos/): el último en escribir `AFTER_YOU` (digamos P0) solo pasa si vio `FLAG[1] = down`, lo cual es imposible porque P1 levantó su flag antes.
-- **Deadlock-free ✔.** Si ambos esperan, `AFTER_YOU` vale 0 o 1; el que **no** es `AFTER_YOU` ve `AFTER_YOU ≠ i` y pasa.
-- **Starvation-free ✔ (espera acotada = 1).** Si P1 espera y P0 sale y vuelve a pedir, P0 escribe `AFTER_YOU ← 0` y ahora el que cede es P0, así que P1 entra. Nadie es adelantado más de una vez.
+- **Exclusión mutua ✔.** Por contradicción: el último que escribe `AFTER_YOU` (digamos P0) solo pasa si ve `FLAG[1] = down`, y eso es imposible porque P1 levantó su flag antes.
+- **Deadlock-free ✔.** Si ambos esperan, `AFTER_YOU` es 0 o 1; el que **no** es `AFTER_YOU` ve `AFTER_YOU ≠ i` y pasa.
+- **Starvation-free ✔ (espera ≤ 1).** Si P1 espera y P0 sale y vuelve a pedir, P0 escribe `AFTER_YOU ← 0`, así que ahora cede P0.
 
-Es el «torneo de 2 procesos» (nota del profesor): para N procesos se arma un árbol de Peterson (tournament).
+Nota del profesor: *«Peterson, tournament of 2 processes»*. Para N procesos se construye un árbol de torneo de Peterson.
 
 </Solucion>
 
-## Algoritmo A del E1 2026-1 (algoritmo de Hyman, 1966)
+## Algoritmo A del E1 2026-1 (Hyman, 1966)
 
 ```text
 1. f[i] ← V
@@ -44,46 +133,49 @@ Es el «torneo de 2 procesos» (nota del profesor): para N procesos se arma un �
 6. f[i] ← F
 ```
 
-<Solucion titulo="Solución propia (3 pts)">
+Este algoritmo se publicó en 1966 como mejora de Dekker, y era **incorrecto**.
 
-**1) Exclusión mutua ✘.** Traza con `turno = 0` y ambos flags en F:
+<Solucion titulo="Solución propia (3 pts), verificada con el intercalador">
+
+**1) Exclusión mutua ✘.** Traza con `turno = 0`:
 
 | # | P0 | P1 | f | turno |
-| - | --- | --- | --- | --- |
+| - | --- | --- | --- | - |
 | 1 | | `f[1] ← V` | [F, V] | 0 |
-| 2 | | `turno ≠ 1` → entra al while | | 0 |
-| 3 | | `f[0]` = F → sale del while interno | | 0 |
+| 2 | | `turno ≠ 1`, así que entra al while | | 0 |
+| 3 | | `f[0] = F`, así que sale del while interno | | 0 |
 | 4 | `f[0] ← V` | *(se desaloja antes de la línea 4)* | [V, V] | 0 |
-| 5 | `turno = 0` → no entra al while → **SC** | | | 0 |
+| 5 | `turno = 0`, no entra al while: **SC** | | | 0 |
 | 6 | | `turno ← 1` | | 1 |
-| 7 | | `turno = 1` → sale del while → **SC** | | 1 |
+| 7 | | `turno = 1`, sale del while: **SC** | | 1 |
 
-⇒ **ambos en la SC**. El problema es que la comprobación `f[j]` y la escritura de `turno` no son atómicas juntas.
+⇒ **ambos en la SC**. La comprobación de `f[j]` y la escritura de `turno` no son atómicas en conjunto.
 
-**2) Deadlock ✔ (libre).** Si ambos quieren entrar, el proceso con `turno = i` no entra al while y avanza. El otro gira hasta ver `f[j] = F`, lo que ocurre cuando el primero sale. No hay estado donde ambos giren para siempre.
+**2) Deadlock ✔ (libre).** El que tiene `turno = i` no entra al while, y el otro gira hasta ver `f[j] = F`.
 
-**3) Starvation ✘.** Con `turno = 0`: P1 gira en `while (f[0])`. P0 sale (`f[0] ← F`) y, antes de que P1 lea, vuelve a pedir (`f[0] ← V`); como `turno` sigue en 0, entra directo. El ciclo se repite indefinidamente y P1 nunca ve `f[0] = F`. No hay cota.
+**3) Starvation ✘.** Con `turno = 0`, P1 gira en `while (f[0])`. P0 sale (`f[0] ← F`) y vuelve a pedir (`f[0] ← V`) antes de que P1 lea, entrando directo porque `turno` sigue en 0. El ciclo es repetible (lo encuentra «⏳ ¿Starvation?»).
 
 </Solucion>
 
 ## Flaky (E1 2024-I)
 
-<Solucion titulo="Solucionario oficial (resumido)">
+```java
+public void lock() {
+    int me = ThreadID.get();
+    do {
+        do { turn = me; } while (busy);
+        busy = true;
+    } while (turn != me);
+}
+public void unlock() { busy = false; }
+```
 
-- **Mutex ✔.** Si A y B estuvieran en la SC y A pasó la línea 11 primero, A vio `turn = A`. Para que B pase, `turn` tuvo que volver a B, es decir, B lo escribió en la línea 8 después de que A entrara. Pero A ya había puesto `busy = true`, así que B no puede salir del bucle interno. Contradicción.
-- **Deadlock ✘.** A: `turn = A`, `busy = true`. B: `turn = B` (queda girando porque `busy`). A: ve `turn ≠ A` y repite el bucle externo, queda en el interno porque `busy = true`. Nadie liberará `busy`.
-- **Starvation ✘**, porque tiene deadlock.
+<Solucion titulo="Solucionario oficial (resumido) + verificación">
+
+- **Exclusión mutua ✔.** Si A y B estuvieran dentro y A pasó primero, A vio `turn = A`. Para que B pase, `turn` tuvo que volver a B, es decir, B escribió `turn` **después** de que A entrara. Pero A ya había puesto `busy = true`, así que B no puede salir del bucle interno.
+- **Deadlock ✘.** A: `turn = A`, `busy = true`. B: `turn = B` y queda girando porque `busy` es true. A: ve `turn ≠ A` y repite el bucle externo, así que también queda en el interno. Nadie liberará `busy`. El intercalador lo encuentra en 6 pasos.
+- **Starvation ✘**, por el deadlock y también por bypass.
 
 </Solucion>
 
-## Intentos de Dekker (para reconocer patrones)
-
-| Intento | Código | Falla |
-| --- | --- | --- |
-| 1 | `while (turn != i); SC; turn = j;` | Alternancia estricta: si el otro no quiere entrar, bloquea |
-| 2 | `while (flag[j]); flag[i] = true;` | **Mutex**: ambos leen false antes de escribir |
-| 3 | `flag[i] = true; while (flag[j]);` | **Deadlock**: ambos levantan el flag |
-| 4 | como el 3, pero baja el flag un rato si el otro está | **Livelock** («cortesía mutua») |
-| Dekker | 3 + `turn` para desempatar | ✔ las tres propiedades |
-
-<Fuente archivos={['for_partial/Evaluaciones_OS_20261 (1).pdf (P2)', 'for_partial/E1_OS_2021_2022_Solver.pdf (PC1 2021)', 'for_partial/E1_OS_2024_I__Respuestas_.pdf (P2)', 'lab2/Resumenes/03-Mutual-Exclusion-Algorithms.md', 'WSL ~/so/05-OSL-Threads_Mutex/09_alternate.c … 13_interest_alternance.c']} />
+<Fuente archivos={['lab2/05-OSL-Mutual exclusion Algorithms.pdf (diap. 25–51)', 'lab2/06-OSL-Mutex.pdf (Listings 1–5)', 'Stallings §5.1 (Dekker: 4 intentos, Peterson)', 'lab2/Resumenes/03, 04, 05', 'WSL ~/so/05-OSL-Threads_Mutex/08_lock_attempt.c … 13_interest_alternance.c', 'for_partial/Evaluaciones_OS_20261 (1).pdf', 'for_partial/E1_OS_2021_2022_Solver.pdf', 'for_partial/E1_OS_2024_I__Respuestas_.pdf']} />

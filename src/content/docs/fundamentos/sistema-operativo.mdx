@@ -1,0 +1,126 @@
+---
+title: '¿Qué es un SO? Evolución y arquitectura'
+description: 'Stallings cap. 2 — objetivos, servicios, ISA/ABI/API, de serial a time-sharing, los 4 logros, monolítico vs microkernel, SMP, tolerancia a fallas, Windows/UNIX/Linux.'
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Fuente from '../../../components/Fuente.astro';
+
+## Definición y objetivos
+
+Un **SO** es un programa que **controla la ejecución de las aplicaciones** y actúa como **interfaz entre las aplicaciones y el hardware**. Tiene tres objetivos:
+
+- **Conveniencia**: hace más fácil usar el computador.
+- **Eficiencia**: usa bien los recursos.
+- **Capacidad de evolucionar**: permite agregar funciones sin interrumpir el servicio. Evoluciona por hardware nuevo (los primeros UNIX no paginaban porque su CPU no tenía hardware de paginación), por servicios nuevos y por correcciones, que a su vez introducen nuevas fallas.
+
+**Servicios típicos:** desarrollo de programas, ejecución de programas, acceso **uniforme** a E/S, acceso controlado a archivos, acceso al sistema (protección y resolución de contención), **detección y respuesta a errores** y *accounting* (estadísticas y facturación).
+
+### Tres interfaces
+
+| Interfaz | Frontera | Detalle |
+| --- | --- | --- |
+| **ISA** | hardware ↔ software | Repertorio de instrucciones: un **user ISA** para todos y un **system ISA** solo para el SO (instrucciones privilegiadas) |
+| **ABI** | binario ↔ SO | Portabilidad **binaria**: define la interfaz de *system calls* y el user ISA |
+| **API** | programa ↔ servicios | Portabilidad **de código fuente** (al recompilar): el user ISA más las llamadas a bibliotecas |
+
+### El SO como gestor de recursos
+
+Es un mecanismo de control **inusual**: (1) es software ordinario que ejecuta la misma CPU que controla, y (2) **cede el control con frecuencia** y depende del hardware (interrupciones y timer) para recuperarlo. El **kernel** (o *nucleus*) es la parte del SO que siempre está en memoria y contiene las funciones más usadas.
+
+## Evolución (y por qué cada paso importa)
+
+| Etapa | Idea | Problema que resuelve o genera |
+| --- | --- | --- |
+| **Procesamiento serial** (fines de los 40 a mediados de los 50) | Sin SO: consola, luces, switches y una hoja de reserva de horario | Desperdicio por mala **planificación** y mucho **tiempo de setup** |
+| **Batch simple** | Un **monitor residente** carga los *jobs* uno tras otro; **JCL** (`$JOB`, `$FTN`, `$LOAD`, `$RUN`, `$END`) | Requiere hardware: **protección de memoria**, **timer**, **instrucciones privilegiadas** e interrupciones. Aparecen el **modo usuario** y el **modo kernel** |
+| **Batch multiprogramado** | Mientras un job espera E/S, la CPU ejecuta otro | Requiere **interrupciones de E/S + DMA**, **gestión de memoria** y **planificación** |
+| **Tiempo compartido** | Varios usuarios interactivos en terminales; *time slicing* por interrupción de reloj | Objetivo: **minimizar el tiempo de respuesta**, no maximizar el uso de CPU |
+
+**Ejemplo del libro (fig. 2.4):** leer un registro toma 15 µs, ejecutar 100 instrucciones 1 µs y escribir 15 µs, así que la CPU se usa solo **1/31 ≈ 3.2 %** del tiempo. Con 3 jobs (tabla 2.2), la multiprogramación sube el uso de CPU de 20 % a 40 %, el throughput de 6 a 12 jobs/h y baja la respuesta media de 18 a 10 min.
+
+**CTSS** (MIT, 1961, IBM 7094): 32 K palabras de 36 bits, de las cuales el monitor ocupaba 5 K. Una interrupción de reloj cada **0.2 s** permitía cambiar de usuario, y solo se escribía a disco la parte de memoria que el siguiente job iba a sobrescribir. Soportaba hasta 32 usuarios.
+
+| | Batch multiprogramado | Tiempo compartido |
+| --- | --- | --- |
+| Objetivo | maximizar el uso de CPU | minimizar el tiempo de respuesta |
+| Directivas al SO | JCL que acompaña al job | comandos en la terminal |
+
+## Los 4 grandes logros (Denning)
+
+**1. Procesos.** Un proceso es un programa en ejecución: la entidad que se asigna a una CPU, con **un hilo de ejecución + estado + recursos**. Tiene tres componentes: **programa ejecutable, datos asociados y contexto de ejecución** (registros, prioridad, qué E/S espera). El SO registra los procesos en una **process list**. El registro **índice de proceso** apunta al actual, y los registros **base y límite** delimitan su memoria para impedir interferencias. Un **cambio de proceso** guarda un contexto y restaura otro.
+
+Las cuatro causas de errores difíciles en sistemas multiprogramados son el temario del resto del curso:
+
+| Causa | Ejemplo |
+| --- | --- |
+| **Sincronización incorrecta** | señales perdidas o duplicadas |
+| **Exclusión mutua fallida** | dos usuarios editan el mismo archivo |
+| **Operación no determinista** | el resultado depende del orden de planificación |
+| **Deadlock** | cada programa tiene un dispositivo y espera el del otro |
+
+**2. Gestión de memoria.** El SO debe dar aislamiento de procesos, asignación automática, soporte a la programación modular, protección y control de acceso, y almacenamiento de largo plazo. Se resuelve con **memoria virtual** (páginas, MMU, *swap in/out*) y el **sistema de archivos**.
+
+**3. Protección y seguridad.** Disponibilidad, confidencialidad, integridad de datos y autenticidad.
+
+**4. Planificación y gestión de recursos.** Busca equidad, respuesta diferenciada y eficiencia. El SO usa varias colas: una **de largo plazo** (admisión), una **de corto plazo** (listos, que atiende el *dispatcher*, por ejemplo con round-robin o prioridades) y **una cola de E/S por dispositivo**. El SO recupera el control por **interrupción** o por **llamada al sistema** (*service call*), y después corre el planificador de corto plazo.
+
+## Arquitecturas del kernel
+
+| | **Monolítico** | **Microkernel** |
+| --- | --- | --- |
+| Qué hay en el kernel | casi todo: planificación, sistema de archivos, red, drivers y memoria, **en un solo espacio de direcciones** | lo mínimo: espacio de direcciones, **IPC** y planificación básica |
+| Servicios | llamadas a funciones internas | **servidores en modo usuario** que se comunican por mensajes |
+| ✔ | **rendimiento** | **robustez** (un servidor que falla no tumba el sistema), extensibilidad, distribución, simplicidad |
+| ✘ | un fallo en cualquier parte cae todo; cambiarlo exige recompilar y reiniciar | overhead de IPC, más lento |
+| Ejemplos | Linux, UNIX tradicional | Mach, QNX, MINIX; macOS usa Mach 3.0 + FreeBSD (híbrido) |
+
+**Linux** es monolítico pero **modular**: sus *loadable modules* se cargan y descargan en caliente (`insmod`, `modprobe`, `rmmod`) y son **apilables** (unos dependen de otros; el kernel lleva un `refcnt` y no descarga un módulo en uso). Así obtiene parte de la flexibilidad del microkernel sin pagar la IPC.
+
+**Otros enfoques modernos:** multithreading, SMP, SO distribuidos (la ilusión de un solo sistema sobre un cluster) y diseño orientado a objetos (Windows usa objetos, *handles* y *security descriptors*).
+
+:::note[Multithreading y SMP son independientes]
+Los hilos son útiles incluso con una sola CPU (para estructurar aplicaciones), y SMP es útil incluso sin hilos (varios procesos en paralelo). Juntos se complementan.
+:::
+
+### Diseño de un SO para multiprocesador (sección 2.6)
+
+| Problema | Qué exige |
+| --- | --- |
+| Procesos o hilos simultáneos en el kernel | rutinas **reentrantes** y estructuras del kernel protegidas |
+| Planificación | cualquier CPU puede planificar, así que hay que proteger las estructuras del planificador |
+| Sincronización | **locks** para exclusión mutua y orden de eventos |
+| Gestión de memoria | coordinar la paginación entre CPUs; una página liberada no debe verse con su contenido viejo |
+| Confiabilidad | *graceful degradation* si cae una CPU |
+
+En multicore hay paralelismo en tres niveles: dentro del núcleo (ILP), multiprogramación en cada núcleo y una aplicación repartida en varios núcleos. Dos estrategias: paralelismo dentro de la aplicación (por ejemplo, **Grand Central Dispatch**: *"islands of serialization in a sea of concurrency"*) o el enfoque de **máquina virtual**, donde el SO dedica núcleos a procesos y actúa casi como un hipervisor.
+
+## Tolerancia a fallas
+
+- **Tipos de falla:** **permanente** (hasta reparar), **temporal–transitoria** (ocurre una vez, por ejemplo un bit alterado por radiación) y **temporal–intermitente** (se repite de forma impredecible, por ejemplo un cable flojo).
+- **Redundancia:** **espacial** (componentes replicados o votación por mayoría), **temporal** (repetir la operación; sirve para fallas temporales) y **de información** (códigos ECC, RAID).
+- **Mecanismos del SO:** aislamiento de procesos, control de concurrencia, máquinas virtuales, **checkpoints y rollback**.
+- $\text{MTTF} = \int_0^\infty R(t)\,dt$ y $A = \dfrac{\text{MTTF}}{\text{MTTF} + \text{MTTR}}$. Por clases: 0.99999 (tolerante a fallas) equivale a ≈ 5 min de caída al año; 0.999 (alta disponibilidad), a ≈ 8.3 h al año.
+
+## SOs reales (panorama)
+
+- **Windows:** en modo kernel están el Executive (gestores de E/S, caché, objetos, memoria virtual, procesos, seguridad, configuración y ALPC), el Kernel, la **HAL** y los drivers. En modo usuario están los procesos del sistema, los servicios, los subsistemas de entorno (Win32, POSIX) y las aplicaciones. Sigue un modelo **cliente/servidor**.
+- **UNIX:** hardware, kernel (subsistema de control de procesos y subsistema de archivos) y usuario, separados por la interfaz de *system calls*. El UNIX **tradicional** (SVR3, 4.3BSD) era para una sola CPU, no extensible y «inflado». **SVR4** agregó tiempo real, clases de planificación, memoria virtual, VFS y un **kernel expropiable**. La familia BSD da FreeBSD, NetBSD, OpenBSD y macOS.
+- **Linux:** Torvalds, 1991, GPL. Sus componentes son señales, system calls (de archivos, procesos, planificación, IPC, sockets y otras), planificador, memoria virtual, VFS, red, drivers, traps y faults, memoria física e interrupciones.
+- **Android:** kernel Linux con Binder IPC, wakelocks y alarmas; encima, bibliotecas, ART (compilación **AOT** con `dex2oat`, que reemplazó al JIT de Dalvik), el framework y las apps.
+
+<Quiz
+	client:visible
+	id="so"
+	preguntas={[
+		{ q: '¿Qué hardware exige un sistema batch con monitor residente?', opts: ['Solo DMA', 'Protección de memoria, timer, instrucciones privilegiadas e interrupciones', 'Caché L3', 'MMU con TLB'], ok: 1 },
+		{ q: 'Objetivo principal del tiempo compartido:', opts: ['Maximizar el uso de CPU', 'Minimizar el tiempo de respuesta', 'Minimizar la memoria', 'Eliminar el JCL'], ok: 1 },
+		{ q: 'Un microkernel contiene típicamente…', opts: ['sistema de archivos y drivers', 'gestión del espacio de direcciones, IPC y planificación básica', 'todo el SO', 'solo el shell'], ok: 1 },
+		{ q: '¿Qué interfaz garantiza portabilidad BINARIA?', opts: ['API', 'ABI', 'ISA', 'JCL'], ok: 1 },
+		{ q: 'Linux es…', opts: ['un microkernel puro', 'monolítico con módulos cargables y apilables', 'un exokernel', 'un híbrido Mach'], ok: 1 },
+		{ q: 'Un cable flojo que falla de vez en cuando es una falla…', opts: ['permanente', 'transitoria', 'intermitente', 'de diseño'], ok: 2 },
+		{ q: 'MTTF = 999 h y MTTR = 1 h. Disponibilidad:', opts: ['0.999', '0.99', '0.9999', '1'], ok: 0 },
+	]}
+/>
+
+<Fuente archivos={['Stallings 9e, cap. 2 (lab2/Stallings.pdf)', 'lab 1/Resumenes/Stallings/Stallings-Cap2-Descripcion-General-SO-Parte1.md', 'lab 1/Resumenes/Stallings/Stallings-Cap2-Parte3-Tolerancia-Fallos-Multiprocesador-SOs-Reales.md']} />

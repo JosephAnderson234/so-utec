@@ -36,6 +36,17 @@ Los profesores subieron tres presentaciones que no aparecen en los resúmenes de
 
 La paginación **no** está en esas diapositivas («more about pages in next session»), pero cayó en el E1 2022 y en el 2025-2, así que también está cubierta.
 
+## Ruta de lectura sugerida
+
+1. **Fundamentos** (Stallings cap. 1–2): [hardware](/fundamentos/hardware/) (interrupciones, jerarquía de memoria, DMA) y [sistema operativo](/fundamentos/sistema-operativo/) (evolución, modos, microkernel).
+2. **Procesos** (cap. 3–4): [estados y PCB](/procesos/estados/), [syscalls y señales](/procesos/syscalls-senales/), [fork/exec](/procesos/fork/), [threads y Amdahl](/procesos/threads/) y el recorrido por [Selfie](/procesos/selfie/).
+3. **Exclusión mutua** (cap. 5): [requisitos](/mutex/requisitos/) → [algoritmos de 2 procesos](/mutex/algoritmos/) (verificados con BFS y starvation con SCC) → [N procesos](/mutex/n-procesos/) → [Bakery](/mutex/bakery/).
+4. **Hardware**: [instrucciones atómicas](/hardware/atomicas/) (TAS, CAS, fences en x86) y [registros de Herlihy](/hardware/registros/).
+5. **Semáforos y deadlock** (cap. 5–6): [básicos](/semaforos/basicos/), [productor–consumidor](/semaforos/productor-consumidor/), [clásicos](/semaforos/clasicos/) y [deadlock y banquero](/semaforos/deadlock/).
+6. **Monitores y mensajes**: [monitores](/monitores/monitores/), [lectores–escritores](/monitores/lectores-escritores/), [problemas en C](/monitores/problemas/) y [paso de mensajes](/monitores/mensajes/).
+7. **Memoria** (cap. 7–8): [particiones y buddy](/memoria/particiones/), [segmentación](/memoria/segmentacion/) y [paginación y TLB](/memoria/paginacion/).
+8. **Práctica**: los exámenes previos, los [ejercicios oficiales](/examen/ejercicios/) y las [flashcards y el simulacro](/examen/flashcards/).
+
 ## Plantilla para las preguntas de algoritmos
 
 1. **Describe** qué representa cada variable (flag = interés, turn = quién cede, label = número de turno…).

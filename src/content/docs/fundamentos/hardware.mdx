@@ -1,0 +1,134 @@
+---
+title: 'Hardware: ciclo, interrupciones y memoria'
+description: 'Stallings cap. 1 — registros, ciclo de instrucción, interrupciones (clases, secuencia, anidamiento), jerarquía de memoria, caché, E/S y DMA, SMP y multicore.'
+---
+
+import InterruptTimeline from '../../../components/sim/InterruptTimeline.tsx';
+import HitRatio from '../../../components/sim/HitRatio.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Fuente from '../../../components/Fuente.astro';
+
+Este capítulo trata del **hardware** que el SO administra, no del SO. Todo lo que viene después se apoya aquí: el cambio de contexto guarda lo que guarda una interrupción, la memoria virtual es una jerarquía de dos niveles y los spinlocks existen porque hay varios núcleos.
+
+## Los 4 elementos de un computador
+
+| Elemento | Qué hace |
+| --- | --- |
+| **Procesador (CPU)** | Controla el computador y procesa datos |
+| **Memoria principal** | Guarda datos y programas. Es **volátil**; también se llama *real* o *primaria* |
+| **Módulos de E/S** | Mueven datos entre el computador y el exterior (discos, red, terminales) |
+| **Bus del sistema** | Comunica procesador, memoria y E/S |
+
+**Registros clave del procesador:**
+- **PC** (Program Counter): dirección de la **siguiente** instrucción.
+- **IR** (Instruction Register): instrucción en ejecución.
+- **MAR / MBR** (Memory Address / Buffer Register): dirección y dato de la próxima lectura o escritura en memoria. **I/O AR / I/O BR** son su equivalente para E/S.
+- **PSW** (Program Status Word): códigos de condición, bit de **habilitar/deshabilitar interrupciones** y bit de **modo usuario/kernel**.
+
+## Ciclo de instrucción
+
+1. **Fetch**: el procesador lee la instrucción apuntada por el PC, y el PC se incrementa (salvo que sea un salto).
+2. **Execute**: ejecuta la instrucción, que es de alguno de estos tipos:
+   - *processor–memory*: mover datos entre la CPU y la memoria;
+   - *processor–I/O*: mover datos entre la CPU y un módulo de E/S;
+   - *data processing*: operación aritmética o lógica;
+   - *control*: salto o *branch*.
+3. **Interrupt** *(etapa añadida)*: si hay una interrupción pendiente y están habilitadas, se salta al *handler*.
+
+Ejemplo del libro: una máquina de 16 bits con acumulador (4 bits de opcode, lo que da 16 operaciones, y 12 bits de dirección, lo que da 4096 palabras). Sumar las direcciones 940 y 941 cuesta 3 ciclos: `Load AC`, `Add` y `Store AC`.
+
+## Interrupciones
+
+**¿Por qué existen?** La E/S es millones de veces más lenta que la CPU. Sin interrupciones, la CPU se queda **sondeando** (*polling*) hasta que la E/S termine. Con interrupciones, lanza la E/S, sigue trabajando y el dispositivo le avisa al terminar, así que la E/S se **solapa** con el cómputo.
+
+| Clase | Origen | Ejemplo |
+| --- | --- | --- |
+| **Program** | la ejecución de una instrucción | overflow, división por cero, instrucción ilegal, acceso fuera de la memoria permitida |
+| **Timer** | reloj interno | le permite al SO recuperar el control periódicamente (base del *time slicing*) |
+| **I/O** | controlador de E/S | la operación terminó, o hubo un error |
+| **Hardware failure** | falla física | corte de energía, error de paridad de memoria |
+
+### Secuencia completa (fig. 1.10)
+
+**Hardware:**
+1. El dispositivo levanta la señal de interrupción.
+2. La CPU **termina la instrucción actual**; nunca interrumpe a media instrucción.
+3. Detecta la interrupción y envía un *acknowledge* al dispositivo.
+4. Guarda lo mínimo en la pila de control: el **PSW** y el **PC**.
+5. Carga el PC con la dirección del *interrupt handler*.
+
+**Software (el handler, que es parte del SO):**
+
+6. Guarda el resto de los registros, porque los va a usar.
+7. Procesa la interrupción.
+8. Restaura los registros.
+9. Restaura el PSW y el PC, y el programa interrumpido continúa como si nada hubiera pasado.
+
+:::caution[Interrupción ≠ llamada a subrutina]
+Una interrupción puede ocurrir en **cualquier** punto e **impredeciblemente**, así que hay que guardar **todo** el estado (registros, PC y PSW), no solo la dirección de retorno. Esto es exactamente lo que después se guarda en el **PCB** en un cambio de contexto.
+:::
+
+### Interrupciones múltiples
+
+1. **Deshabilitarlas durante una ISR**: procesamiento secuencial estricto. Es simple, pero ignora la urgencia y se pueden perder datos si un buffer se llena.
+2. **Prioridades**: una interrupción de mayor prioridad **anida** sobre una ISR de menor prioridad.
+
+<InterruptTimeline client:visible />
+
+## Jerarquía de memoria
+
+¿Cuánta memoria, qué tan rápida, qué tan cara? Hay un triple compromiso: más velocidad implica más costo por bit; más capacidad implica menos costo por bit, pero más lentitud.
+
+**Registros → caché → memoria principal → disco (outboard) → cinta (off-line).** Al bajar en la jerarquía: (a) baja el costo por bit, (b) sube la capacidad, (c) sube el tiempo de acceso y (d) **baja la frecuencia de acceso** de la CPU. El punto (d) es el que hace funcionar todo, y se logra gracias a la **localidad de referencia** (Denning 1968): las referencias se **agrupan** en bucles, subrutinas y arreglos.
+
+- **Localidad temporal:** lo que usé hace poco lo volveré a usar pronto.
+- **Localidad espacial:** usaré lo que está al lado de lo que acabo de usar.
+
+<HitRatio client:visible />
+
+Costo medio combinado: $C_s = \dfrac{C_1 S_1 + C_2 S_2}{S_1 + S_2}$. Se quiere $C_s \approx C_2$ (el costo del nivel barato), así que $S_1 \ll S_2$. Una eficiencia aceptable ($T_1/T_s$) necesita H ≈ 0.8–0.9. **Sin** localidad, H sería proporcional al tamaño relativo: si M₁ es la mitad de M₂, H = 0.5.
+
+## Caché
+
+- Es una copia **pequeña y rápida** de una porción de la memoria principal. En un *miss* se trae un **bloque** completo (localidad espacial). Hay varios niveles: L1 (por núcleo), L2 y L3 (compartida).
+- La memoria tiene $M = 2^n / K$ bloques de K palabras; la caché tiene C **líneas** (*slots*) con $C \ll M$. Cada línea tiene un **tag** que dice qué bloque contiene.
+- **Diseño:** tamaño de la caché, tamaño de bloque (mayor ayuda hasta cierto punto y luego perjudica), **función de mapeo**, **reemplazo** (LRU), **política de escritura** (*write-through* o *write-back*; esta última deja la RAM desactualizada, lo que complica el multiprocesador y el DMA) y número de niveles.
+- **Coherencia de caché:** con varias CPUs, escribir en una caché invalida las copias de las otras. Se resuelve **en hardware** (MESI). Por eso existe el [false sharing](/hardware/atomicas/#false-sharing-e1-2026-1--p15).
+
+## Tres técnicas de E/S
+
+| Técnica | ¿Quién mueve cada palabra? | ¿La CPU espera? |
+| --- | --- | --- |
+| **Programmed I/O** | la CPU | Sí: hace *polling* del estado |
+| **Interrupt-driven I/O** | la CPU (una interrupción por palabra o bloque) | No, pero sigue ejecutando instrucciones por cada transferencia |
+| **DMA** | el módulo DMA, directo entre dispositivo y memoria | No: solo recibe **una** interrupción al final |
+
+Para el DMA, la CPU le indica: lectura o escritura, la dirección del dispositivo, la dirección inicial en memoria y el número de palabras. Cuando el DMA usa el bus, la CPU solo **pausa un ciclo de bus** (*cycle stealing*); **no** es una interrupción y no se guarda contexto.
+
+## Multiprocesador y multicore
+
+**SMP** (Symmetric Multiprocessor):
+1. Dos o más procesadores similares.
+2. Comparten memoria y E/S, con tiempo de acceso ≈ igual para todos.
+3. Todos acceden a los dispositivos de E/S.
+4. Todos pueden hacer las mismas funciones (de ahí *simétrico*).
+5. Un solo SO integrado los controla.
+
+Sus beneficios **potenciales** (no automáticos: el SO debe explotarlos) son rendimiento, **disponibilidad** (si cae una CPU, el sistema sigue más lento), crecimiento incremental y escalado de la línea de productos.
+
+**Multicore** (*chip multiprocessor*): varios núcleos en un mismo *die*, cada uno con sus registros, ALU y L1, y cachés L2/L3 compartidas. Surge porque ya no rendía seguir complicando un solo núcleo. Ejemplo: Intel Core i7-5960X, con prefetching, controlador DDR4 integrado y PCIe.
+
+<Quiz
+	client:visible
+	id="hw"
+	preguntas={[
+		{ q: '¿Qué guarda el hardware automáticamente al aceptar una interrupción?', opts: ['Todos los registros', 'PSW y PC', 'Solo el PC', 'Nada'], ok: 1, why: 'El resto de los registros los guarda el handler (software).' },
+		{ q: 'Una interrupción se atiende…', opts: ['en medio de la instrucción actual', 'al terminar la instrucción actual', 'solo en modo kernel', 'al siguiente quantum'], ok: 1 },
+		{ q: 'H = 0.9, T₁ = 10 ns, T₂ = 100 ns. Tₛ =', opts: ['19 ns', '20 ns', '10 ns', '100 ns'], ok: 1, why: '$T_1 + (1-H)T_2 = 10 + 0.1 \\cdot 100 = 20$ ns.' },
+		{ q: 'Cuando el DMA toma el bus, la CPU…', opts: ['recibe una interrupción', 'pausa un ciclo de bus, sin guardar contexto', 'hace un cambio de proceso', 'se bloquea hasta el fin de la transferencia'], ok: 1 },
+		{ q: '¿Quién resuelve la coherencia de caché en SMP?', opts: ['El SO', 'El hardware', 'El compilador', 'El programador'], ok: 1 },
+		{ q: 'La propiedad que hace viable la jerarquía de memoria es…', opts: ['la volatilidad', 'la localidad de referencia', 'el DMA', 'el multicore'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['Stallings, Operating Systems 9e, cap. 1 (lab2/Stallings.pdf)', 'lab 1/Resumenes/Stallings/Stallings-Cap1-Computer-System-Overview.md']} />

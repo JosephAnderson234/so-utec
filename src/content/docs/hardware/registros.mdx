@@ -60,6 +60,19 @@ Tres dimensiones independientes:
 
 El resultado central del capítulo es que **se puede construir** un registro MRMW m-valuado atómico usando solo registros SRSW booleanos safe. Por eso algoritmos como Bakery son válidos «sin hardware especial».
 
+### La cadena de construcciones (Herlihy & Shavit, cap. 4)
+
+| Paso | De… | A… | Idea |
+| --- | --- | --- | --- |
+| 1 | SRSW **safe** | MRSW **safe** | un arreglo con **una copia por lector**; el escritor escribe todas y cada lector lee la suya |
+| 2 | MRSW safe **booleano** | MRSW **regular** booleano | el escritor **solo escribe si el valor cambia**. Así, una lectura solapada devuelve el viejo o el nuevo, porque en un booleano no hay otra opción |
+| 3 | regular booleano | regular **m-valuado** | codificación **unaria**: m bits; se escribe el nuevo valor y se «borra hacia abajo»; el lector toma el primer bit en 1 |
+| 4 | SRSW regular | SRSW **atómico** | **marca de tiempo**: el escritor escribe (valor, ts) y el lector recuerda el último par y nunca devuelve uno más viejo |
+| 5 | SRSW atómico | MRSW **atómico** | una **tabla n × n**: cada lector, además, le **escribe a los demás** lo que leyó, para que nadie vea algo más viejo después |
+| 6 | MRSW atómico | MRMW **atómico** | cada escritor lee todas las marcas, toma **max + 1** (como Bakery) y escribe en su registro; el lector toma el par (ts, id) mayor |
+
+La conclusión es que la «atomicidad» que suponen Peterson y Bakery **se puede fabricar en software** a partir de lo más débil que existe, a costa de más memoria y más lecturas.
+
 ## Cómo lo preguntarían
 
 - Dada una línea de tiempo de escrituras y lecturas, **clasificar** el registro (el simulador de arriba).

@@ -29,6 +29,136 @@ function mk(pcTo: (s: State, i: 0 | 1, j: 0 | 1, n: State) => number): Algo['ste
 
 const ALGOS: Algo[] = [
 	{
+		id: 'naive-lock',
+		name: 'Lock ingenuo (clase 05 · intento 1)',
+		fuente: '05-OSL-Mutual exclusion Algorithms, diap. 25–30',
+		lines: ['// sección no crítica', 'while (lock != 0) ;', 'lock = 1;', '/* SECCIÓN CRÍTICA */', 'lock = 0;'],
+		ncs: 0,
+		cs: 3,
+		init: () => ({ lock: 0 }),
+		step: mk((s, i, _j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: return s.v.lock !== 0 ? 1 : 2;
+				case 2: n.v.lock = 1; return 3;
+				case 3: return 4;
+				default: n.v.lock = 0; return 0;
+			}
+		}),
+		nota: 'Leer lock y escribir lock = 1 son DOS operaciones (check-then-act): si ambos leen 0 antes de que alguno escriba, entran los dos. La solución real es un test-and-set atómico.',
+	},
+	{
+		id: 'strict',
+		name: 'Alternancia estricta (clase 05 · intento 2)',
+		fuente: '05-OSL diap. 32–37 · 06-OSL Listing 3',
+		lines: ['// sección no crítica', 'while (order != i) ;', '/* SECCIÓN CRÍTICA */', 'order = j;'],
+		ncs: 0,
+		cs: 2,
+		init: () => ({ order: 1 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: return s.v.order !== i ? 1 : 2;
+				case 2: return 3;
+				default: n.v.order = j; return 0;
+			}
+		}),
+		nota: 'Cumple la exclusión mutua, pero viola el PROGRESO: si el otro hilo se queda en su sección no crítica (o termina), quien quiere entrar espera para siempre. El buscador lo detecta como «violación de progreso». Además obliga a alternar 0,1,0,1…',
+	},
+	{
+		id: 'interest-if',
+		name: 'Interés + alternancia con if (clase 05 · diap. 46)',
+		fuente: '05-OSL diap. 46–51: «¿puedes dar un ejemplo donde no basta?»',
+		lines: ['// sección no crítica', 'interest[i] = true;', 'if (interest[j])', '    while (order != i) ;', '/* SECCIÓN CRÍTICA */', 'order = j;', 'interest[i] = false;'],
+		ncs: 0,
+		cs: 4,
+		init: () => ({ interest: [false, false], order: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'interest')[i] = true; return 2;
+				case 2: return arr(s.v, 'interest')[j] ? 3 : 4;
+				case 3: return s.v.order !== i ? 3 : 4;
+				case 4: return 5;
+				case 5: n.v.order = j; return 6;
+				default: arr(n.v, 'interest')[i] = false; return 0;
+			}
+		}),
+		nota: 'NO basta: con order = 0, P1 marca interés y ve interest[0] = F, así que SALTA la espera y entra. Luego P0 marca interés, ve interest[1] = T, espera a order == 0… que ya es 0, y también entra. El que salta el if no mira order.',
+	},
+	{
+		id: 'interest-while',
+		name: 'Interés + alternancia con while (lab 06 · Listing 5)',
+		fuente: '06-OSL-Mutex.pdf, Listing 5',
+		lines: ['// sección no crítica', 'interest[i] = 1;', 'while (interest[j]) {', '    interest[i] = 0;', '    while (order != i) ;', '    interest[i] = 1; }', '/* SECCIÓN CRÍTICA */', 'order = j;', 'interest[i] = 0;'],
+		ncs: 0,
+		cs: 6,
+		init: () => ({ interest: [false, false], order: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'interest')[i] = true; return 2;
+				case 2: return arr(s.v, 'interest')[j] ? 3 : 6;
+				case 3: arr(n.v, 'interest')[i] = false; return 4;
+				case 4: return s.v.order !== i ? 4 : 5;
+				case 5: arr(n.v, 'interest')[i] = true; return 2;
+				case 6: return 7;
+				case 7: n.v.order = j; return 8;
+				default: arr(n.v, 'interest')[i] = false; return 0;
+			}
+		}),
+		nota: 'Resultado exhaustivo: ✔ exclusión mutua (cada hilo marca su interés ANTES de mirar el del otro), ✔ sin deadlock, ✔ progreso, pero ✘ STARVATION: P0 cede (interest[0] = 0), pasa el while(order != 0) porque order ya es 0 y vuelve a subir su interés; en esa ventana P1 ve interest[0] = 0 y entra. Al salir, P1 deja order = 0 otra vez y el ciclo se repite. Pulsa «¿Starvation?». (El resumen previo de lab2 lo llamaba «≈ Peterson, sin starvation»: es incorrecto.)',
+	},
+	{
+		id: 'dekker',
+		name: 'Dekker (Stallings fig. 5.2)',
+		fuente: 'Stallings §5.1 · 05-OSL-Mutual_exclusion_demostrations',
+		lines: ['// sección no crítica', 'flag[i] = true;', 'while (flag[j]) {', '    if (turn == j) {', '        flag[i] = false;', '        while (turn == j) ;', '        flag[i] = true; } }', '/* SECCIÓN CRÍTICA */', 'turn = j;', 'flag[i] = false;'],
+		ncs: 0,
+		cs: 7,
+		init: () => ({ flag: [false, false], turn: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'flag')[i] = true; return 2;
+				case 2: return arr(s.v, 'flag')[j] ? 3 : 7;
+				case 3: return s.v.turn === j ? 4 : 2;
+				case 4: arr(n.v, 'flag')[i] = false; return 5;
+				case 5: return s.v.turn === j ? 5 : 6;
+				case 6: arr(n.v, 'flag')[i] = true; return 2;
+				case 7: return 8;
+				case 8: n.v.turn = j; return 9;
+				default: arr(n.v, 'flag')[i] = false; return 0;
+			}
+		}),
+		nota: 'El primer algoritmo correcto para 2 procesos: combina flags (intentos 2–4) con turn (intento 1). Mutex, deadlock-free y starvation-free. El buscador no encontrará contraejemplos.',
+	},
+	{
+		id: 'dijkstra2',
+		name: 'Dijkstra del lab 06 (con N = 2)',
+		fuente: '06-OSL-Mutex.pdf · Dijkstra 1965',
+		lines: ['// sección no crítica', 'interest[i] = 1;', 'while (interest[j]) {', '    if (order != i) {', '        interest[i] = 0;', '        while (order != -1) ;', '        order = i;', '        interest[i] = 1; } }', '/* SECCIÓN CRÍTICA */', 'order = -1;', 'interest[i] = 0;'],
+		ncs: 0,
+		cs: 8,
+		init: () => ({ interest: [false, false], order: -1 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'interest')[i] = true; return 2;
+				case 2: return arr(s.v, 'interest')[j] ? 3 : 8;
+				case 3: return s.v.order !== i ? 4 : 2;
+				case 4: arr(n.v, 'interest')[i] = false; return 5;
+				case 5: return s.v.order !== -1 ? 5 : 6;
+				case 6: n.v.order = i; return 7;
+				case 7: arr(n.v, 'interest')[i] = true; return 2;
+				case 8: return 9;
+				case 9: n.v.order = -1; return 10;
+				default: arr(n.v, 'interest')[i] = false; return 0;
+			}
+		}),
+		nota: 'Resultado exhaustivo: ✔ exclusión mutua, ✔ sin deadlock, ✔ progreso, ✘ starvation posible (pulsa «¿Starvation?»). Coincide con lo que se sabe del algoritmo de Dijkstra de 1965: garantiza que ALGUIEN entra, pero no que TÚ entres (Knuth, 1966, fue el primero en acotar la espera). El paper original usa dos arreglos b[] y c[].',
+	},
+	{
 		id: 'peterson',
 		name: 'Peterson (PC1 2021: FLAG / AFTER_YOU)',
 		fuente: 'PC1 2021, P1(b)',
@@ -132,8 +262,109 @@ const ALGOS: Algo[] = [
 
 const key = (s: State) => JSON.stringify(s);
 
+/** Progreso: si p quiere entrar y el otro está en su sección no crítica, ¿p llega solo a la SC? */
+function soloReaches(a: Algo, s0: State, p: 0 | 1): boolean {
+	let s = s0;
+	const seen = new Set<string>();
+	for (let k = 0; k < 400; k++) {
+		if (s.pc[p] === a.cs) return true;
+		const kk = key(s);
+		if (seen.has(kk)) return false;
+		seen.add(kk);
+		s = a.step(s, p);
+	}
+	return false;
+}
+function progressViolation(a: Algo, s: State): boolean {
+	for (const p of [0, 1] as const) {
+		const q = (1 - p) as 0 | 1;
+		if (s.pc[q] === a.ncs && s.pc[p] !== a.ncs && s.pc[p] !== a.cs && !soloReaches(a, s, p)) return true;
+	}
+	return false;
+}
+
+
+/** Starvation bajo planificación justa: SCC donde P_p siempre quiere entrar, nunca está en la SC,
+ *  y ambos procesos dan pasos dentro del ciclo. Devuelve el camino hasta el ciclo. */
+function starvation(a: Algo): { p: 0 | 1; path: (0 | 1)[]; size: number } | null {
+	const start: State = { pc: [a.ncs, a.ncs], v: a.init() };
+	const idx = new Map<string, number>();
+	const states: State[] = [];
+	const prev: { from: number; by: 0 | 1 }[] = [];
+	const adj: { to: number; by: 0 | 1 }[][] = [];
+	const add = (s: State, from: number, by: 0 | 1) => {
+		const k = key(s);
+		if (idx.has(k)) return idx.get(k)!;
+		const id = states.length;
+		idx.set(k, id);
+		states.push(s);
+		prev.push({ from, by });
+		adj.push([]);
+		return id;
+	};
+	add(start, -1, 0);
+	for (let q = 0; q < states.length && states.length < 60000; q++) {
+		for (const p of [0, 1] as const) {
+			const to = add(a.step(states[q], p), q, p);
+			adj[q].push({ to, by: p });
+		}
+	}
+	// Tarjan iterativo sobre el subgrafo de estados permitidos
+	const sccs = (allowed: (v: number) => boolean) => {
+		const n = states.length;
+		const index = new Array(n).fill(-1), low = new Array(n).fill(0), comp = new Array(n).fill(-1), onStack = new Array(n).fill(false);
+		const stack: number[] = [];
+		let counter = 0, nc = 0;
+		for (let r = 0; r < n; r++) {
+			if (index[r] !== -1 || !allowed(r)) continue;
+			const work: [number, number][] = [[r, 0]];
+			while (work.length) {
+				const top = work[work.length - 1];
+				const v = top[0];
+				if (top[1] === 0 && index[v] === -1) { index[v] = low[v] = counter++; stack.push(v); onStack[v] = true; }
+				if (top[1] < adj[v].length) {
+					const w = adj[v][top[1]++].to;
+					if (!allowed(w)) continue;
+					if (index[w] === -1) work.push([w, 0]);
+					else if (onStack[w]) low[v] = Math.min(low[v], index[w]);
+				} else {
+					work.pop();
+					if (work.length) { const u = work[work.length - 1][0]; low[u] = Math.min(low[u], low[v]); }
+					if (low[v] === index[v]) { let w; do { w = stack.pop()!; onStack[w] = false; comp[w] = nc; } while (w !== v); nc++; }
+				}
+			}
+		}
+		return comp;
+	};
+	for (const p of [0, 1] as const) {
+		const q = (1 - p) as 0 | 1;
+		const allowed = (v: number) => states[v].pc[p] !== a.ncs && states[v].pc[p] !== a.cs;
+		const comp = sccs(allowed);
+		const info = new Map<number, { vs: number[]; byP: boolean; byQ: boolean; qCS: boolean }>();
+		for (let v = 0; v < states.length; v++) {
+			if (comp[v] < 0) continue;
+			if (!info.has(comp[v])) info.set(comp[v], { vs: [], byP: false, byQ: false, qCS: false });
+			const I = info.get(comp[v])!;
+			I.vs.push(v);
+			for (const e of adj[v]) if (comp[e.to] === comp[v]) {
+				if (e.by === p) I.byP = true;
+				else { I.byQ = true; if (states[e.to].pc[q] === a.cs) I.qCS = true; }
+			}
+		}
+		for (const I of info.values()) {
+			if (I.byP && I.byQ && I.qCS) {
+				const path: (0 | 1)[] = [];
+				let cur = I.vs[0];
+				while (prev[cur].from !== -1) { path.unshift(prev[cur].by); cur = prev[cur].from; }
+				return { p, path, size: I.vs.length };
+			}
+		}
+	}
+	return null;
+}
+
 /** BFS: busca el camino más corto a una violación de mutex o a un deadlock. */
-function search(a: Algo): { path: (0 | 1)[]; kind: 'mutex' | 'deadlock' } | null {
+function search(a: Algo): { path: (0 | 1)[]; kind: 'mutex' | 'deadlock' | 'progreso' } | null {
 	const start: State = { pc: [a.ncs, a.ncs], v: a.init() };
 	const seen = new Map<string, { prev: string | null; by: 0 | 1 | null }>();
 	const q: State[] = [start];
@@ -174,6 +405,7 @@ function search(a: Algo): { path: (0 | 1)[]; kind: 'mutex' | 'deadlock' } | null
 		const k = key(s);
 		if (s.pc[0] === a.cs && s.pc[1] === a.cs) return { path: rebuild(k), kind: 'mutex' };
 		if (s.pc[0] !== a.ncs && s.pc[1] !== a.ncs && !canReachCS(s)) return { path: rebuild(k), kind: 'deadlock' };
+		if (progressViolation(a, s)) return { path: rebuild(k), kind: 'progreso' };
 		for (const p of [0, 1] as const) {
 			const n = a.step(s, p);
 			const nk = key(n);
@@ -222,6 +454,7 @@ export default function MutexStepper({ algo: initial = 'peterson', only }: { alg
 	}, [cur, a]);
 
 	const both = cur.pc[0] === a.cs && cur.pc[1] === a.cs;
+	const progressNow = useMemo(() => progressViolation(a, cur), [a, cur]);
 	const step = (p: 0 | 1) => setHist((h) => [...h, { s: a.step(h[h.length - 1].s, p), by: p, line: h[h.length - 1].s.pc[p] }]);
 	const reset = (id = aid) => {
 		const al = list.find((x) => x.id === id) ?? list[0];
@@ -231,7 +464,7 @@ export default function MutexStepper({ algo: initial = 'peterson', only }: { alg
 	const replay = () => {
 		const r = search(a);
 		if (!r) {
-			setFound('No existe ninguna intercalación que viole la exclusión mutua ni que lleve a deadlock (búsqueda exhaustiva del espacio de estados).');
+			setFound('No existe ninguna intercalación que viole la exclusión mutua, lleve a deadlock o bloquee el progreso (búsqueda exhaustiva del espacio de estados). Ojo: la starvation no se verifica aquí.');
 			return;
 		}
 		let s = fresh();
@@ -242,7 +475,30 @@ export default function MutexStepper({ algo: initial = 'peterson', only }: { alg
 			h.push({ s, by: p, line });
 		}
 		setHist(h);
-		setFound(r.kind === 'mutex' ? `Contraejemplo de ${r.path.length} pasos: ambos procesos terminan en la sección crítica.` : `Traza de ${r.path.length} pasos que termina en deadlock: ninguno puede volver a entrar.`);
+		setFound(
+			r.kind === 'mutex'
+				? `Contraejemplo de ${r.path.length} pasos: ambos procesos terminan en la sección crítica.`
+				: r.kind === 'deadlock'
+					? `Traza de ${r.path.length} pasos que termina en deadlock: ninguno puede volver a entrar.`
+					: `Traza de ${r.path.length} pasos que viola el PROGRESO: un proceso quiere entrar, el otro está en su sección no crítica, y aun así el primero no puede entrar nunca por sí solo.`,
+		);
+	};
+
+	const replayStarv = () => {
+		const r = starvation(a);
+		if (!r) {
+			setFound('Sin bypass indefinido: en todo el grafo de estados no hay ningún ciclo en que un proceso quiera entrar para siempre mientras el otro sigue entrando a la SC (planificador justo). Ojo: si el algoritmo tiene deadlock o viola el progreso, TAMPOCO es starvation-free. Combínalo con el otro buscador.');
+			return;
+		}
+		let s = fresh();
+		const h: typeof hist = [{ s, by: null, line: null }];
+		for (const p of r.path) {
+			const line = s.pc[p];
+			s = a.step(s, p);
+			h.push({ s, by: p, line });
+		}
+		setHist(h);
+		setFound(`STARVATION posible para P${r.p}: desde este estado (${r.path.length} pasos) hay un ciclo de ${r.size} estados en que P${r.p} quiere entrar y nunca entra, mientras P${1 - r.p} sigue entrando a la SC. Continúa la traza a mano para recorrer el ciclo.`);
 	};
 
 	return (
@@ -297,11 +553,19 @@ export default function MutexStepper({ algo: initial = 'peterson', only }: { alg
 						<button onClick={() => hist.length > 1 && setHist((h) => h.slice(0, -1))} disabled={hist.length < 2}>Deshacer</button>
 						<button onClick={() => reset()}>Reiniciar</button>
 					</div>
-					<button onClick={replay} style={{ borderColor: 'var(--pg-warn)' }}>🔎 Buscar contraejemplo (BFS)</button>
+					<div className="pg-row">
+						<button onClick={replay} style={{ borderColor: 'var(--pg-warn)' }}>🔎 Buscar contraejemplo (BFS)</button>
+						<button onClick={replayStarv} style={{ borderColor: 'var(--pg-violet)' }}>⏳ ¿Starvation?</button>
+					</div>
 					<AnimatePresence mode="popLayout">
 						{both && (
 							<motion.div key="mx" className="pg-note bad" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ opacity: 0 }}>
 								💥 <b>Violación de exclusión mutua:</b> P0 y P1 están a la vez en la sección crítica.
+							</motion.div>
+						)}
+						{!both && !deadlockNow && progressNow && (
+							<motion.div key="pr" className="pg-note bad" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ opacity: 0 }}>
+								⛔ <b>Violación de progreso:</b> el otro proceso está en su sección no crítica, y aun así quien quiere entrar no puede avanzar por sí solo.
 							</motion.div>
 						)}
 						{!both && deadlockNow && (

@@ -22,6 +22,25 @@ La pregunta 1 de los dos E1 de 2024 fue la misma idea: **¿cuántas veces se imp
 Si la salida va a un pipe (`./a | wc -l`), `printf` usa buffer completo y un `fork` posterior **duplica el buffer**. En el examen se asume salida sin buffer, es decir, un `printf` = una línea. Para verificarlo, usé `setvbuf(stdout, NULL, _IONBF, 0)`.
 :::
 
+## Qué se hereda y qué no
+
+| Se hereda (se copia) | No se hereda |
+| --- | --- |
+| text, data, BSS, heap y stack (copias **independientes**) | el **PID** (el hijo tiene uno nuevo) y el PPID |
+| **descriptores de archivo abiertos**, que comparten el offset | señales **pendientes** |
+| credenciales (UID/GID), entorno, directorio actual | locks de archivos (`fcntl`) y memoria bloqueada (`mlock`) |
+| handlers y máscara de señales | timers y alarmas; E/S asíncrona (AIO) |
+| tablas de páginas (con COW), contexto de hardware, estructuras IPC | ajustes de `semop` (semundo) |
+
+En el ejemplo `fork2.c` de clase (`static int g = 5; int loc = 9;`), el hijo hace `loc++; g--` e imprime `loc=10 g=4`, y el padre hace `loc--; g++` e imprime `loc=8 g=6`. **Son copias**: nada de lo que haga uno afecta al otro.
+
+## fork en Linux: `clone()` y copy-on-write
+
+- En Linux, `fork()` es **`clone()`** con ciertos flags, y usa **COW (copy-on-write)**: padre e hijo **comparten** las páginas marcadas como solo lectura, y una página se duplica **recién cuando alguno la escribe**. El costo real de `fork` es copiar las **tablas de páginas** y crear el `task_struct`.
+- Si el hijo hace `exec` **enseguida**, las páginas **nunca se copian**. Por eso `fork` + `exec` es barato. (`vfork` = `CLONE_VFORK`: el padre se suspende hasta que el hijo hace `exec` o `exit`.)
+- **Un hilo en Linux es un `clone` con `CLONE_VM`** (comparte el espacio de direcciones), además de `CLONE_FS`, `CLONE_FILES`, `CLONE_SIGHAND` y `CLONE_THREAD`. Para el kernel, un hilo es simplemente **un proceso que comparte recursos**.
+- Árbol de procesos: cada `task_struct` apunta a su `parent` y tiene una lista de `children`. `init_task` es estático, y `for (t = current; t != &init_task; t = t->parent);` sube hasta init. La lista de tareas es **circular y doblemente enlazada** (`for_each_process`).
+
 ## Simulador
 
 <ForkTree client:visible />

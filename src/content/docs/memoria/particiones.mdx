@@ -25,9 +25,18 @@ import Fuente from '../../../components/Fuente.astro';
 - **De distinto tamaño:** se asigna la partición **más pequeña que alcance**, con una cola por partición o una cola única.
 - ✘ El número de particiones limita el grado de multiprogramación. ✘ Los trabajos pequeños desperdician espacio: **fragmentación interna**. ✘ Un programa demasiado grande necesita *overlays*.
 
+### Particiones fijas: detalles
+
+- Por ejemplo, 64 MB con 8 MB para el SO y 7 particiones de 8 MB (iguales), o particiones de 2, 4, 6, 8, 8, 12 y 16 MB (desiguales).
+- **Una cola por partición:** cada proceso va a la partición más chica en que cabe. Es óptimo *para esa partición*, pero la de 16 MB puede quedar vacía mientras procesos chicos esperan en otra cola.
+- **Una cola única:** se usa la partición libre más chica que alcance. Aprovecha mejor el sistema.
+- IBM OS/**MFT** (*Multiprogramming with a Fixed number of Tasks*). Hoy está prácticamente en desuso.
+
 ### Particiones dinámicas (OS/MVT de IBM)
 - Cada proceso recibe **exactamente** lo que pide.
 - Con el tiempo aparecen **huecos** pequeños entre procesos: **fragmentación externa**.
+- **Paso a paso (fig. 7.4), con 56 MB libres:** entra P1 (20 MB) y quedan 36; entra P2 (14) y quedan 22; entra P3 (18) y queda un hueco de **4**. Todos quedan bloqueados, así que se hace *swap out* de P2 (se liberan 14). Entra P4 (8) y queda un hueco de **6**. La memoria termina **salpicada de huecos inútiles** (4 MB, 6 MB): fragmentación externa.
+- **Algoritmo de reemplazo:** si todos los procesos en memoria están bloqueados y no hay espacio ni compactando, ¿a quién se saca? El tema continúa en memoria virtual.
 - **Compactación:** mover los procesos para juntar el espacio libre. Solo es posible con **relocalización dinámica** (en tiempo de ejecución) y cuesta CPU. Durante la E/S hay que fijar el proceso en memoria o hacer E/S solo a buffers del SO.
 
 :::tip[Interna vs externa]
@@ -60,6 +69,37 @@ Es un compromiso entre particiones fijas y dinámicas. Los bloques tienen tamañ
 En el árbol binario, si dos buddies son hojas, al menos uno está asignado; si no, ya se habrían fusionado. Linux usa buddy para asignar **páginas físicas** (`__get_free_pages`).
 
 <BuddySim client:visible />
+
+## Relocalización (diapositiva «Important about relocation»)
+
+1. **Particiones fijas con una cola por partición:** el proceso vuelve **siempre a la misma partición**, así que basta un **cargador relocalizador** simple que reemplaza las referencias relativas por absolutas **al cargar**.
+2. **Particiones iguales, o desiguales con cola única, y particiones dinámicas:** un proceso puede volver a **otra** partición tras un swap, así que las direcciones no pueden fijarse al cargar.
+3. **Con compactación**, los procesos **se mueven mientras están en memoria**, así que las referencias cambian cada vez.
+
+En los casos 2 y 3 hace falta traducir **en tiempo de ejecución**:
+
+| Tipo de dirección | Qué es |
+| --- | --- |
+| **Lógica** | referencia independiente de la ubicación; hay que traducirla |
+| **Relativa** | caso particular de la lógica: el desplazamiento desde un punto conocido (el inicio del programa) |
+| **Física o absoluta** | la ubicación real en la RAM |
+
+**Hardware (fig. 7.8):** al pasar a Running se cargan los registros **base** y **límite (bounds)**. Cada dirección relativa se **suma** a la base y la dirección absoluta se **compara** con el límite; si se pasa, hay una interrupción al SO. Esto resuelve **relocalización** (mover un proceso es solo cambiar la base) **y protección** a la vez, con el costo mínimo de hacerlo en hardware.
+
+## De programa a proceso: carga y enlace (apéndice 7A)
+
+**Carga (*loading*):**
+- **Absoluta:** siempre en la misma dirección, y las direcciones se resuelven al compilar. No se puede mover.
+- **Relocalizable:** las direcciones son relativas al inicio del módulo; el cargador **suma la base** x usando un **diccionario de relocalización** que dice qué referencias ajustar. Ejemplo: «saltar a 1424» cargado en 1024 se convierte en 2448.
+- **Dinámica en ejecución:** la dirección absoluta se calcula **al ejecutar cada instrucción** (con base y límite). Permite mover y hacer swap del proceso libremente.
+
+**Enlace (*linking*):** el *linker* une módulos objeto en un **módulo de carga**, resolviendo las referencias externas. Si A mide L y hace `CALL B`, eso se convierte en `JSR "L"`; si B hace `CALL C`, en `JSR "L+M"`.
+- **Linkage editor:** produce un módulo de carga relocalizable completo.
+- **Enlace dinámico en la carga** (*load-time*): las referencias a bibliotecas se resuelven al cargar.
+- **Enlace dinámico en ejecución** (*run-time*): se resuelve **cuando se ejecuta la llamada**, y los módulos se **comparten entre procesos** (las **DLL** de Windows y las `.so` de Linux).
+  - ✔ Se puede actualizar una biblioteca sin reenlazar las aplicaciones, se comparte código automáticamente y terceros pueden extender el sistema.
+  - ✘ **DLL hell:** dos aplicaciones necesitan **versiones distintas** de la misma DLL.
+  - Junto con la segmentación, permite **no reservar memoria** para módulos que nunca se usan en una ejecución (por ejemplo, en un sistema de reservas).
 
 <Quiz
 	client:visible

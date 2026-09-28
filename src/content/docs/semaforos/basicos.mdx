@@ -1,51 +1,127 @@
 ---
-title: Semáforos y su implementación
-description: Semáforos de Dijkstra, fuertes vs débiles, binarios vs generales, e implementación con semáforos binarios (E1 2025-2 P4).
+title: 'Semáforos: definición, tipos, patrones y errores'
+description: 'Stallings §5.4 + clase 04 + lab 07: semWait/semSignal (P/V), terminología oficial, 3 consecuencias sutiles, binario vs general vs mutex, fuerte vs débil, implementación sin busy wait, patrones, errores típicos, inversión de prioridad, API POSIX/barreras y E1 2025-2 P4.'
 ---
 
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
 
-## Definición (Dijkstra, notación de Stallings)
+**Dijkstra (1965)** propuso el **semáforo**: un entero al que solo se accede con tres operaciones atómicas. Resuelve lo que un mutex no puede, que es **ordenar eventos entre procesos** y **contar recursos**, y además evita la espera activa.
+
+## Definición (notación de Stallings)
 
 ```c
-struct semaphore { int count; queue_t queue; };
+struct semaphore { int count; queueType queue; };
 
-void semWait(semaphore s) {          // P(s), wait, down
+void semWait(semaphore s) {          // P (proberen, «probar»), wait, down, sem_wait
     s.count--;
-    if (s.count < 0) { place this process in s.queue; block; }
+    if (s.count < 0) { poner este proceso en s.queue; bloquearlo; }
 }
-void semSignal(semaphore s) {        // V(s), signal, up, post
+void semSignal(semaphore s) {        // V (verhogen, «incrementar»), signal, up, sem_post
     s.count++;
-    if (s.count <= 0) { remove a process P from s.queue; place P on ready list; }
+    if (s.count <= 0) { sacar un proceso P de s.queue; ponerlo en la cola de listos; }
 }
 ```
 
-Ambas operaciones son **atómicas**. Invariantes:
-- `count ≥ 0`: número de `semWait` que pueden pasar sin bloquearse.
-- `count < 0`: `|count|` es el número de procesos en la cola.
+1. Se inicializa con un entero **≥ 0**.
+2. `semWait` decrementa; si el valor queda **negativo**, el proceso se bloquea.
+3. `semSignal` incrementa; si el valor queda **≤ 0**, desbloquea a uno.
 
-| Tipo | Detalle |
+**Invariantes:** si `count ≥ 0`, es el número de `semWait` que pueden pasar sin bloquearse. Si `count < 0`, **|count| es el número de procesos en la cola**. (En la versión con busy wait de las diapositivas, `wait` gira mientras `S ≤ 0` y el valor nunca baja de 0.)
+
+:::caution[Tres consecuencias sutiles (Stallings, típicas de verdadero/falso)]
+1. **No se puede saber antes** de hacer `semWait` si el proceso se bloqueará.
+2. Tras un `semSignal` que despierta a alguien, **ambos siguen de forma concurrente**; no se sabe cuál corre primero.
+3. Al hacer `semSignal`, **no se sabe** si había alguien esperando: se despiertan 0 o 1 procesos.
+:::
+
+## Terminología oficial (tabla 5.3)
+
+| Término | Definición |
 | --- | --- |
-| **General / contador** | `count` es cualquier entero |
-| **Binario** | `count ∈ {0, 1}`; un `semSignalB` sobre 1 **se pierde** |
-| **Fuerte** | la cola es FIFO, así que no hay starvation |
-| **Débil** | no especifica a quién despertar, así que un proceso puede ser adelantado indefinidamente |
-| **Mutex vs semáforo binario** | el mutex tiene **dueño** (solo quien bloqueó libera); el semáforo no |
+| **Semáforo** (contador o general) | entero con 3 operaciones atómicas: inicializar, decrementar e incrementar |
+| **Semáforo binario** | solo toma 0 o 1 |
+| **Mutex** | como un binario, pero **quien lo bloquea debe desbloquearlo**: tiene **dueño** |
+| **Condition variable** | bloquea un proceso o hilo hasta que una condición sea verdadera |
+| **Monitor** | construcción de lenguaje: variables + procedimientos + inicialización, con **un solo proceso activo** a la vez |
+| **Event flags** | una palabra de memoria donde cada bit representa un evento |
+| **Mailboxes / mensajes** | intercambio de información que también sirve para sincronizar |
+| **Spinlock** | exclusión mutua con espera activa en un bucle |
 
-POSIX: `sem_init(&s, pshared, valor)`, `sem_wait`, `sem_post`, `sem_trywait` y `sem_timedwait`.
+**Binario formal:**
+
+```c
+void semWaitB(bsem s)   { if (s.value == 1) s.value = 0; else { encolar; bloquear; } }
+void semSignalB(bsem s) { if (cola vacía) s.value = 1; else { desencolar P; ready(P); } }
+```
+
+El binario tiene la **misma potencia** que el general: uno se puede implementar con el otro (ver el E1 2025-2 P4 más abajo). Un `semSignalB` sobre un semáforo que ya vale 1 **no acumula**.
+
+### Fuerte vs débil
+
+- **Fuerte:** la cola es **FIFO**. Garantiza que no haya starvation y es lo que implementan los SO reales. Stallings supone semáforos fuertes por defecto.
+- **Débil:** el orden en que se sacan los procesos de la cola no está especificado, así que puede haber starvation. Con semáforos débiles hace falta un algoritmo como [Morris](/semaforos/clasicos/).
+
+Las diapositivas 39–40 muestran un semáforo fuerte paso a paso: los procesos A, B, C y D pasan entre la cola de listos y la de bloqueados mientras `s` baja a valores negativos y vuelve a subir.
+
+### Implementación sin busy wait
+
+`wait` y `signal` son, a su vez, una **sección crítica** (sobre `value` y la cola). Se protegen con algo corto: en una sola CPU, deshabilitando interrupciones; en multicore, con un spinlock o TAS (ver la [versión con TAS](/hardware/atomicas/#semáforo-con-tas-e1-2022--p2b)). El busy wait no desaparece del todo, pero queda reducido a **unas pocas instrucciones**.
 
 ## Patrones
 
-| Patrón | Inicialización | Uso |
+| Patrón | Inicialización | Código |
 | --- | --- | --- |
-| Exclusión mutua | `mutex = 1` | `wait(mutex); SC; signal(mutex);` |
-| Señalización (A antes que B) | `s = 0` | A: `…; signal(s);` · B: `wait(s); …` |
-| Rendezvous | `a = 0, b = 0` | A: `signal(a); wait(b);` · B: `signal(b); wait(a);` |
-| Multiplex (≤ n dentro) | `m = n` | `wait(m); …; signal(m);` |
-| Turnstile | `t = 1` | `wait(t); signal(t);` — bloquea a todos si alguien lo retiene |
-| Lightswitch | contador + mutex | el primero en entrar toma el recurso y el último en salir lo suelta (lectores) |
+| **Exclusión mutua** | `mutex = 1` | `wait(mutex); SC; signal(mutex);` |
+| **Recurso con k unidades** (multiplex) | `s = k` | igual; hasta k dentro. Ejemplo de clase: 10 autos y 3 carriles |
+| **Señalización / orden** (S1 antes que S2) | `synch = 0` | P1: `S1; signal(synch);` · P2: `wait(synch); S2;` |
+| **Rendezvous** (esperarse mutuamente) | `a = 0, b = 0` | A: `signal(a); wait(b);` · B: `signal(b); wait(a);` |
+| **Turnstile** (torniquete) | `t = 1` | `wait(t); signal(t);`. Si alguien retiene `t`, nadie pasa |
+| **Lightswitch** (el primero enciende, el último apaga) | contador + mutex | primero: `wait(recurso)`; último: `signal(recurso)` |
+| **Barrera** (N se esperan) | `count = 0`, `mutex = 1`, `barrier = 0` | el N-ésimo hace `signal(barrier)` y cada uno pasa el testigo con `wait(barrier); signal(barrier);` |
+
+**Regla de oro del productor–consumidor:** usar **un semáforo por restricción** (llenos, vacíos, mutex) y hacer **primero el `wait` de conteo y después el de `mutex`**.
+
+## Errores típicos
+
+- **`signal(mutex) … wait(mutex)`** (orden invertido): varios procesos pueden entrar a la vez.
+- **`wait(mutex) … wait(mutex)`**: el proceso se bloquea a sí mismo, y hay deadlock.
+- **Omitir** un `wait` o un `signal`: se pierde la exclusión mutua o hay deadlock.
+- **Deadlock con dos semáforos** (S = Q = 1): P0 hace `wait(S); wait(Q);` y P1 hace `wait(Q); wait(S);` → espera circular.
+- **Starvation**: con semáforos débiles, o cuando la cola se atiende en orden LIFO.
+- **Inversión de prioridad**: L (prioridad baja) tiene el recurso, H (alta) lo espera, y M (media) expropia a L una y otra vez, así que H espera indefinidamente. Se soluciona con **herencia de prioridad**: L hereda la prioridad de H mientras tiene el recurso.
+
+## API POSIX
+
+```c
+sem_t s;
+sem_init(&s, pshared, valor);   // pshared = 0: entre hilos; ≠ 0: entre procesos (en memoria compartida)
+sem_wait(&s);                   // P: bloquea si el valor es 0
+sem_trywait(&s);                // no bloquea: falla con EAGAIN
+sem_timedwait(&s, &abstime);    // con timeout
+sem_post(&s);                   // V
+sem_getvalue(&s, &v);           // para depurar
+sem_destroy(&s);
+
+pthread_barrier_t b;
+pthread_barrier_init(&b, NULL, N);  // N hilos deben llegar
+pthread_barrier_wait(&b);           // el último libera a todos; uno recibe PTHREAD_BARRIER_SERIAL_THREAD
+```
+
+<Solucion titulo="Preguntas de la diapositiva sobre barreras (Sem05)">
+
+1. **`pthread_barrier_init`** prepara la barrera para que se liberen **N** hilos cuando lleguen todos.
+2. Si N = `NUM_THREADS`, la barrera se abre cuando llega el último hilo.
+3. **¿Qué pasa al llamar a `pthread_barrier_wait`?** El hilo se bloquea hasta que llegan los N; entonces se liberan **todos** a la vez.
+4. **Sin barrera**, las fases se mezclan: algunos hilos empiezan la fase 2 mientras otros siguen en la 1.
+5. **Con barrera** se garantiza que **ningún** hilo empieza la fase 2 antes de que **todos** terminen la fase 1. No hay garantía de orden **dentro** de cada fase.
+6. Si un hilo tarda mucho en la fase 1, todos los demás **lo esperan**: la barrera avanza al ritmo del más lento.
+7. Si un hilo **nunca llega**, los demás quedan bloqueados para siempre.
+8. Si la barrera espera **5** hilos pero solo se crean 4, **ninguno pasa nunca**.
+9. Si espera **menos** hilos de los que se crean, se abre antes de tiempo y los que llegan después forman una nueva «ronda» que quizá nunca se complete.
+
+</Solucion>
 
 ## E1 2025-2 · Pregunta 4 (4 pts): semáforo general con binarios
 
@@ -117,11 +193,15 @@ Rehaciendo la traza: en el paso 4, D se bloquea en `semWaitB(&mutex)` porque C t
 	client:visible
 	id="sembasic"
 	preguntas={[
-		{ q: 'Un semáforo con `count = -3` significa…', opts: ['Error', '3 procesos bloqueados en su cola', '3 recursos libres', 'Que se hicieron 3 signal de más'], ok: 1 },
-		{ q: '¿Qué garantiza un semáforo fuerte que uno débil no?', opts: ['Exclusión mutua', 'Ausencia de deadlock', 'Orden FIFO → sin starvation', 'Atomicidad'], ok: 2 },
-		{ q: 'Semáforo binario en 1. Se hacen dos `semSignalB` seguidos. Valor final:', opts: ['3', '2', '1 (el segundo se pierde)', '0'], ok: 2 },
-		{ q: 'Para que el hilo B siempre ejecute `y()` después de que A ejecute `x()`:', opts: ['s = 1; A: wait(s); x(); B: y(); signal(s)', 's = 0; A: x(); signal(s); B: wait(s); y()', 's = 0; A: wait(s); x(); B: signal(s); y()', 'Un mutex basta'], ok: 1 },
+		{ q: 'Un semáforo con `count = -3` significa…', opts: ['un error', '3 procesos bloqueados en su cola', '3 recursos libres', 'que se hicieron 3 signal de más'], ok: 1 },
+		{ q: '¿Qué garantiza un semáforo fuerte que uno débil no?', opts: ['Exclusión mutua', 'Ausencia de deadlock', 'Orden FIFO, así que sin starvation', 'Atomicidad'], ok: 2 },
+		{ q: 'Semáforo binario en 1. Se hacen dos `semSignalB` seguidos. Valor final:', opts: ['3', '2', '1 (el segundo no acumula)', '0'], ok: 2 },
+		{ q: 'Para que B siempre ejecute `y()` después de que A ejecute `x()`:', opts: ['s = 1; A: wait(s); x(); B: y(); signal(s)', 's = 0; A: x(); signal(s); B: wait(s); y()', 's = 0; A: wait(s); x(); B: signal(s); y()', 'Un mutex basta'], ok: 1 },
+		{ q: 'Mutex vs semáforo binario:', opts: ['Son idénticos', 'El mutex tiene dueño: solo quien lo bloqueó puede desbloquearlo', 'El semáforo binario es más rápido', 'El mutex puede valer 2'], ok: 1 },
+		{ q: '¿Cuál es FALSA sobre semáforos (según Stallings)?', opts: ['No se sabe antes de semWait si el proceso se bloqueará', 'Tras semSignal, el que señala siempre corre primero', 'Al hacer semSignal no se sabe si alguien esperaba', 'Se inicializan con un valor ≥ 0'], ok: 1 },
+		{ q: 'P0: wait(S); wait(Q). P1: wait(Q); wait(S). S = Q = 1. Puede haber…', opts: ['livelock', 'deadlock', 'false sharing', 'nada'], ok: 1 },
+		{ q: 'La solución a la inversión de prioridad es…', opts: ['deshabilitar interrupciones', 'herencia de prioridad', 'más núcleos', 'semáforos débiles'], ok: 1 },
 	]}
 />
 
-<Fuente archivos={['for_partial/E1_OS_20252.pdf (P4)', 'lab2/07-OSL-Mutex_Locks_Semaphores.pdf', 'lab2/Resumenes/07-Locks-Semaphores-Pthreads-Futex.md', 'lab2/Stallings.pdf §5.3']} />
+<Fuente archivos={['Stallings §5.4 (tabla 5.3, figs. 5.6–5.8)', 'lab2/Sem4_04-OST-Mutex mechanisms.pdf → Resumenes/02', 'lab2/07-OSL-Mutex_Locks_Semaphores.pdf → Resumenes/07', 'lab2/Sem05_05-OST-Mutex mechanisms monitors.pdf (barreras)', 'WSL ~/so/sem4/07_mutex/mutex_sema.c', 'for_partial/E1_OS_20252.pdf (P4)']} />

@@ -33,10 +33,20 @@ export default defineConfig({
 					],
 				},
 				{
+					label: '0 · Fundamentos',
+					items: [
+						{ label: 'Hardware: interrupciones y memoria', slug: 'fundamentos/hardware' },
+						{ label: '¿Qué es un SO? Evolución y kernel', slug: 'fundamentos/sistema-operativo' },
+					],
+				},
+				{
 					label: '1 · Procesos y threads',
 					items: [
-						{ label: 'fork, exec y contar «Hello!»', slug: 'procesos/fork' },
-						{ label: 'Modelos de threads y pthreads', slug: 'procesos/threads' },
+						{ label: 'Estados, PCB y cambio de proceso', slug: 'procesos/estados' },
+						{ label: 'Syscalls, exec, wait y señales', slug: 'procesos/syscalls-senales' },
+						{ label: 'fork y contar «Hello!»', slug: 'procesos/fork' },
+						{ label: 'Threads: teoría y pthreads', slug: 'procesos/threads' },
+						{ label: 'Selfie: syscalls y procesos', slug: 'procesos/selfie' },
 					],
 				},
 				{
@@ -44,6 +54,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Requisitos y cómo demostrar', slug: 'mutex/requisitos' },
 						{ label: 'Algoritmos: Peterson, Hyman, Flaky…', slug: 'mutex/algoritmos' },
+						{ label: 'N procesos: Dijkstra 1965', slug: 'mutex/n-procesos' },
 						{ label: 'Bakery de Lamport', slug: 'mutex/bakery' },
 					],
 				},
@@ -55,19 +66,21 @@ export default defineConfig({
 					],
 				},
 				{
-					label: '4 · Semáforos',
+					label: '4 · Semáforos y deadlock',
 					items: [
 						{ label: 'Semáforos y su implementación', slug: 'semaforos/basicos' },
 						{ label: 'Productor–consumidor y deadlock', slug: 'semaforos/productor-consumidor' },
 						{ label: 'Problemas clásicos (Morris, aretes…)', slug: 'semaforos/clasicos' },
+						{ label: 'Deadlock: banquero y filósofos', slug: 'semaforos/deadlock' },
 					],
 				},
 				{
-					label: '5 · Monitores',
+					label: '5 · Monitores y mensajes',
 					items: [
 						{ label: 'Monitores: Hoare vs Mesa', slug: 'monitores/monitores', badge: { text: 'nuevo', variant: 'tip' } },
 						{ label: 'Lectores–escritores', slug: 'monitores/lectores-escritores', badge: { text: 'nuevo', variant: 'tip' } },
 						{ label: 'Baño unisex y cine', slug: 'monitores/problemas' },
+						{ label: 'Paso de mensajes', slug: 'monitores/mensajes' },
 					],
 				},
 				{
@@ -85,6 +98,7 @@ export default defineConfig({
 						{ label: 'E1 2025-2', slug: 'examen/e1-2025-2' },
 						{ label: 'E1 2024 (I y II)', slug: 'examen/e1-2024' },
 						{ label: 'PC1 2021 y E1 2022', slug: 'examen/e1-2021-2022' },
+						{ label: 'Los 32 ejercicios de sincronización', slug: 'examen/ejercicios' },
 						{ label: 'Flashcards y simulacro', slug: 'examen/flashcards' },
 					],
 				},

@@ -1,0 +1,108 @@
+---
+title: 'Selfie: syscalls y procesos por dentro'
+description: 'starc/mipster/hypster, C* y RISC-U, el ciclo completo de una syscall (compile time vs run time), las 5 syscalls nativas, cómo añadir una syscall y el PCB (context) de Selfie.'
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Fuente from '../../../components/Fuente.astro';
+
+**Selfie** (Christoph Kirsch y Sara Seidl, Universidad de Salzburgo) es un sistema **mínimo y autocontenido** de 64 bits, todo en un solo archivo `selfie.c`. Sirve para *ver* por dentro todo lo que Stallings describe en abstracto.
+
+| Componente | Qué es | «Self-…» |
+| --- | --- | --- |
+| **starc** | compilador de **C\*** (un subconjunto pequeño de C) a **RISC-U** (un subconjunto de RISC-V) | *self-compiling*: se compila a sí mismo |
+| **mipster** | **emulador** de RISC-U en software: una máquina de **32 registros**, 0–64 MB de memoria y el ciclo **fetch–decode–execute** | *self-executing*: puede ejecutarse a sí mismo |
+| **hypster** | **hipervisor**: VMs RISC-U que pueden alojar starc, mipster y el propio hypster | *self-hosting* |
+| **libcstar** | biblioteca C\* diminuta | — |
+
+¿Por qué hace falta un emulador? Porque un procesador x86 **solo** ejecuta su propia **ISA**. El código RISC-U corre sobre mipster, que a su vez fue compilado con gcc para x86 (`./selfie -c prog.c -m 1` compila y ejecuta con 1 MB).
+
+## El ciclo completo de una syscall
+
+| Capa | Dónde | Rol |
+| --- | --- | --- |
+| **API** | `hello-world.c` | el programador llama a `write(fd, buf, n)` como a una función cualquiera |
+| **ABI (wrapper)** | `emit_write()` en `selfie.c` | pone los argumentos en registros y el número de la syscall en `a7`, y ejecuta `ecall` |
+| **Handler** | `handle_exception()` → `handle_system_call()` | identifica que la excepción es una syscall y la despacha según `a7` |
+| **Implementación** | `implement_write()` | hace el trabajo, deja el resultado en `a0` y **avanza el PC** |
+
+**En tiempo de compilación**, starc ve `write(...)`, lo reconoce como un símbolo registrado y emite una secuencia **fija**:
+
+```text
+ld   a0, 0(sp)      ; fd        (y addi sp, sp, 8 tras cada carga)
+ld   a1, 0(sp)      ; *buffer
+ld   a2, 0(sp)      ; size
+addi a7, zero, 64   ; número de syscall: write = 64
+ecall               ; trap: pasa el control al "kernel" (mipster)
+jalr zero, 0(ra)    ; vuelve al llamador; el resultado está en a0
+```
+
+**En tiempo de ejecución:**
+1. mipster encuentra `ecall` y se genera una **excepción**.
+2. `handle_exception(context)` detecta que es una syscall.
+3. `handle_system_call(context)` lee **`a7`** y llama a `implement_*`.
+4. La implementación escribe el resultado en **`a0`**, incrementa el PC y retorna `DONOTEXIT` (o `EXIT`). El **planificador** decide quién continúa.
+
+**Convención de registros (ABI RISC-V):** los argumentos van en `a0`–`a7`; **el número de syscall en `a7`**; **el retorno en `a0`**.
+
+### Syscalls nativas
+
+| Syscall | ID | Para qué |
+| --- | --- | --- |
+| `read` | 63 | leer de un descriptor |
+| `write` | 64 | escribir en un descriptor |
+| `openat` | 56 | abrir un archivo |
+| `brk` | 214 | mover el límite del heap (lo usa `malloc`) |
+| `exit` | 93 | terminar el proceso |
+
+`printf` no existe como syscall: la biblioteca formatea y termina llamando a `write`, igual que en Linux.
+
+### Añadir una syscall (laboratorio `dummy_syscall`: retorna n + 2026)
+
+1. **ID único:** `uint64_t SYSCALL_DUMMY_SYSCALL = 23;`. Nunca hay que reutilizar 63, 64, 56, 214 ni 93.
+2. **Wrapper `emit_dummy_syscall()`:** crea la entrada en la tabla de símbolos (`create_symbol_table_entry(GLOBAL_TABLE, "dummy_syscall", …, PROCEDURE, UINT64_T, 1, …)`), carga el argumento en `a0`, pone el ID en `a7`, emite `ecall` y `jalr`. **Hay que registrarlo en `selfie_compile()`**; si no, el compilador no reconoce el nombre.
+3. **`do_ecall()`:** declarar qué registros lee y escribe: `if (a7 == SYSCALL_DUMMY_SYSCALL) write_register(REG_A0);`.
+4. **Despacho** en `handle_system_call()` según el ID.
+5. **`implement_dummy_syscall(context)`:** `*(get_regs(context) + REG_A0) = valor + 2026;` y **no olvidar avanzar el PC**, porque si no mipster reejecuta el `ecall` para siempre. Un `return` de C **no** sirve: los registros simulados viven en un arreglo.
+
+## Procesos en Selfie
+
+- **El PCB es el `context`:** un arreglo de 32 `uint64_t` (C\* no tiene structs). Sus campos son `next` y `prev` (lista doble), **PC**, puntero a los registros, **tabla de páginas**, límites de código, datos y heap y el *program break*, excepción y página que falló, código de salida, **padre** y contadores (instrucciones, syscalls, fallos de página).
+- **Tabla de procesos:** las listas `used_contexts` (doble) y `free_contexts` (simple, para **reciclar** PCBs: *object pooling*). Se usan `create_context()` = `new_context()` + `init_context()`, y `delete_context()` y `free_context()`.
+- **El cambio de contexto:**
+
+```c
+uint64_t* mipster_switch(uint64_t* to_context, uint64_t timeout) {
+  restore_context(to_context);    // carga PC, registros y tabla de páginas del entrante
+  do_switch(to_context, timeout); // current_context = to; arma el timer (quantum)
+  run_until_exception();          // ejecuta hasta un timeout, una syscall o un page fault
+  save_context(current_context);  // guarda el estado del saliente
+  return current_context;
+}
+```
+
+- **El planificador no existe:** el bucle `mipster()` tiene literalmente `// TODO: scheduler should go here` y siempre le devuelve la CPU al mismo contexto (`to_context = from_context`, con `TIMESLICE`). Implementar round-robin entre varios contextos fue la tarea del HW2.
+
+| Concepto de Stallings | En Selfie |
+| --- | --- |
+| PCB | el arreglo `context` |
+| Crear un proceso | `create_context()` |
+| Tabla de procesos | las listas `used_contexts` y `free_contexts` |
+| Process switch | `mipster_switch()`: `restore_context` → `run_until_exception` → `save_context` |
+| Timer / quantum | `TIMESLICE` en `do_switch` |
+| Trap / syscall | `ecall` → `handle_exception` → `handle_system_call` |
+
+<Quiz
+	client:visible
+	id="selfie"
+	preguntas={[
+		{ q: '¿Qué registro indica QUÉ syscall se pide en Selfie (RISC-V)?', opts: ['a0', 'a7', 'ra', 'sp'], ok: 1 },
+		{ q: '¿Dónde queda el valor de retorno de una syscall?', opts: ['a7', 'a0', 'en la pila', 'en el PC'], ok: 1 },
+		{ q: '¿Qué pasa si implement_* no avanza el PC?', opts: ['Nada', 'El proceso reejecuta el ecall indefinidamente', 'Segfault', 'Termina el proceso'], ok: 1 },
+		{ q: 'mipster es…', opts: ['el compilador', 'el emulador RISC-U', 'el hipervisor', 'la libc'], ok: 1 },
+		{ q: 'ID de write en Selfie:', opts: ['63', '64', '93', '214'], ok: 1 },
+		{ q: 'En Selfie, emit_write() se ejecuta…', opts: ['en tiempo de ejecución', 'en tiempo de compilación, generando el código que prepara los registros y hace ecall', 'dentro del kernel de Linux', 'nunca'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['OST-03-Selfie_Syscalls.pdf', 'Dummy_Syscall_Selfie.pdf', 'Resumen_Syscalls_Selfie.md', 'lab2/Resumenes/Selfie-Syscalls/01–05', 'hw2/PUNTO_A_SELFIE_PCB.md (selfie.c en WSL ~/so/selfie)']} />

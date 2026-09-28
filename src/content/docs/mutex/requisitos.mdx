@@ -1,65 +1,123 @@
 ---
-title: Requisitos y cómo demostrar
-description: Requisitos de la exclusión mutua, las tres propiedades y las plantillas de demostración que piden en el E1.
+title: 'Concurrencia: race conditions, SC y requisitos'
+description: 'Stallings §5.2 + clase 03: contextos de concurrencia, race condition (echo, b/c), tipos de interacción entre procesos, coherencia de datos, sección crítica, los 6 requisitos, propiedades, volatile/TSO y cómo demostrar.'
 ---
 
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
 
-## Conceptos base
+## ¿Dónde aparece la concurrencia?
 
-- **Race condition**: el resultado depende del orden en que se intercalan los accesos a datos compartidos. `x++` no es atómico: es `load`, `add` y `store`.
-- **Sección crítica (SC)**: el fragmento de código que accede al recurso compartido.
-- **Operación atómica**: indivisible. Nadie observa un estado intermedio.
+**Tres escenarios, que Stallings llama «los temas centrales del diseño de SO»:**
+- **multiprogramación**: varios procesos en una sola CPU;
+- **multiprocesamiento**: varios procesos en varias CPUs;
+- **procesamiento distribuido**: varios procesos en varias máquinas.
 
-## Requisitos de la exclusión mutua (Stallings §5.2)
+**Tres contextos en los que surge:**
+- varias **aplicaciones** que se reparten la CPU;
+- aplicaciones **estructuradas** como procesos concurrentes;
+- la **estructura del propio SO**, que también es software concurrente.
 
-1. **Exclusión mutua obligatoria**: como máximo un proceso en la SC.
-2. Un proceso que se detiene **fuera** de la SC no debe interferir con los demás.
-3. **Sin deadlock ni starvation**: quien pide entrar no espera indefinidamente.
-4. Si nadie está en la SC, quien quiere entrar debe entrar **sin demora**.
-5. **Sin suposiciones** sobre velocidades relativas ni número de procesadores.
-6. Un proceso permanece en la SC por un **tiempo finito**.
+*Interleaving* (una CPU) y *overlapping* (varias CPUs) producen **los mismos problemas**. Incluso con una sola CPU, la velocidad relativa de los procesos es **impredecible**: depende de los demás procesos, de las interrupciones y de la planificación.
 
-:::tip[PC1 2021 · P1(a) — 4 pts]
-«Listar y explicar cuatro requisitos». Usa 1, 3, 4 y 5 y da un ejemplo breve de cada uno.
-:::
+## Race condition
 
-## Las tres propiedades que siempre piden
+> *«A race condition occurs when multiple processes or threads read and write data items so that the final result depends on the order of execution of instructions.»* — Stallings
+
+El «perdedor» de la carrera (el último que escribe) decide el valor final.
+
+**`echo()` compartida (Stallings):** P1 lee `x` en `chin` y es interrumpido. P2 ejecuta `echo` completo con `y`, así que `chin = y`. P1 continúa e imprime **y**: el carácter de P1 se perdió y el de P2 salió **dos veces**. La solución es que solo un proceso a la vez pueda estar en `echo()`.
+
+**Otros dos ejemplos:**
+- `a = 1`; A hace `b = load(a); b = b + 1; store`; B hace `b = load(a); b = b * 2; store`. Si A va primero, a = 4; si B va primero, a = 3.
+- `b = 1, c = 2`; P3 hace `b = b + c` y P4 hace `c = b + c`. Si P3 va primero, (b, c) = (3, 5); si P4 va primero, (4, 3). **Cambian las dos variables**, porque cada proceso lee la del otro.
+
+`counter++` **no es atómico**: son tres instrucciones (READ, ADD, WRITE). Dos hilos que lo ejecutan 10⁸ veces cada uno terminan con menos de 2·10⁸, y el resultado cambia en cada ejecución.
+
+## Cómo interactúan los procesos (tabla 5.2)
+
+| Grado de conocimiento | Relación | Problemas de control |
+| --- | --- | --- |
+| **No se conocen** | **competencia** por recursos | exclusión mutua, deadlock (de recursos reutilizables), starvation |
+| **Se conocen indirectamente** (comparten un objeto) | **cooperación por compartición** | exclusión mutua, deadlock, starvation y **coherencia de datos** |
+| **Se conocen directamente** (por ID) | **cooperación por comunicación** (mensajes) | deadlock (de recursos consumibles) y starvation. **No hay exclusión mutua**, porque no se comparte nada |
+
+**Coherencia de datos:** con la invariante `a == b`, P1 hace `a++; b++` y P2 hace `b *= 2; a *= 2`. Aunque **cada asignación** sea exclusiva, intercaladas pueden llevar de a = b = 1 a **a = 4, b = 3**. La **secuencia completa** debe ser la sección crítica.
+
+## Sección crítica
+
+```c
+do {
+    entry section      // protocolo de entrada: pedir permiso
+    critical section   // acceso al recurso compartido
+    exit section       // protocolo de salida: liberar
+    remainder section  // lo demás
+} while (true);
+```
+
+La **race condition** es el fenómeno; la **región crítica** es el código que debe ejecutarse en exclusión.
+
+**Dentro del kernel** hay dos opciones:
+- **Kernel expropiable** (*preemptive*): se puede expropiar a un proceso incluso en modo kernel. Responde mejor, pero hay que proteger las estructuras del kernel.
+- **Kernel no expropiable**: el proceso corre hasta que sale del kernel, se bloquea o cede la CPU. Por construcción **no hay race conditions en el kernel** (en una sola CPU), pero responde peor.
+
+## Los 6 requisitos (Stallings §5.2)
+
+1. **Exclusión mutua obligatoria**: solo un proceso en la SC del mismo recurso.
+2. Un proceso detenido en su **sección no crítica** no debe interferir con los demás.
+3. **Sin espera indefinida**: ni deadlock ni starvation.
+4. Si nadie está en la SC, quien pide entrar **entra sin demora**.
+5. **Sin suposiciones** sobre velocidades relativas ni número de procesadores (solo que cada velocidad es > 0).
+6. Se permanece en la SC un **tiempo finito**.
+
+Las diapositivas los agrupan como **exclusión mutua** (1), **progreso** (2, 3 y 4) y **espera acotada** (5 y 6).
+
+### Las propiedades de Dijkstra (1965)
+
+- **(a) Simetría**: ningún proceso tiene prioridad fija.
+- **(b) Independencia de las velocidades.**
+- **(c)** Un proceso detenido **fuera** de su SC no bloquea a los demás; esto descarta la alternancia estricta.
+- **(d) Nada de bloqueo «después de ti» – «después de ti»**: la decisión no puede postergarse para siempre.
+
+### Las propiedades que siempre piden demostrar
 
 | Propiedad | Tipo | Pregunta | Cómo se refuta |
 | --- | --- | --- | --- |
-| **Mutual exclusion** | *safety* | ¿Pueden dos estar en la SC a la vez? | Traza numerada que termina con ambos dentro |
-| **Deadlock-free** | *liveness* | Si varios quieren entrar, ¿alguno entra? | Traza donde todos giran (o bloquean) para siempre |
-| **Starvation-free** | *liveness* | ¿Todo el que quiere entrar, entra? (espera acotada) | Ciclo repetible donde uno nunca entra |
+| **Exclusión mutua** | *safety* («nunca pasa algo malo») | ¿Pueden dos estar en la SC? | traza numerada que termina con ambos dentro |
+| **Deadlock-free** | *liveness* | si varios quieren entrar, ¿alguno entra? | traza donde todos giran o se bloquean para siempre |
+| **Starvation-free** | *liveness* | ¿todo el que quiere entrar, entra (espera acotada)? | ciclo repetible donde uno nunca entra |
+| **Progreso** | *liveness* | ¿quien está fuera de la SC puede impedir la entrada de otro? | el otro está en su sección no crítica y aun así no se puede entrar |
 
-Starvation-free ⇒ deadlock-free. Por eso, si hay deadlock, **no** es starvation-free (como en Flaky).
+Starvation-free ⇒ deadlock-free. Si hay deadlock, **no** es starvation-free.
 
-## Plantillas
+| Fenómeno | Qué ocurre | Ejemplo |
+| --- | --- | --- |
+| **Deadlock** | todos **bloqueados** o esperando algo que solo otro puede dar | intento 3 de Dekker: ambos levantan su flag |
+| **Livelock** | todos **ejecutan** instrucciones, pero nadie progresa; se rompe si cambian las velocidades | intento 4: ambos ceden al mismo tiempo, una y otra vez |
+| **Starvation** | el sistema progresa, pero **uno** nunca entra | un spinlock TAS con mala suerte |
 
-### Demostrar exclusión mutua (por contradicción)
+## Advertencia: el hardware real reordena
 
-1. Supón que P0 y P1 están en la SC al mismo tiempo.
-2. Mira la **última escritura** de cada uno antes de su prueba de entrada, por ejemplo `write₀(turn = 0) → read₀(flag[1] == false)`.
-3. Ordena los eventos: los registros son atómicos, así que las escrituras tienen un orden total. Supón, sin pérdida de generalidad, que P0 escribió `turn` al final.
-4. Deduce qué **tuvo que leer** el otro y llega a la contradicción («P0 vio `flag[1] = true` y `turn = 0`, así que no podía pasar»).
+Todas estas demostraciones suponen **consistencia secuencial**: las lecturas y escrituras ocurren en el orden del código y son atómicas.
+- Con optimizaciones, el **compilador** puede dejar una variable compartida en un registro y no releerla nunca. Por eso en el laboratorio se declaran **`volatile`** (en cambio, `register` es solo una sugerencia de guardar la variable en un registro, lo contrario de lo que se quiere).
+- Las CPUs modernas usan modelos más débiles, como **TSO** en x86: una escritura puede quedar en un *store buffer* y verse tarde. Peterson puede **fallar en hardware real** sin barreras de memoria (`mfence`, `atomic_thread_fence`). Por eso en la práctica se usan instrucciones atómicas.
 
-### Refutar con una traza
+## Plantillas de demostración
 
-Numera los pasos y usa columnas: `P0 | P1 | estado de variables`. Termina con **«⇒ P0 y P1 en SC»** o con **«⇒ ambos en el while para siempre»**. Pruébalo en el [intercalador](/mutex/algoritmos/), que genera la traza automáticamente.
+**Exclusión mutua (por contradicción):**
+1. Supón que P0 y P1 están ambos en la SC.
+2. Toma la **última escritura** de cada uno antes de su prueba de entrada, por ejemplo `write₀(turn = 1) → read₀(flag[1])`.
+3. Como los registros son atómicos, esas escrituras tienen un orden total. Supón, sin pérdida de generalidad, que P0 fue el último en escribir `turn`.
+4. Deduce qué **tuvo** que leer el otro proceso y llega a una contradicción.
 
-### Starvation
+**Refutar con una traza:** usa columnas `# | P0 | P1 | variables` y termina con **«⇒ ambos en la SC»** o **«⇒ ambos en el while para siempre»**. El [intercalador](/mutex/algoritmos/) genera la traza.
 
-Construye un ciclo: *P1 espera → P0 sale → P0 vuelve a entrar antes de que P1 sea planificado → mismo estado que al inicio*. Si el ciclo puede repetirse para siempre, hay starvation.
+**Starvation:** arma un ciclo del tipo P1 espera → P0 sale → P0 reentra antes de que P1 sea planificado → mismo estado inicial, que puede repetirse para siempre.
 
-<Solucion titulo="Ejemplo: por qué Peterson es mutex (demostración corta)">
+<Solucion titulo="Ejemplo resuelto: Peterson es mutex (demostración corta)">
 
-Supón que P0 y P1 están en la SC. Cada uno ejecutó `flag[i] = true; turn = j;` y luego pasó `while (flag[j] && turn == j)`. Supón que **P0 fue el último en escribir `turn`**, así que `turn = 1` desde ese momento.
-
-- P0 pasó el while, así que vio `flag[1] = false` o `turn ≠ 1`.
-- `turn = 1` no cambió después de su escritura (fue la última), así que P0 tuvo que ver `flag[1] = false`.
-- Pero P1 escribió `flag[1] = true` **antes** de su escritura de `turn`, que ocurrió antes de la de P0, que ocurrió antes de la lectura de P0. Entonces P0 leyó `true`. **Contradicción.** ∎
+Supón que ambos están en la SC y que **P0 fue el último en escribir `turn`**, así que `turn = 1` desde entonces. P0 pasó `while (flag[1] && turn == 1)`, y como turn = 1 no cambió, tuvo que ver `flag[1] = false`. Pero P1 escribió `flag[1] = true` **antes** de escribir `turn`, lo que ocurrió antes de la escritura de P0, que ocurrió antes de la lectura de P0. Entonces P0 tuvo que leer true. **Contradicción.** ∎
 
 </Solucion>
 
@@ -67,10 +125,14 @@ Supón que P0 y P1 están en la SC. Cada uno ejecutó `flag[i] = true; turn = j;
 	client:visible
 	id="req"
 	preguntas={[
-		{ q: 'Un algoritmo donde, si ambos quieren entrar, uno siempre entra, pero un proceso concreto puede ser adelantado infinitas veces, es…', opts: ['deadlock-free y starvation-free', 'deadlock-free pero no starvation-free', 'ni lo uno ni lo otro', 'no es mutex'], ok: 1 },
-		{ q: 'La «alternancia estricta» (`while (turn != i); SC; turn = j;`) viola principalmente…', opts: ['La exclusión mutua', 'El requisito 2/4: un proceso fuera de la SC impide que el otro entre', 'La atomicidad', 'Nada'], ok: 1, why: 'Si P1 nunca quiere entrar, P0 no puede entrar dos veces seguidas.' },
-		{ q: '¿Qué propiedad es de *safety*?', opts: ['Starvation-freedom', 'Deadlock-freedom', 'Exclusión mutua', 'Progreso'], ok: 2, why: 'Safety = «nunca pasa algo malo». Liveness = «algo bueno eventualmente pasa».' },
+		{ q: 'En la cooperación por COMUNICACIÓN (mensajes), ¿cuál NO es un problema de control?', opts: ['Deadlock', 'Starvation', 'Exclusión mutua', 'Ninguno'], ok: 2, why: 'No se comparte memoria, así que no hay nada que excluir.' },
+		{ q: 'La alternancia estricta viola principalmente…', opts: ['la exclusión mutua', 'el progreso: un proceso fuera de la SC impide que el otro entre', 'la atomicidad', 'nada'], ok: 1 },
+		{ q: '¿Qué propiedad es de safety?', opts: ['Starvation-freedom', 'Deadlock-freedom', 'Exclusión mutua', 'Progreso'], ok: 2 },
+		{ q: 'Livelock vs deadlock:', opts: ['Son lo mismo', 'En el livelock los procesos siguen ejecutando instrucciones pero sin progresar', 'El livelock solo ocurre con semáforos', 'El deadlock es temporal'], ok: 1 },
+		{ q: 'Invariante a == b; cada asignación es atómica pero la secuencia no. El problema es de…', opts: ['starvation', 'coherencia de datos', 'livelock', 'ninguno'], ok: 1 },
+		{ q: '¿Por qué las variables compartidas del laboratorio se declaran volatile?', opts: ['Para hacerlas atómicas', 'Para que el compilador no las guarde en un registro y relea siempre la memoria', 'Para ponerlas en el stack', 'Para que sean thread-local'], ok: 1, why: 'volatile NO da atomicidad ni orden entre CPUs, solo evita optimizaciones del compilador.' },
+		{ q: 'Un kernel NO expropiable…', opts: ['tiene race conditions en el kernel en una sola CPU', 'está libre de race conditions en el kernel en una sola CPU, a cambio de peor respuesta', 'no puede ejecutar syscalls', 'es de tiempo real'], ok: 1 },
 	]}
 />
 
-<Fuente archivos={['lab2/Resumenes/04-Mutex-Formalizacion-Dekker-Peterson-Dijkstra-Lamport.md', 'lab2/Resumenes/05-Mutual-Exclusion-Demonstrations.md', 'lab2/Stallings.pdf cap. 5']} />
+<Fuente archivos={['Stallings 9e §5.2 (lab2/Stallings.pdf)', 'lab2/Sem3_03-OST-Concurrency.pdf → lab2/Resumenes/01-Concurrencia-Introduccion.md', 'lab2/Resumenes/13-Stallings-Cap5-Mutex-Sincronizacion.md', 'lab2/05-OSL-Mutual exclusion Algorithms.pdf', 'lab2/Resumenes/05-Mutual-Exclusion-Demonstrations.md']} />

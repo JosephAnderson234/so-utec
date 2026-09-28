@@ -32,6 +32,28 @@ El programa se ve como un conjunto de **segmentos lógicos** de tamaño variable
 - ✔ Refleja la estructura modular del programa, así que protección y compartición salen por segmento.
 - ✘ Los segmentos son de tamaño variable, así que hay **fragmentación externa**, como en las particiones dinámicas.
 
+### Arquitectura de la segmentación (diapositivas)
+
+- La dirección lógica es el par **⟨número de segmento, offset⟩**.
+- La **tabla de segmentos** tiene, por entrada, la **base** (dirección física de inicio) y el **límite** (largo del segmento).
+- **STBR** (*Segment-Table Base Register*) apunta a la tabla en memoria. **STLR** (*Segment-Table Length Register*) indica cuántos segmentos hay: el segmento s es legal si **s < STLR**.
+- **Protección:** cada entrada tiene un **bit de validez** (0 = segmento ilegal) y permisos de **lectura, escritura y ejecución**. La **compartición de código se hace a nivel de segmento**.
+- Como los segmentos tienen largos distintos, asignarlos es un problema de **asignación dinámica**, igual que en las particiones dinámicas.
+- **Mapa multisegmento:** el mapa de segmentos vive **en el procesador**. El segmento sale de los bits altos de la dirección, o de la propia instrucción (en x86, `mov [es:bx], ax`). Las entradas marcadas **N** (no válidas) disparan un error de acceso.
+- En x86 (80386), los **registros de segmento** (CS, DS, SS, ES, FS, GS) apuntan a descriptores en la GDT o la LDT. El **RPL** del CS es el nivel de privilegio actual.
+
+**Ventajas para el programador (Stallings §8.1):**
+1. Maneja **estructuras que crecen**: el SO agranda el segmento (o lo mueve o hace swap).
+2. Permite **recompilar y enlazar módulos por separado**.
+3. Facilita **compartir** (una utilidad o una tabla en su propio segmento).
+4. Facilita **proteger** (permisos por segmento).
+
+La segmentación **elimina la fragmentación interna** y conserva la **externa**, aunque menor que en las particiones, porque los segmentos son más chicos que un proceso entero. **Sí es visible** para el programador o el compilador, que conocen el tamaño máximo de segmento.
+
+**Ejemplo de Stallings (fig. 7.11b):** direcciones de 16 bits, con **4 bits de segmento** y **12 de offset** (segmentos de hasta 4096 B). `0001 001011110000` es el **segmento 1**, **offset 752**. Si la base del segmento 1 es `0010000000100000` (8224), la dirección física es 8224 + 752 = **8976** = `0010001100010000`. Aquí **sí hay una suma** (en paginación basta concatenar) y se compara offset < largo.
+
+**El mapa del ejemplo de clase:** el código queda en `0x4000–0x47FF`, los datos en `0x4800–0x5BFF`, el segmento compartido en `0xF000–0xFFFF` (compartido con otras aplicaciones) y el stack en `0x0000–0x2FFF`. El resto de la memoria física queda para otras aplicaciones.
+
 <SegmentTranslator client:visible />
 
 ### Traza de la diapositiva 38 (PC = 0x0240)

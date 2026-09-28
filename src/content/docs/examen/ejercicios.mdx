@@ -1,0 +1,165 @@
+---
+title: 'Ejercicios de sincronización (los 32 oficiales)'
+description: 'Los 9 ejercicios de 09-OSL-Ejercicios (dificultad I–III) y los 23 de Ejercicios_Repaso, con el patrón y las primitivas de cada uno; barbería, ascensor y hospital con código probado en WSL.'
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+**Reglas comunes:** usar `pthread`, **un hilo por entidad**, `while(1)` continuo, `sleep()` para simular tiempos, mensajes claros y **nada de espera activa**, salvo en el ejercicio del spinlock. Compilar con `gcc x.c -o x -pthread`.
+
+**Cómo decidir la primitiva:**
+- **Exclusión mutua de 1** (un recurso único): `pthread_mutex_t`, o un semáforo en 1.
+- **K unidades de un recurso:** un semáforo contador en K.
+- **Orden o señal entre hilos** (A antes que B): un semáforo en 0.
+- **Esperar a que se cumpla una condición sobre variables compartidas** (saldo ≥ x, contador < K, «todos terminaron»): mutex + condition variable con **`while`**.
+- **Todos esperan a todos:** una barrera (`pthread_barrier_t`, o contador + condición + broadcast).
+
+## 09-OSL-Ejercicios
+
+| # | Ejercicio | Recursos | Solución |
+| - | --- | --- | --- |
+| 1 | Impresora compartida (4 trabajadores) | 1 impresora | mutex (o semáforo en 1) alrededor de imprimir |
+| 2 | Puente de un carril (5 vehículos) | 1 puente | mutex alrededor de cruzar |
+| 3 | Almacén: 3 trabajadores agregan, 4 repartidores retiran | `packages` | mutex sobre `packages` + semáforo `disponibles = 0` (post al agregar, wait antes de retirar) **o** condición `while (packages == 0) wait` |
+| 4 | Cafetería: 3 dentro, 1 caja | 3 lugares y 1 caja | semáforo `aforo = 3` + mutex `caja`; en orden: aforo, caja, liberar caja, liberar aforo |
+| 5 | Restaurante: 5 mesas, 2 meseros, 1 caja | 5, 2, 1 | `mesas = 5`, `meseros = 2`, `caja = 1`. Se toma la mesa, luego el mesero (se libera tras la atención), luego la caja. **La mesa se libera recién al pagar** |
+| 6 | Lavandería: 3 lavadoras, 2 secadoras | 3, 2 | `lavadoras = 3`, `secadoras = 2`. Se **libera la lavadora antes** de pedir la secadora: así no hay hold and wait |
+| 7 | Hospital: 3 consultorios, 2 médicos, 1 rayos X | 3, 2, 1 | ver abajo: **orden fijo** consultorio → médico o rayos; al ir a rayos se libera el médico y se retiene el consultorio |
+| 8 | Barbería: 2 barberos, 5 sillas de espera | sala acotada | patrón *sleeping barber* (abajo) |
+| 9 | Ascensor: capacidad 6, dos sentidos | sentido + cupo | monitor tipo **baño unisex con capacidad** + turno contra la starvation (abajo) |
+
+<Solucion titulo="Ejercicio 7 · Hospital (probado en WSL: sin violaciones, 8700–9500 atenciones en 3 s)">
+
+```c
+sem_t consultorio, medico, rayos;          // = 3, 2, 1
+
+void *paciente(void *arg) {
+    while (1) {
+        sem_wait(&consultorio);            // siempre PRIMERO el consultorio
+        sem_wait(&medico);
+        evaluar();
+        if (necesita_rayos()) {
+            sem_post(&medico);             // libera al médico, RETIENE el consultorio
+            sem_wait(&rayos);  tomar_rayos();  sem_post(&rayos);
+            sem_wait(&medico);             // reevaluación en SU consultorio
+            interpretar();
+        }
+        sem_post(&medico);
+        sem_post(&consultorio);
+        sleep(rand() % 3);
+    }
+}
+```
+
+**¿Por qué no hay deadlock?** Quien espera un médico o los rayos ya tiene un consultorio, pero **nadie que tenga un médico o los rayos espera un consultorio**. El orden de adquisición es siempre **consultorio → médico/rayos**, así que no puede cerrarse un ciclo de espera. Un paciente con médico y consultorio siempre termina o suelta al médico.
+
+</Solucion>
+
+<Solucion titulo="Ejercicio 8 · Barbería (probado en WSL; el assert «≤ 2 atendiendo» detectó un bug en la primera versión)">
+
+```c
+#define SILLAS 5
+pthread_mutex_t m;            int esperando = 0;
+sem_t clientes;               // = 0: clientes esperando (despierta a los barberos)
+sem_t barberos;               // = 0: barberos que llaman a un cliente
+sem_t cliente_listo, barbero_listo;   // = 0: rendezvous de fin de corte
+
+void *barbero(void *a) {
+    while (1) {
+        sem_wait(&clientes);                  // duerme si no hay clientes
+        pthread_mutex_lock(&m); esperando--; pthread_mutex_unlock(&m);
+        sem_post(&barberos);                  // llama a UN cliente
+        cortar_pelo();
+        sem_wait(&cliente_listo);             // ¡espera a que termine ANTES de llamar a otro!
+        sem_post(&barbero_listo);
+    }
+}
+void *cliente(void *a) {
+    while (1) {
+        pthread_mutex_lock(&m);
+        if (esperando == SILLAS) {            // sala llena: se va sin esperar
+            pthread_mutex_unlock(&m); printf("sala llena, me voy\n"); sleep(1); continue;
+        }
+        esperando++;
+        pthread_mutex_unlock(&m);
+        sem_post(&clientes);                  // "hay un cliente"
+        sem_wait(&barberos);                  // espera a que lo llamen (libera la silla)
+        recibir_corte();
+        sem_post(&cliente_listo); sem_wait(&barbero_listo);
+        sleep(rand() % 3);
+    }
+}
+```
+
+**El bug que atrapó el assert:** sin el rendezvous `cliente_listo` / `barbero_listo`, un barbero hacía `sem_post(&barberos)` y **volvía a llamar a otro cliente** mientras el primero seguía cortándose, y aparecían 3 clientes siendo atendidos con 2 barberos. Con el rendezvous, cada barbero tiene a lo sumo un llamado pendiente, así que nunca hay más de 2 cortes simultáneos.
+
+</Solucion>
+
+<Solucion titulo="Ejercicio 9 · Ascensor (probado en WSL: capacidad respetada y ~3200 viajes en cada sentido, sin starvation)">
+
+```c
+#define CAP 6
+enum { NONE = -1, SUBIR = 0, BAJAR = 1 };
+pthread_mutex_t m;  pthread_cond_t puede[2];
+int dir = NONE, dentro = 0, esperan[2] = {0, 0}, turno = NONE;
+
+void entrar(int d) {
+    int o = 1 - d;
+    pthread_mutex_lock(&m);
+    esperan[d]++;
+    while (!((dir == NONE || dir == d) && dentro < CAP && !(esperan[o] > 0 && turno == o)))
+        pthread_cond_wait(&puede[d], &m);
+    esperan[d]--;
+    dir = d;  dentro++;
+    if (esperan[o] > 0) turno = o;          // hay gente del otro lado esperando: el siguiente turno es suyo
+    pthread_mutex_unlock(&m);
+}
+void salir(void) {
+    pthread_mutex_lock(&m);
+    dentro--;
+    if (dentro == 0) {                       // vacío: puede cambiar de sentido
+        dir = NONE;
+        pthread_cond_broadcast(&puede[SUBIR]);
+        pthread_cond_broadcast(&puede[BAJAR]);
+    } else
+        pthread_cond_broadcast(&puede[dir]); // se liberó un cupo en este sentido
+    pthread_mutex_unlock(&m);
+}
+```
+
+Es el [baño unisex](/monitores/problemas/) más la condición **`dentro < CAP`**. La condición `turno` impide que el sentido activo acapare el ascensor, porque cuando alguien espera del otro lado, los nuevos de este sentido se detienen.
+
+</Solucion>
+
+## Ejercicios_Repaso (23 patrones)
+
+| # | Ejercicio | Patrón | Primitivas |
+| - | --- | --- | --- |
+| 1 | Único finalizador | contador protegido; **quien lo deja en N** imprime | mutex + `if (++hechos == N) printf(…)` |
+| 2 | Capacidad K | multiplex | semáforo = K |
+| 3 | Incremento atómico | race → atómica | `counter++` pierde incrementos; `__sync_fetch_and_add(&counter, 1)` o `atomic_fetch_add` no |
+| 4 | Múltiples señales (B→C ×20, C→A) | señalización repetida | `sem bc = 0` (B hace post ×20, C hace wait ×20) y `sem ca = 0` (C hace post, A hace wait) |
+| 5 | A y B antes que C | dos señales | `sem s = 0`; A y B hacen post; C hace **wait ×2** |
+| 6 | Spinlock | TAS o CAS | `while (__sync_lock_test_and_set(&lk, 1)); … __sync_lock_release(&lk);` |
+| 7 | Turnos alternados A, B, A, B ×10 | *ping-pong* | `sa = 1, sb = 0`; A: `wait(sa) … post(sb)`; B: `wait(sb) … post(sa)` |
+| 8 | N trabajadores ×5 y un supervisor | contar notificaciones | `sem n = 0`; cada operación hace post; el supervisor hace wait **5N** veces |
+| 9 | Dos etapas | **barrera** | `pthread_barrier_wait` entre las etapas (N hilos) |
+| 10 | Transferencia A→B (A + B constante) | la **secuencia** es la SC | un mutex alrededor de `A--; B++;` (**coherencia de datos**) |
+| 11 | Espera por mayoría (N/2) | contador + condición | mutex + cond: `while (hechos < N/2) wait`; los trabajadores hacen `hechos++; signal` |
+| 12 | Cambio de fase A → B tras K | fase global | mutex + cond: `while (fase == A && hechasA >= K) …`; el que completa la K-ésima cambia la fase y hace broadcast |
+| 13 | N trabajadores y un observador | esperar a todos | `pthread_join` de los N, **o** `sem = 0` con wait ×N |
+| 14 | Orden A→B→C | cadena de señales | `ab = 0, bc = 0`; A: `…; post(ab)`; B: `wait(ab); …; post(bc)`; C: `wait(bc)` |
+| 15 | Dos parejas (A-B, C-D) | **rendezvous** por pareja | A: `post(a); wait(b)`, B: `post(b); wait(a)`; ídem con C-D |
+| 16 | Trabajo acumulado | acumular y esperar | mutex en `work += x`; B espera a todos (join o semáforo ×N) |
+| 17 | Contador en [0, K] | dos condiciones | mutex + cond: `while (counter == K) wait` para incrementar y `while (counter == 0) wait` para decrementar |
+| 18 | Una señal B → A | señalización | `sem = 0`: B hace post, A hace wait |
+| 19 | Reserva y confirmación | recurso contado | `sem available = K` + mutex para `reserved` (o mutex + cond) |
+| 20 | Máximo concurrente | lectura-comparación-escritura atómica | mutex alrededor de `if (x > max) max = x`, o un bucle con **CAS** |
+| 21 | Tres etapas A→B→C (repetidas) | pipeline | `ab = 0, bc = 0`, y para repetir, `ca = 1` que controla a A |
+| 22 | Dos A por cada B | contar las A | `sem countA = 0`; A hace post; B hace **dos** wait. **Con varios B**, hay que proteger los dos wait con un mutex, o dos B pueden tomar una A cada uno y trabarse |
+| 23 | Último en llegar | barrera + «el último imprime» | mutex + cond: `if (++llegaron == N) { printf; broadcast; } else while (llegaron < N) wait;` |
+
+**La trampa del 22 (en tu `e22.c`):** con N_A = 6 y N_B = 3 funciona porque sobran A. Pero si B1 y B2 hacen **su primer** `wait` a la vez y solo quedan 2 A, cada uno toma una y ambos esperan la segunda, que nunca llega si no hay más A: hay **hold and wait**. La solución es un `mutex` alrededor de los dos `sem_wait`, para que un B tome **las dos** A de forma atómica.
+
+<Fuente archivos={['lab2/09-OSL-Ejercicios.pdf', 'lab2/Ejercicios_Repaso.pdf', 'WSL ~/so/sem4/ejercicios_repaso/e1.c … e23.c', 'WSL ~/so/verif_parcial/ej/{barberia,ascensor,hospital}.c']} />

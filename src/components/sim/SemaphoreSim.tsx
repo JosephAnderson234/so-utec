@@ -117,7 +117,33 @@ const warriors: Scenario = {
 	nota: 'Parejas: (1,6) (2,7) (3,4) (5,8). Deadlock: que tomen arete UN guerrero de cada pareja, por ejemplo G1, G2, G3 y G5. Cada uno espera a su pareja, que está bloqueada esperando un arete. Ojo: el solucionario oficial dice «1, 2, 3 y 6», pero 1 y 6 son pareja y sí podrían fusionarse.',
 };
 
-const SCEN: Record<string, Scenario> = { 'pc-ok': prodcons(false), 'pc-bad': prodcons(true), stock, aretes: warriors };
+
+const philosophers = (room: boolean): Scenario => ({
+	id: room ? 'filo-room' : 'filo',
+	name: room ? 'Filósofos con room = 4 (fig. 6.13)' : 'Filósofos ingenuos (fig. 6.12)',
+	fuente: room ? 'Stallings fig. 6.13' : 'Stallings fig. 6.12',
+	sems: { ...(room ? { room: 4 } : {}), ...Object.fromEntries(Array.from({ length: 5 }, (_, i) => [`fork[${i}]`, 1])) },
+	vars: {},
+	procs: Array.from({ length: 5 }, (_, i) => ({
+		name: `F${i}`,
+		me: i,
+		code: [
+			...(room ? [{ op: 'wait', s: 'room' } as Op] : []),
+			{ op: 'wait', s: (me: number) => `fork[${me}]` },
+			{ op: 'wait', s: (me: number) => `fork[${(me + 1) % 5}]` },
+			{ op: 'act', txt: 'eat();' },
+			{ op: 'signal', s: (me: number) => `fork[${(me + 1) % 5}]` },
+			{ op: 'signal', s: (me: number) => `fork[${me}]` },
+			...(room ? [{ op: 'signal', s: 'room' } as Op] : []),
+			{ op: 'goto', to: 0, txt: 'think(); goto 0;' },
+		] as Op[],
+	})),
+	nota: room
+		? 'Un «portero» deja entrar como máximo 4 al comedor: con 4 filósofos y 5 tenedores, al menos uno tiene sus dos tenedores. Se rompe la espera circular, así que no hay deadlock (y como los semáforos son FIFO, tampoco starvation). Intenta producir el deadlock: no podrás.'
+		: 'Haz que cada filósofo tome su tenedor izquierdo (un clic en F0…F4): los 5 quedan bloqueados esperando el derecho. Es DEADLOCK por espera circular.',
+});
+
+const SCEN: Record<string, Scenario> = { 'pc-ok': prodcons(false), 'pc-bad': prodcons(true), stock, aretes: warriors, filo: philosophers(false), 'filo-room': philosophers(true) };
 
 function opText(o: Op, me: number) {
 	switch (o.op) {

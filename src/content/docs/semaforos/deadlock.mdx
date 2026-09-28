@@ -1,0 +1,153 @@
+---
+title: 'Deadlock: condiciones, prevención, evitación y detección'
+description: 'Stallings cap. 6: definición, región fatal, recursos reutilizables/consumibles, grafo de asignación, las 4 condiciones, prevención de cada una, banquero (seguro/inseguro), detección y recuperación, estrategia integrada, filósofos y mecanismos UNIX.'
+---
+
+import Banker from '../../../components/sim/Banker.tsx';
+import SemaphoreSim from '../../../components/sim/SemaphoreSim.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+> **Deadlock:** bloqueo **permanente** de un conjunto de procesos que compiten por recursos o se comunican. Cada uno espera un evento que **solo puede producir otro proceso bloqueado del mismo conjunto**. No hay una solución eficiente en el caso general.
+
+**Ejemplo del tráfico (fig. 6.1):** cuatro autos llegan a un cruce de cuatro altos y cada uno necesita dos cuadrantes (a-b, b-c, c-d, d-a).
+- Si todos respetan la regla «cede al de tu derecha», nadie avanza. Es un deadlock **potencial**: si uno decide pasar, se resuelve.
+- Si todos entran a la vez, cada uno ocupa un cuadrante y espera el siguiente. Es un deadlock **real**.
+
+## Región fatal (diagrama de progreso conjunto, fig. 6.2)
+
+P hace `get A … get B … release A … release B` y Q hace `get B … get A … release B … release A`. Si el camino de ejecución entra a la **región fatal** (P tiene A y Q tiene B), el deadlock es **inevitable**. Si P liberara A antes de pedir B (fig. 6.3), **no existiría** región fatal, sin importar el orden de ejecución. El deadlock depende **de la lógica y de la dinámica**.
+
+## Tipos de recursos
+
+| **Reutilizables** | **Consumibles** |
+| --- | --- |
+| los usa un proceso a la vez y **no se agotan** | se **crean** y se **destruyen** al consumirse |
+| CPU, canales de E/S, memoria, dispositivos, archivos, bases de datos, semáforos | interrupciones, **señales**, **mensajes**, datos en buffers de E/S |
+| Ejemplo: P pide el disco D y luego la cinta T; Q pide T y luego D. Con el orden `p0 p1 q0 q1 p2 q2` hay deadlock. Otro: hay 200 KB, P1 pide 80 y luego 60, P2 pide 70 y luego 80 | Ejemplo: P1 hace `Receive(P2); Send(P2)` y P2 hace `Receive(P1); Send(P1)` con receive bloqueante. Puede estar años sin manifestarse |
+
+**Grafo de asignación de recursos (Holt):** una arista **proceso → recurso** es una petición pendiente; una arista **recurso → proceso** es una asignación. Cada punto dentro de un recurso es una **instancia**. Un ciclo con recursos de **una sola instancia** implica deadlock. Con **varias instancias**, un ciclo **no** garantiza deadlock (fig. 6.5d).
+
+## Las 4 condiciones
+
+| # | Condición | Significado |
+| - | --- | --- |
+| 1 | **Exclusión mutua** | un recurso solo lo usa un proceso a la vez |
+| 2 | **Hold and wait** | se retienen recursos mientras se esperan otros |
+| 3 | **No preemption** | no se le puede quitar un recurso a quien lo tiene |
+| 4 | **Espera circular** | hay una cadena cerrada en que cada proceso espera un recurso del siguiente |
+
+Las condiciones **1–3** son de **política**: **necesarias pero no suficientes** (hacen **posible** el deadlock). Con la **4**, que es una consecuencia de la **dinámica**, las cuatro juntas son **suficientes**: el deadlock **existe**, porque se entró a la región fatal. Las condiciones 1–3 suelen ser **deseables**: la exclusión mutua da consistencia, y la preemption de datos exige *rollback*.
+
+## Tres enfoques
+
+### 1) Prevención: eliminar una condición
+
+| Condición | Cómo se previene | Costo |
+| --- | --- | --- |
+| Exclusión mutua | en general **no se puede** (hay recursos intrínsecamente exclusivos) | — |
+| **Hold and wait** | pedir **todos** los recursos de una vez, y bloquear hasta obtenerlos todos | esperas largas, recursos ociosos, hay que saber de antemano qué se necesita (difícil con módulos o hilos) |
+| **No preemption** | si se deniega una petición, **soltar todo** y volver a pedir; o que el SO expropie al otro (si las prioridades son distintas) | solo sirve para recursos cuyo estado se guarda fácil, como la CPU |
+| **Espera circular** | **orden lineal** de los tipos de recurso: solo se pide Rj si j > i para todo Ri que ya se tiene | ineficiente; imposible tener Ri → Rj → Ri |
+
+**El caso más simple, de clase (`deadlokck_single_core.c`):** un solo hilo hace `pthread_mutex_lock(&mtx)` dos veces seguidas sobre un mutex **por defecto (NORMAL)** y se bloquea **contra sí mismo**: es un auto-deadlock, que no necesita un segundo hilo. Con un mutex `RECURSIVE` no pasaría; con uno `ERRORCHECK`, el segundo `lock` devolvería `EDEADLK`.
+
+`pthread_mutex_trylock` rompe el **hold and wait** («si no consigo el segundo, suelto el primero»), así que **evita el deadlock, pero puede producir livelock o starvation** (E1 2024-II).
+
+### 2) Evitación: decidir dinámicamente, con información del futuro
+
+Permite las condiciones 1–3, pero **nunca entra a un estado del que no pueda garantizar la salida**. Da **más concurrencia** que la prevención, pero exige conocer los **máximos** de antemano.
+
+**Notación:** los vectores Resource **R** y Available **V**, y las matrices Claim **C** (máximos declarados) y Allocation **A**.
+- $R_j = V_j + \sum_i A_{ij}$ (cada recurso está disponible o asignado);
+- $C_{ij} \le R_j$ (nadie reclama más de lo que existe);
+- $A_{ij} \le C_{ij}$ (nadie tiene más de lo que reclamó).
+
+- **Denegar el inicio de un proceso:** iniciar $P_{n+1}$ solo si $R_j \ge C_{(n+1)j} + \sum_{i=1}^{n} C_{ij}$ para todo j. Es muy conservador: supone que todos pedirán su máximo a la vez.
+- **Denegar asignaciones (algoritmo del banquero, Dijkstra 1965):** se **simula** la asignación y se concede **solo si el nuevo estado es seguro**. Un estado **seguro** es uno desde el que existe **al menos una secuencia** en que todos terminan; en cada paso se busca un $P_k$ con $C_k - A_k \le$ disponible, se simula que termina y se suman sus $A_k$.
+
+<Banker client:visible />
+
+:::caution[Inseguro ≠ deadlock]
+Un estado inseguro solo tiene **potencial** de deadlock: si P1 libera antes de pedir más, el sistema vuelve a un estado seguro. La evitación **no predice** el deadlock; garantiza que **no haya posibilidad** de que ocurra.
+:::
+
+**Restricciones del banquero:**
+- los máximos se declaran **por adelantado**;
+- los procesos deben ser **independientes**, sin restricciones de sincronización entre ellos;
+- el número de recursos es **fijo**;
+- **nadie termina** mientras tenga recursos.
+
+### 3) Detección y recuperación
+
+Se conceden los recursos siempre que se pueda y **periódicamente** se busca el ciclo. Revisar en **cada** petición detecta temprano y el algoritmo es incremental, pero consume CPU.
+
+**Algoritmo** (Coffman 1971), con Allocation, Available y la matriz de **peticiones** Q:
+1. Marcar a los procesos con una fila de Allocation **en ceros**.
+2. `W = Available`.
+3. Buscar un proceso **no marcado** con $Q_i \le W$. Si no hay, terminar.
+4. Marcarlo, hacer `W += A_i` y volver al paso 3.
+
+**Hay deadlock si y solo si quedan procesos sin marcar, y esos son exactamente los que están en deadlock.** El simulador de arriba incluye el ejemplo de la fig. 6.10.
+
+**Recuperación**, de menor a mayor sofisticación:
+1. **Abortar a todos** los procesos en deadlock. Es lo **más común**.
+2. Volver cada uno a un **checkpoint** y reiniciar. El deadlock podría repetirse, pero el no determinismo suele evitarlo.
+3. **Abortar uno por uno** hasta que se rompa el ciclo, volviendo a correr la detección tras cada aborto.
+4. **Expropiar recursos uno por uno**, haciendo *rollback* del proceso afectado.
+
+Para 3 y 4 se elige primero al proceso con **menos CPU consumida**, **menos salida producida**, **más tiempo restante estimado**, **menos recursos** o **menor prioridad**.
+
+### Estrategia integrada (Howard 1973)
+
+Agrupar los recursos en **clases** ordenadas: espacio de swap, luego recursos de proceso, luego memoria principal, luego recursos internos. Se usa un **orden lineal** entre clases, y dentro de cada clase la estrategia que mejor le sirve:
+
+| Clase | Estrategia |
+| --- | --- |
+| **Espacio de swap** | prevención: pedir todo de una vez (los máximos suelen conocerse) o evitación |
+| **Recursos de proceso** (cintas, archivos) | evitación (se declaran de antemano) u orden dentro de la clase |
+| **Memoria principal** | prevención por **expropiación**: *swap out* del proceso |
+| **Recursos internos** (canales de E/S) | orden lineal |
+
+## Filósofos comensales (Dijkstra 1971)
+
+Cinco filósofos, cinco tenedores y hacen falta dos para comer. Se busca exclusión mutua sobre cada tenedor, **sin deadlock y sin starvation** (en este caso, literal).
+
+<SemaphoreSim client:visible scenario="filo" choices={['filo', 'filo-room']} />
+
+| Solución | ¿Deadlock? | Idea |
+| --- | --- | --- |
+| Cada uno toma el izquierdo y luego el derecho (fig. 6.12) | **Sí** | los 5 toman el izquierdo a la vez: espera circular |
+| **Portero** `room = 4` (fig. 6.13) | No | con 4 sentados y 5 tenedores, alguno tiene los dos |
+| **Monitor** con `ForkReady[5]` (fig. 6.14) | No | toma izquierdo y derecho **dentro** del monitor: nadie se cuela entre medio |
+| **Asimetría**: el último toma primero el derecho | No | rompe el orden circular (es prevención por **orden lineal** de tenedores) |
+| Tomar ambos o ninguno (verificar los dos con el lock) | No | rompe el hold and wait |
+
+## Mecanismos de UNIX (§6.7)
+
+| Mecanismo | Para qué | Detalle |
+| --- | --- | --- |
+| **Pipes** | datos productor–consumidor | buffer **circular FIFO**. Sin nombre (entre parientes) o **con nombre** (FIFO). El SO hace la exclusión mutua; si el pipe está lleno, el escritor se bloquea |
+| **Mensajes** | datos | colas de mensajes (`msgsnd`, `msgrcv`) con un **tipo**; se puede recibir FIFO o por tipo |
+| **Memoria compartida** | datos (lo **más rápido**) | los procesos se sincronizan por su cuenta |
+| **Semáforos** | disparar acciones | vienen en **conjuntos**. `semop` aplica una lista de operaciones: `sem_op > 0` suma; `== 0` espera a que valga 0; `< 0` resta o espera |
+| **Señales** | disparar acciones | **sin prioridades** y **no se encolan** (un bit por tipo); se procesan al despertar o al volver de una syscall. Las señales **RT** de Linux sí se encolan, tienen prioridad y llevan un valor |
+
+<Quiz
+	client:visible
+	id="deadlock"
+	preguntas={[
+		{ q: '¿Qué condición de Coffman es la que convierte la POSIBILIDAD de deadlock en EXISTENCIA?', opts: ['Exclusión mutua', 'Hold and wait', 'No preemption', 'Espera circular'], ok: 3 },
+		{ q: 'Pedir todos los recursos de una vez previene…', opts: ['la exclusión mutua', 'el hold and wait', 'el no preemption', 'la espera circular'], ok: 1 },
+		{ q: 'Ordenar los tipos de recurso y pedirlos siempre en orden creciente previene…', opts: ['el hold and wait', 'la espera circular', 'la exclusión mutua', 'la starvation'], ok: 1 },
+		{ q: 'Un estado inseguro…', opts: ['es un deadlock', 'podría llevar a deadlock; el banquero lo evita', 'es imposible', 'es el estado inicial'], ok: 1 },
+		{ q: 'Los mensajes y las señales son recursos…', opts: ['reutilizables', 'consumibles', 'de exclusión mutua', 'expropiables'], ok: 1 },
+		{ q: 'Con varias instancias por recurso, un ciclo en el grafo de asignación…', opts: ['siempre es deadlock', 'no garantiza deadlock', 'es imposible', 'implica starvation'], ok: 1 },
+		{ q: 'La recuperación más común en los SO reales es…', opts: ['el rollback', 'abortar a todos los procesos en deadlock', 'expropiar recursos', 'reiniciar la máquina'], ok: 1 },
+		{ q: 'Filósofos con room = 4: ¿por qué no hay deadlock?', opts: ['Porque hay más tenedores', 'Con 4 sentados y 5 tenedores, al menos uno tiene sus dos tenedores', 'Porque comen por turnos', 'Porque usan trylock'], ok: 1 },
+		{ q: 'Exigencia del banquero:', opts: ['Que los procesos compartan memoria', 'Declarar los máximos por adelantado', 'Tener un solo recurso', 'Usar semáforos fuertes'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['Stallings 9e cap. 6 (§6.1–6.7, figs. 6.1–6.14, tabla 6.1)', 'for_partial/E1_OS_2024_II__Solucionario_.pdf (P4: condiciones y trylock)', 'for_partial/E1_OS_2024_I__Respuestas_.pdf (P5)', 'WSL ~/so/deadlokck_single_core.c']} />

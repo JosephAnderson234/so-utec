@@ -1,0 +1,227 @@
+---
+title: 'Procesos: estados, PCB y cambio de proceso'
+description: 'Stallings cap. 3 completo — qué es un proceso, modelos de 2/5/7 estados, suspensión, tablas del SO, imagen del proceso, PCB, modos usuario/kernel, mode switch vs process switch, ejecución del SO y UNIX SVR4.'
+---
+
+import ProcessStates from '../../../components/sim/ProcessStates.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+> *«A program consists of code executed by a single process of control. Concurrent processes are not uniquely associated with a piece of code; multiple processes can execute the same code simultaneously.»* — Xinu (citado en las diapositivas del curso)
+
+## ¿Qué es un proceso?
+
+Hay cuatro definiciones equivalentes, y cualquiera sirve en el examen:
+- un **programa en ejecución**;
+- una **instancia** de un programa corriendo;
+- la entidad que puede **asignarse y ejecutarse** en un procesador;
+- una **unidad de actividad** con una secuencia de instrucciones, un estado actual y un conjunto de recursos asociados.
+
+**Proceso = código + datos + PCB.** Mientras corre, lo caracterizan: identificador, estado, prioridad, PC, punteros de memoria, datos de contexto (registros), información de E/S y contabilidad.
+
+**¿Por qué existen?** Programar directo sobre el hardware es ineficiente: muchas aplicaciones comparten rutinas, la CPU sola casi no soporta multiprogramación y hay que proteger a unas aplicaciones de otras. Todos los SO modernos se basan en el modelo «**una aplicación = uno o más procesos**».
+
+**Traza:** la secuencia de instrucciones que ejecuta un proceso. La CPU **intercala** las trazas de varios procesos, y un pequeño **dispatcher** cambia entre ellos. En el ejemplo del libro, el quantum es de 6 instrucciones: A corre 6 y hace *time-out*; B corre 4 y pide E/S, así que se bloquea; C corre, y así sucesivamente.
+
+## Diagramas de estado
+
+<ProcessStates client:visible />
+
+### Del modelo de 2 estados al de 5
+
+Con **Running / Not running** y una sola cola, el dispatcher tendría que **recorrer** la cola buscando procesos que no estén bloqueados. Por eso *Not running* se divide en **Ready** y **Blocked**, y se agregan **New** y **Exit**.
+
+| Transición | Cuándo |
+| --- | --- |
+| **Null → New** | se crea un proceso (tabla 3.1: nuevo job batch, log-on interactivo, el SO lo crea para dar un servicio, o lo genera otro proceso, lo que se llama *spawning*) |
+| **New → Ready** | el SO admite un proceso más; limita cuántos según memoria y rendimiento |
+| **Ready → Running** | el **dispatcher** lo elige |
+| **Running → Ready** | **se agotó el quantum** (el motivo más común), hubo **preemption** por uno de mayor prioridad, o **cedió** la CPU voluntariamente |
+| **Running → Blocked** | pidió algo por lo que debe esperar, normalmente con una **system call**: un recurso ocupado, una E/S o un mensaje |
+| **Blocked → Ready** | ocurrió el evento que esperaba |
+| **Running → Exit** | terminó o abortó |
+| **Ready / Blocked → Exit** | el padre lo mata, o hay terminación en cascada (no se dibuja en la figura) |
+
+**Colas:** con una sola cola de bloqueados, al ocurrir un evento hay que recorrerla entera. Es mejor tener **una cola por evento**, y **una cola de listos por prioridad**. Las colas son **listas enlazadas de PCBs**.
+
+**New y Exit en dos etapas:**
+- Al crear, primero el SO hace el trabajo administrativo (asigna un ID y construye las tablas) y el proceso queda en New, sin comprometerse aún a ejecutarlo: el código sigue en disco.
+- Al terminar, primero pasa a Exit y se conservan sus tablas para la contabilidad; después se borra.
+
+### Procesos suspendidos (swapping)
+
+La CPU es tan rápida que es común que **todos** los procesos en memoria estén bloqueados en E/S. ¿Qué hacer?
+
+- **Más memoria:** es cara y los programas crecen igual de rápido. Más memoria da procesos **más grandes**, no **más** procesos.
+- **Swapping:** llevar a disco un proceso bloqueado, a la **cola de suspendidos**. El swapping es E/S y podría empeorar las cosas, pero el disco es la E/S más rápida, así que en general mejora el rendimiento.
+
+Traer de vuelta a un proceso **bloqueado** no sirve. Por eso se cruzan dos dimensiones (bloqueado o no × en memoria o en disco) y resultan **Ready**, **Blocked**, **Ready/Suspend** y **Blocked/Suspend**.
+
+Incluso con memoria virtual el SO a veces hace *swap out* completo: si hay demasiados procesos parcialmente en memoria, el rendimiento colapsa (*thrashing*).
+
+**Definición general de proceso suspendido** (4 características):
+1. No está disponible de inmediato para ejecutarse.
+2. Puede o no estar esperando un evento; ambas condiciones son independientes.
+3. Lo suspendió un **agente**: él mismo, su padre o el SO.
+4. Solo sale de ese estado cuando **ese mismo agente** lo ordena.
+
+| Razón para suspender (tabla 3.3) | Ejemplo |
+| --- | --- |
+| Swapping | liberar memoria para un proceso listo |
+| Otra razón del SO | un proceso de fondo o sospechoso (por ejemplo, de causar un deadlock) |
+| Pedido del usuario | depuración interactiva |
+| Timing | un proceso periódico de contabilidad que espera su siguiente intervalo |
+| Pedido del padre | examinar o modificar al hijo, o coordinar descendientes |
+
+## Estructuras de control del SO
+
+El SO mantiene **4 tablas**, enlazadas entre sí:
+- **Memoria:** asignación de memoria principal y secundaria, protección y lo necesario para la memoria virtual.
+- **E/S:** qué dispositivo tiene cada proceso y el estado de cada operación.
+- **Archivos:** existencia, ubicación y estado de los archivos.
+- **Procesos:** la **tabla primaria de procesos**, con una entrada por proceso que apunta a su imagen.
+
+Para construirlas, el SO necesita datos de **configuración** (cuánta memoria hay, qué dispositivos) que se crean fuera de él.
+
+### Imagen del proceso (tabla 3.4)
+
+| Elemento | Contenido |
+| --- | --- |
+| **User data** | parte modificable del espacio de usuario |
+| **User program** | el código |
+| **Stack** | una o más pilas LIFO para parámetros y direcciones de retorno de procedimientos y **system calls** |
+| **PCB** | lo que el SO necesita para controlarlo |
+
+Con paginación, la imagen **no es contigua** y puede estar en parte en disco: la tabla de procesos debe saber dónde está **cada página**. Con memoria virtual, la imagen completa vive siempre en disco y en RAM hay **copias**.
+
+### El PCB: «la estructura de datos más importante del SO»
+
+Contiene lo suficiente para **interrumpir un proceso y reanudarlo como si nada hubiera pasado**. El conjunto de todos los PCBs **es** el estado del SO.
+
+| Categoría (tabla 3.5) | Contenido |
+| --- | --- |
+| **1. Identificación** | ID del proceso, ID del padre, ID del usuario |
+| **2. Estado del procesador** | **registros visibles al usuario** (8–32, o más de 100 en algunos RISC); **registros de control y estado**: PC, códigos de condición (signo, cero, carry, overflow…) y el **PSW** (interrupciones habilitadas y modo); **punteros de pila** |
+| **3. Control del proceso** | planificación y estado (estado, prioridad, evento que espera), punteros para las colas, **IPC** (mensajes y señales), privilegios, gestión de memoria (punteros a tablas de páginas o segmentos), recursos en uso y contabilidad |
+
+En x86, el PSW es el registro **EFLAGS**:
+- flags de estado: CF, PF, AF, ZF, SF y OF;
+- flag de control: DF;
+- flags de sistema: **IF** (interrupciones habilitadas), TF (trap para depurar), IOPL, NT, RF, VM, AC, VIF, VIP e ID.
+
+**Protección del PCB:** un bug en una rutina, por ejemplo en un handler, puede corromperlo. Por eso todas las rutinas deben pasar por un **handler** único que lo protege, a cambio de algo de rendimiento.
+
+## Modos de ejecución
+
+| Modo usuario | Modo kernel (sistema o control) |
+| --- | --- |
+| menos privilegios; no puede ejecutar instrucciones privilegiadas ni tocar ciertas regiones de memoria | control total: registros de control (PSW), E/S primitiva y gestión de memoria |
+
+**¿Por qué dos modos?** Para proteger al SO y a sus tablas (como los PCBs) de los programas de usuario.
+
+**Funciones típicas del kernel (tabla 3.7):**
+- **Procesos:** creación y terminación, planificación y despacho, cambio de proceso, sincronización e IPC, PCBs.
+- **Memoria:** espacio de direcciones, swapping, páginas y segmentos.
+- **E/S:** buffers y asignación de dispositivos.
+- **Soporte:** interrupciones, contabilidad y monitoreo.
+
+**El bit de modo** está en el PSW. Pasa a kernel con una **system call** o una **interrupción** y vuelve a usuario al retornar. En Itanium, el campo `cpl` (2 bits) va de 0 (el más privilegiado) a 3; la interrupción lo pone en 0 e `irt` lo restaura. VAX/VMS usaba 4 **anillos** (kernel, executive, supervisor, user) con las instrucciones `CHM` y `REI`.
+
+## Creación de un proceso (5 pasos)
+
+1. Asignar un **PID** único y una entrada en la tabla primaria.
+2. **Reservar espacio** para la imagen: programa, datos, pila de usuario y PCB (o enlazar el espacio compartido).
+3. **Inicializar el PCB:** registros en 0 **salvo el PC** (punto de entrada) y los punteros de pila; estado **Ready** o **Ready/Suspend**; prioridad por defecto (la más baja); sin recursos salvo los que hereda.
+4. **Enlazarlo** en la cola Ready (o Ready/Suspend).
+5. **Crear o expandir otras estructuras**, como un archivo de contabilidad.
+
+## ¿Cuándo se cambia de proceso? (tabla 3.8)
+
+| Mecanismo | Causa | Uso | Ejemplos |
+| --- | --- | --- | --- |
+| **Interrupción** | **externa** a la instrucción actual | reaccionar a un evento asíncrono | **reloj** (se agotó el quantum), **E/S** (despertar procesos), **fallo de memoria** (la página no está: pedirla a disco y bloquear) |
+| **Trap** | **asociado** a la instrucción actual | error o excepción | acceso ilegal. Si es fatal, el proceso va a Exit; si no, se intenta recuperar |
+| **Supervisor call** | **pedido explícito** | llamar a una función del SO | `open()`, `read()`, que pueden bloquear al proceso |
+
+## Mode switch vs process switch
+
+| | **Mode switch** | **Process switch** |
+| --- | --- | --- |
+| Qué es | la CPU pasa de modo usuario a kernel, o viceversa, por una interrupción o syscall | cambia el proceso que está en Running |
+| ¿Cambia el estado del proceso? | **No**: al terminar el handler, el mismo proceso puede seguir | **Sí**: el actual pasa a Ready, Blocked, etc. |
+| Qué se guarda | PC, registros y pila (el estado del procesador), a menudo **en hardware** | todo lo anterior **más** actualizar PCBs, colas y memoria |
+| Costo | bajo | **alto** |
+
+Una interrupción **no** implica necesariamente un cambio de proceso.
+
+**Los 7 pasos del process switch:**
+1. Guardar el contexto del procesador (PC y registros).
+2. Actualizar el PCB del proceso que corría: su nuevo estado, el motivo y la contabilidad.
+3. Moverlo a la cola correspondiente (Ready, Blocked en el evento *i*, Ready/Suspend).
+4. **Seleccionar** otro proceso (planificación).
+5. Actualizar el PCB del elegido y ponerlo en Running.
+6. Actualizar las estructuras de **gestión de memoria**.
+7. Restaurar el contexto del elegido.
+
+:::note[«Context switch»]
+Stallings **no** usa el término *context switch*, porque la literatura lo usa de forma inconsistente: a veces significa process switch, otras mode switch o thread switch. En las diapositivas del curso sí aparece como «guardar el estado en PCB₀ y recargarlo de PCB₁». Es **overhead puro**, y crece con la complejidad del SO y del PCB. Hay hardware con varios juegos de registros para abaratarlo. En Linux, un cambio entre hilos (≈100 ns) es mucho más barato que entre procesos, y migrar a otro núcleo cuesta ≈2× más.
+:::
+
+## ¿El SO es un proceso? (fig. 3.15)
+
+| Enfoque | Idea | Detalle |
+| --- | --- | --- |
+| **(a) Kernel no-proceso** | el kernel corre **fuera** de todo proceso, con su propia memoria y pila | «proceso» solo aplica a programas de usuario (el enfoque de los SO antiguos) |
+| **(b) Dentro de procesos de usuario** | el código del SO corre **en el contexto** del proceso interrumpido, con una **pila de kernel** por proceso | una interrupción o syscall es solo un **mode switch**, sin process switch. Evita dos cambios de proceso si el mismo proceso continúa. **UNIX usa este enfoque.** Proceso y programa no son 1:1 |
+| **(c) SO basado en procesos** | las funciones del kernel son **procesos del sistema** | más modular; los servicios no críticos (por ejemplo, un monitor de uso) son procesos con prioridad propia; ideal en multiprocesador |
+
+## UNIX SVR4
+
+- Tiene **procesos de sistema** (en modo kernel: swapping, asignación de memoria) y **procesos de usuario**, que entran a modo kernel por una syscall, una **excepción** (fault) o una **interrupción**.
+- Tiene **9 estados**: **dos Running** (usuario y kernel); **Preempted** equivale a Ready in memory (comparten la misma cola); **Zombie** y **Created**.
+- **Solo hay preemption al volver de modo kernel a modo usuario**, así que UNIX clásico **no sirve para tiempo real**.
+- El **proceso 0** es el swapper, que crea al **proceso 1** (*init*), ancestro de todos. Al iniciar sesión, init crea el proceso del usuario.
+
+**La imagen de un proceso UNIX (tabla 3.10):**
+- **Contexto de usuario:** *text* (solo lectura), *data*, *user stack* y *shared memory* (una sola copia física, vista por cada proceso en su propio espacio).
+- **Contexto de registros:** PC, **PSR**, stack pointer y registros generales.
+- **Contexto de sistema:**
+  - **entrada de la tabla de procesos**: siempre en RAM, y el kernel la consulta aunque el proceso no sea el actual. Contiene estado, punteros, tamaño, UID **real** y UID **efectivo** (privilegios temporales), PID y PPID, descriptor del evento que espera, prioridad, señales pendientes, timers, `P_link` y estado de memoria;
+  - **área U**: solo tiene sentido para el proceso actual. Contiene el arreglo de *signal handlers*, la terminal, el campo de error, el valor de retorno de la syscall, los parámetros de E/S, el directorio actual y la raíz, la **tabla de descriptores de archivo**, los límites y la máscara de permisos;
+  - la **tabla de regiones** por proceso y la **pila de kernel** (la parte dinámica).
+
+**`fork()` en SVR4, en 6 pasos:**
+1. Asigna una entrada en la tabla de procesos.
+2. Asigna un PID nuevo.
+3. **Copia la imagen del padre**, salvo la memoria compartida.
+4. Incrementa los contadores de los archivos abiertos.
+5. Pone al hijo en **Ready to Run**.
+6. Retorna el **PID del hijo al padre y 0 al hijo**.
+
+Todo ocurre en modo kernel, dentro del padre. Después, el dispatcher puede seguir con el padre, pasar al hijo o pasar a otro proceso.
+
+<Solucion titulo="Problema 3.12 del libro: ¿qué imprime un fork() seguido de printf del pid?">
+
+Dos líneas: el padre imprime el **PID del hijo** (> 0) y el hijo imprime **0**. El **orden no está garantizado**, porque depende del planificador.
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="estados"
+	preguntas={[
+		{ q: '¿Un proceso puede pasar de Blocked a Running directamente?', opts: ['Sí, si su prioridad es alta', 'No: pasa a Ready y compite por la CPU', 'Solo en UNIX', 'Solo con preemption'], ok: 1 },
+		{ q: 'La causa más común de Running → Ready es…', opts: ['una E/S', 'que se agota el quantum (time-out)', 'un error aritmético', 'un fork'], ok: 1 },
+		{ q: '¿Qué categoría del PCB contiene el PSW?', opts: ['Identificación', 'Estado del procesador', 'Control del proceso', 'Contabilidad'], ok: 1 },
+		{ q: 'Una interrupción de reloj que no agota el quantum produce…', opts: ['un process switch', 'solo un mode switch', 'un trap', 'un swap out'], ok: 1 },
+		{ q: 'Diferencia entre interrupción y trap:', opts: ['No hay diferencia', 'La interrupción es externa y asíncrona; el trap lo causa la instrucción actual (error o excepción)', 'El trap es de hardware', 'La interrupción solo ocurre en modo kernel'], ok: 1 },
+		{ q: '¿Por qué UNIX SVR4 no es apto para tiempo real?', opts: ['No tiene prioridades', 'No hay preemption mientras un proceso ejecuta en modo kernel', 'No tiene swapping', 'Tiene 9 estados'], ok: 1 },
+		{ q: 'En el modelo de 7 estados, la suspensión más común es…', opts: ['Ready → Ready/Suspend', 'Blocked → Blocked/Suspend', 'Running → Exit', 'New → Ready'], ok: 1, why: 'Se prefiere sacar a un bloqueado, que ocupa memoria sin poder avanzar.' },
+		{ q: 'Al crear un proceso, el PCB se inicializa con los registros en 0 excepto…', opts: ['el PSW', 'el PC y los punteros de pila', 'el acumulador', 'ninguno'], ok: 1 },
+		{ q: 'Proceso 0 y proceso 1 en UNIX:', opts: ['init y shell', 'swapper e init', 'kernel y swapper', 'idle y cron'], ok: 1 },
+		{ q: 'En el enfoque «SO dentro de procesos de usuario», una syscall provoca…', opts: ['dos process switches', 'un mode switch dentro del mismo proceso', 'la creación de un proceso del sistema', 'un trap fatal'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['Stallings 9e, cap. 3 (§3.1–3.7)', 'lab 1/Resumenes/Stallings/Stallings-Cap3-Procesos-Descripcion-y-Control-Parte1.md', 'lab 1/Resumenes/Stallings/01-PCB-y-Control-de-Procesos.md', 'lab 1/Resumenes/Stallings/02-UNIX-SVR4-Process-Management.md', 'lab 1/Resumenes/Procesos-Signals/02-Processes-and-Threads-Overview.md (Sem02 OST)']} />

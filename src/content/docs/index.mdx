@@ -11,7 +11,7 @@ import Terminal from '../../components/Terminal.astro';
 	<div>
 		<p data-anim style="color: var(--sl-color-accent); font-family: var(--__sl-font-mono); font-size: .85rem; margin:0"><code style="background:none;padding:0;color:inherit;font-size:inherit">{'$ ./repasar --examen E1 --curso CS3015'}</code></p>
 		<h1 data-anim>Procesos, sincronización <span class="grad">y memoria</span>, a golpe de clic.</h1>
-		<p class="tag" data-anim>Teoría breve, simuladores y los 6 exámenes previos resueltos (verificados en WSL cuando hay código). Incluye los temas nuevos: <b>monitores y lectores–escritores</b>, <b>registros</b> y <b>memoria</b>.</p>
+		<p class="tag" data-anim>Teoría completa de Stallings (caps. 1–8) y de las clases, simuladores, los 6 exámenes previos resueltos y los 32 ejercicios oficiales, con el código verificado en WSL. Incluye los temas nuevos: <b>monitores y lectores–escritores</b>, <b>registros</b> y <b>memoria</b>.</p>
 		<div class="actions" data-anim>
 			<a class="so-btn primary" href="/mapa/">Ver el mapa del examen →</a>
 			<a class="so-btn" href="/examen/e1-2026-1/">Examen más reciente</a>
@@ -25,19 +25,21 @@ import Terminal from '../../components/Terminal.astro';
 </div>
 
 <div class="so-stats not-content">
-	<div><b data-count="9">0</b><span>simuladores interactivos</span></div>
+	<div><b data-count="15">0</b><span>simuladores interactivos</span></div>
 	<div><b data-count="6">0</b><span>exámenes previos (2021 → 2026)</span></div>
-	<div><b data-count="18">0</b><span>páginas de teoría</span></div>
-	<div><b data-count="60">0</b><span>flashcards y preguntas</span></div>
+	<div><b data-count="25">0</b><span>páginas de teoría</span></div>
+	<div><b data-count="244">0</b><span>flashcards y preguntas</span></div>
 </div>
 
 <div class="so-cards not-content">
-	<a class="so-card" href="/procesos/fork/"><span class="n">01</span><h3>Procesos y threads</h3><p>fork, exec, contar «Hello!», modelos many-to-one y fork con un mutex tomado.</p></a>
-	<a class="so-card" href="/mutex/algoritmos/"><span class="n">02</span><h3>Exclusión mutua</h3><p>Peterson, Hyman, Flaky y Bakery en un intercalador que encuentra contraejemplos solo.</p></a>
-	<a class="so-card" href="/hardware/registros/"><span class="n">03</span><span class="tagnew">nuevo</span><h3>Atómicas y registros</h3><p>TAS, CAS, spinlocks, false sharing y registros safe, regular y atómicos.</p></a>
-	<a class="so-card" href="/semaforos/productor-consumidor/"><span class="n">04</span><h3>Semáforos</h3><p>Productor–consumidor, Morris, aretes y stock: provoca los deadlocks tú mismo.</p></a>
-	<a class="so-card" href="/monitores/lectores-escritores/"><span class="n">05</span><span class="tagnew">nuevo</span><h3>Monitores</h3><p>Hoare vs Mesa, lectores–escritores, baño unisex y cine con código C.</p></a>
-	<a class="so-card" href="/memoria/paginacion/"><span class="n">06</span><span class="tagnew">nuevo</span><h3>Memoria</h3><p>Buddy, placement, segmentación y la calculadora de paginación de los exámenes.</p></a>
+	<a class="so-card" href="/fundamentos/hardware/"><span class="n">00</span><h3>Fundamentos</h3><p>Interrupciones anidadas, jerarquía de memoria, DMA, evolución del SO, monolítico vs microkernel.</p></a>
+	<a class="so-card" href="/procesos/estados/"><span class="n">01</span><h3>Procesos y threads</h3><p>PCB, modelos de 5, 7 y 9 estados, mode switch vs process switch, señales, fork, ULT/KLT, Selfie.</p></a>
+	<a class="so-card" href="/mutex/algoritmos/"><span class="n">02</span><h3>Exclusión mutua</h3><p>11 algoritmos en un intercalador que verifica exclusión mutua, deadlock, progreso y starvation.</p></a>
+	<a class="so-card" href="/hardware/registros/"><span class="n">03</span><span class="tagnew">nuevo</span><h3>Atómicas y registros</h3><p>TAS, CAS, spinlocks, Peterson fallando en x86 (probado) y registros safe, regular y atómicos.</p></a>
+	<a class="so-card" href="/semaforos/deadlock/"><span class="n">04</span><h3>Semáforos y deadlock</h3><p>Productor–consumidor, Morris, filósofos y el algoritmo del banquero paso a paso.</p></a>
+	<a class="so-card" href="/monitores/lectores-escritores/"><span class="n">05</span><span class="tagnew">nuevo</span><h3>Monitores y mensajes</h3><p>Hoare vs Mesa, AR/WR/AW/WW, baño unisex, cine y send/receive.</p></a>
+	<a class="so-card" href="/memoria/paginacion/"><span class="n">06</span><span class="tagnew">nuevo</span><h3>Memoria</h3><p>Buddy, placement, segmentación, TLB, tablas multinivel e invertidas, memoria virtual.</p></a>
+	<a class="so-card" href="/examen/ejercicios/"><span class="n">07</span><h3>Exámenes y ejercicios</h3><p>6 exámenes previos resueltos + los 32 ejercicios oficiales de sincronización.</p></a>
 </div>
 
 ## Cómo usar esta web

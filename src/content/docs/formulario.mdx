@@ -103,6 +103,37 @@ $$
 
 Para multinivel con tablas de 1 página: bits por nivel $= \log_2(\text{página}/\text{PTE})$ y niveles $= \lceil \text{VPN} / \text{bits por nivel} \rceil$.
 
+## Hardware y fundamentos ([ir](/fundamentos/hardware/))
+
+- **Interrupción:** el hardware termina la instrucción actual, reconoce la interrupción, **guarda PSW y PC** y salta al handler. El handler guarda los registros, procesa, restaura y regresa. Hay 4 clases: program, timer, E/S y falla de hardware. Con varias interrupciones se deshabilitan (secuencial) o se **anidan por prioridad**.
+- $T_s = T_1 + (1-H)\,T_2$; la eficiencia es $T_1/T_s$. Todo funciona gracias a la **localidad** (temporal y espacial).
+- **E/S:** programada (polling) → por interrupciones → **DMA** (una interrupción al final; la CPU solo cede ciclos de bus).
+- **Evolución:** serial → batch (monitor, JCL; requiere protección, timer, instrucciones privilegiadas e interrupciones) → multiprogramado (requiere interrupciones de E/S y DMA) → tiempo compartido (minimizar la respuesta).
+
+## Procesos ([ir](/procesos/estados/))
+
+- **5 estados:** New → Ready ⇄ Running → Exit, y Running → Blocked → Ready. **7 estados:** + Ready/Suspend y Blocked/Suspend (en disco). **SVR4 (9):** User y Kernel running, Preempted, Zombie, Created…
+- **PCB:** identificación, estado del procesador (registros, PC, PSW, SP) y control del proceso.
+- **Cambio de proceso:** lo causa una interrupción (reloj, E/S, fallo de memoria), un trap o una supervisor call. Un **mode switch** es barato; un **process switch** tiene 7 pasos: guardar contexto, actualizar el PCB, moverlo a una cola, elegir otro proceso, actualizar su PCB, actualizar la memoria y restaurar el contexto.
+- **fork en SVR4:** entrada en la tabla, PID, copia de la imagen (salvo memoria compartida), incrementar contadores de archivos, Ready, y retorna PID al padre y 0 al hijo.
+
+## Deadlock ([ir](/semaforos/deadlock/))
+
+- **Prevención:** hold and wait → pedir todo de una vez; no preemption → soltar lo que se tiene o expropiar; espera circular → **orden lineal**. La exclusión mutua no se puede quitar.
+- **Evitación (banquero):** conceder solo si el estado resultante es **seguro** (existe una secuencia en que todos terminan con $C_k - A_k \le$ disponible). Inseguro ≠ deadlock.
+- **Detección:** marcar los procesos sin nada asignado; W = V; marcar cada $P_i$ con $Q_i \le W$ y hacer W += $A_i$. **Los que quedan sin marcar están en deadlock.** Recuperación: abortar a todos (lo más común), rollback, abortar uno por uno o expropiar uno por uno.
+
+## Mensajes ([ir](/monitores/mensajes/))
+
+`send` / `receive`, bloqueantes o no (ambos bloqueantes = **rendezvous**; send no bloqueante + receive bloqueante es lo más útil). Direccionamiento **directo** o **indirecto** (mailbox; puerto = muchos a uno). Exclusión mutua = un mailbox con **1 token**.
+
+## TLB y tablas ([ir](/memoria/paginacion/))
+
+- $\text{EAT} = h\,(t_{TLB} + t_m) + (1-h)\,(t_{TLB} + k\,t_m + t_m)$ para k niveles.
+- Dos niveles en 32 bits con páginas de 4 KB y PTE de 4 B: `10 | 10 | 12`, con una raíz de 4 KB siempre en RAM.
+- **Invertida:** una entrada por **marco** y búsqueda por hash de (página, PID).
+- PTE: **P** (presente), **M** (modificado), **R** (referenciado), protección y marco.
+
 ## Memory layout de un proceso
 
 `text/code` (instrucciones) → `data` (globales y estáticas) → `heap` (↑ `malloc`) … `stack` (↓ locales, direcciones de retorno). En el PCB: estado, registros, PC, prioridad e información de memoria.

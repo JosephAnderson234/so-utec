@@ -1,91 +1,162 @@
 ---
-title: 'Monitores: Hoare vs Mesa'
-description: 'Tema nuevo (09 · Monitors and Reader-Writer): monitores, condition variables, semántica Hoare vs Mesa y por qué se usa while.'
+title: 'Monitores: Hoare vs Mesa (a fondo)'
+description: 'Tema nuevo (09 Monitors) + Sem05 + Stallings §5.5: motivación, estructura (cola de entrada, colas por condición), wait/signal/broadcast, signal-and-wait vs signal-and-continue, urgent queue, la traza T1/T2/T3 de por qué while, cnotify/cbroadcast, monitores vs semáforos.'
 ---
 
 import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
 
-## Motivación
+## ¿Por qué no bastan los semáforos?
 
-Los semáforos tienen **doble propósito**: sirven para exclusión mutua *y* para restricciones de planificación. Eso hace que errores como invertir dos `P` en el productor–consumidor no sean obvios. La idea más limpia es separar:
+Los semáforos son un gran avance: imagina hacer el buffer acotado solo con *loads* y *stores*. Pero tienen **doble propósito**: sirven para la **exclusión mutua** *y* para las **restricciones de planificación**. Por eso errores como invertir los dos `P` del productor–consumidor **no son obvios**: ¿cómo le demuestras a alguien que tu código es correcto?
 
-- **lock** para la exclusión mutua;
-- **condition variables** para las restricciones de planificación («espera hasta que haya espacio»).
+**Idea más limpia:** usar **locks** para la exclusión mutua y **condition variables** para la planificación.
 
 ## ¿Qué es un monitor?
 
-Una abstracción que **encapsula datos compartidos junto con las operaciones** que los acceden:
+Un **monitor** es **un lock + cero o más condition variables** que gestionan el acceso concurrente a datos compartidos. En Stallings es una *construcción de lenguaje* con variables, procedimientos y código de inicialización.
 
-- El estado **no** se accede directamente desde fuera.
-- Las operaciones se ejecutan con **exclusión mutua**: solo un hilo a la vez modifica o revisa el estado.
-- Internamente usa **un mutex** más **cero o más condition variables**.
-
-```c
-typedef struct rw_monitor {
-    /* estado compartido */
-    int data, active_readers, active_writers;
-    /* sincronización */
-    pthread_mutex_t lock;
-    pthread_cond_t  can_read, can_write;
-} rw_monitor_t;
-// cada operación: lock → revisar/modificar el estado (esperando en una cond si hace falta) → unlock
+```text
+monitor nombre {
+    // declaraciones de variables compartidas
+    procedure P1(...) { ... }
+    ...
+    procedure Pn(...) { ... }
+    initialization code(...) { ... }
+}
 ```
+
+1. **Encapsulación:** el estado solo se accede desde los procedimientos del monitor.
+2. **Exclusión mutua automática:** entrar a cualquier procedimiento **adquiere el lock**, así que solo hay **un proceso activo** a la vez. Los demás esperan en la **cola de entrada**.
+3. **Sincronización:** cada condition variable tiene **su propia cola** de hilos esperando algo *dentro* de la SC.
+
+Java tiene monitores nativos (`synchronized` + `wait` / `notify` / `notifyAll`). C y C++ usan un lock y condition variables explícitos: `pthread_mutex_t` + `pthread_cond_t`.
 
 ## Condition variables
 
-Una **cola de hilos esperando algo dentro de la sección crítica**. La idea clave es que se puede dormir *dentro* de la SC porque el lock se libera **atómicamente** al dormir. Con semáforos, en cambio, no se puede esperar dentro de la SC (eso es el deadlock del productor–consumidor invertido).
+| Operación | pthreads | Stallings | Efecto |
+| --- | --- | --- | --- |
+| **wait** | `pthread_cond_wait(&c, &m)` | `cwait(c)` | libera el lock **atómicamente**, duerme y **readquiere** el lock antes de retornar |
+| **signal** | `pthread_cond_signal(&c)` | `csignal(c)` / `cnotify(c)` | despierta a **uno**, si hay alguien. **Si nadie espera, no hace nada** |
+| **broadcast** | `pthread_cond_broadcast(&c)` | `cbroadcast(c)` | despierta a **todos** |
 
-| Operación | Efecto |
-| --- | --- |
-| `pthread_cond_wait(&c, &m)` | libera `m` **atómicamente**, duerme y **readquiere `m`** antes de retornar |
-| `pthread_cond_signal(&c)` | despierta **a uno** que espere (si no hay ninguno, **no hace nada**: no tiene memoria como un semáforo) |
-| `pthread_cond_broadcast(&c)` | despierta **a todos** |
+**La idea clave:** se puede **dormir dentro de la sección crítica** porque el lock se libera atómicamente al dormir. Con semáforos **no** se puede esperar dentro de la SC: eso es justamente el deadlock del productor–consumidor invertido.
 
 :::caution[Condition variable ≠ semáforo]
-Un `signal` sin nadie esperando **se pierde**. Por eso la condición se guarda en variables del monitor (contadores, flags) y el `wait` siempre va dentro de un chequeo de esas variables.
+Un `signal` sin nadie esperando **se pierde**, porque una condition variable **no tiene memoria**. Un `semSignal`, en cambio, siempre incrementa el contador. Por eso la condición se guarda en **variables del monitor** (contadores, flags) y el `wait` va siempre dentro de un chequeo de esas variables.
 :::
 
-## Hoare vs Mesa
+## ¿Qué pasa tras un signal? Las dos semánticas
 
-| | **Hoare** | **Mesa** (pthreads, Java) |
+Si P hace `signal` y Q estaba esperando, **no pueden ejecutar los dos** dentro del monitor. Hay dos opciones:
+
+| | **Signal-and-wait** (Hoare, 1974) | **Signal-and-continue** (Mesa, Xerox PARC, fines de los 70) |
 | --- | --- | --- |
-| `signal()` | transfiere el monitor **de inmediato** al despertado; el que señala espera | solo pasa al despertado a *listo*; **el que señala sigue** con el lock |
-| Al despertar | la condición **sigue siendo verdadera** | la condición **pudo cambiar**: otro hilo pudo entrar antes |
-| Chequeo | `if (!cond) wait();` | **`while (!cond) wait();`** |
-| Extras | más cambios de contexto | tolera *spurious wakeups* y permite `broadcast` |
+| Tras el signal | **Q corre de inmediato**: P le cede el lock y la CPU | **P sigue** con el lock; Q pasa a la cola de listos **sin prioridad especial** |
+| P… | espera en la **urgent queue**, que tiene prioridad sobre la cola de entrada, hasta que Q salga o vuelva a esperar | continúa normalmente |
+| Condición al despertar Q | **garantizada**, así que basta un `if` | **puede haber cambiado**, así que hace falta un **`while`** |
+| Costo | **2 cambios de contexto extra** por signal; el planificador debe garantizar que nadie se cuele | ninguno de esos |
+| Uso real | textos clásicos | **pthreads, Java, Windows y casi todos los SO reales** |
+
+### La traza que explica el `while` (diapositivas Sem05)
+
+```c
+RemoveFromQueue() {                    AddToQueue(item) {
+    lock.Acquire();                        lock.Acquire();
+    if (queue.isEmpty())    // ← if        queue.enqueue(item);
+        dataready.wait(&lock);             dataready.signal();
+    item = queue.dequeue();                lock.Release();
+    lock.Release();                    }
+    return item;
+}
+```
+
+1. **T1** llama a `Remove`, encuentra la cola vacía y hace `wait`: **libera el lock** y queda esperando.
+2. **T2** llama a `Add`: encola un ítem y hace `signal`. En Mesa, **T1 solo pasa a listo**. T2 libera el lock.
+3. **T3** llega antes que T1, toma el lock, ve que la cola **tiene** un ítem y se lo lleva.
+4. **T1** por fin corre: sale del `wait`, ejecuta `dequeue()` sobre una **cola vacía** y **falla**.
+
+Con `while (queue.isEmpty()) dataready.wait(&lock);`, T1 **vuelve a comprobar**, ve la cola vacía y **vuelve a dormir**. El `while` también cubre los **spurious wakeups** que POSIX permite: un hilo puede despertar sin que nadie haya hecho `signal`.
 
 :::note[E1 2026-1 · P1.4]
-¿Qué estructura es obligatoria en Mesa? → **B: la opción II (`while`)**, porque la señal no transfiere la propiedad del mutex de inmediato y la condición pudo cambiar. El `while` también cubre los *spurious wakeups* que POSIX permite.
+¿Qué estructura es obligatoria en Mesa? **B: la opción II (`while`)**, porque la señal no transfiere la propiedad del mutex de inmediato y la condición pudo cambiar.
 :::
 
-Stallings usa la notación `cwait(c)` y `csignal(c)` para Hoare, y `cnotify(c)` y `cbroadcast(c)` para Mesa (Lampson y Redell).
+### Por qué Stallings prefiere Mesa (`cnotify` + `cbroadcast`)
 
-**Regla práctica:** con `while`, el código es correcto **en ambas** semánticas; con `if`, solo en Hoare. Por eso, en el examen, siempre usa `while`.
+1. Evita los dos cambios de contexto extra de Hoare.
+2. No exige que el planificador garantice una reactivación inmediata y exclusiva.
+3. **Tolera errores:** con `while`, un `signal` o `broadcast` «de más» **no rompe** nada, porque el proceso despertado revisa su condición y, si no se cumple, vuelve a dormir.
+4. **`cbroadcast`** sirve cuando quien señala **no sabe cuántos ni cuáles** pueden continuar. El ejemplo del libro es un gestor de memoria que libera k bytes y no sabe quién necesitaba justo esa cantidad: hace broadcast y cada uno verifica si ya le alcanza.
+5. **Modularidad:** en Hoare, cada `signal` lleva implícito el estado exacto que dejó quien señala; si esa condición cambia de definición, hay que reescribir a todos los que señalan. En Mesa, cada proceso que espera revisa su propia condición.
 
-## Plantilla de un método del monitor (C POSIX)
+**Regla práctica:** con `while`, el código es correcto en **ambas** semánticas; con `if`, solo en Hoare. En el examen, **siempre `while`**.
+
+## Monitores vs semáforos
+
+| | **Semáforo** | **Monitor (condition variable)** |
+| --- | --- | --- |
+| Qué es | un contador con 2 operaciones atómicas | un lock + colas de condición |
+| Dónde se hace wait | típicamente **antes** de entrar a la SC | **desde dentro** del procedimiento del monitor |
+| ¿Bloquea dentro de la SC? | **no**: el hilo espera fuera, sin tener ningún lock | **sí**, pero `wait` **libera el lock** mientras duerme y lo recupera al despertar |
+| Memoria del signal | **sí** (el contador sube) | **no** (se pierde si nadie espera) |
+| Responsabilidad del programador | **exclusión mutua y planificación** | solo la **planificación**; el monitor da la exclusión mutua |
+| Poder expresivo | **equivalente**: uno se puede implementar con el otro | ídem |
+
+## Plantilla de un método (C POSIX)
 
 ```c
 void metodo(monitor_t *m) {
-    pthread_mutex_lock(&m->lock);
-    while (!condicion_para_avanzar(m))        // 1. esperar mientras no se pueda
+    pthread_mutex_lock(&m->lock);                 // 1. entrar al monitor
+    while (!puedo_avanzar(m))                     // 2. esperar mientras no se pueda (SIEMPRE while)
         pthread_cond_wait(&m->cond, &m->lock);
-    actualizar_estado(m);                       // 2. modificar el estado compartido
-    if (alguien_puede_avanzar_ahora(m))         // 3. avisar a quien corresponda
-        pthread_cond_signal(&m->otra_cond);     //    (o broadcast si pueden ser varios)
-    pthread_mutex_unlock(&m->lock);
+    modificar_estado(m);                          // 3. actualizar el estado compartido
+    if (otro_puede_avanzar(m))                    // 4. avisar a quien corresponda
+        pthread_cond_signal(&m->otra_cond);       //    (broadcast si pueden ser varios o no sabes quién)
+    pthread_mutex_unlock(&m->lock);               // 5. salir
 }
 ```
+
+```c
+typedef struct rw_monitor {        // un monitor como struct (diapositiva 09)
+    int data, active_readers, active_writers;   // estado compartido
+    pthread_mutex_t lock;                       // sincronización
+    pthread_cond_t  can_read, can_write;
+} rw_monitor_t;
+```
+
+<Solucion titulo="Ejercicio: ¿qué está mal? (típico de análisis de código)">
+
+```c
+void consumir() {
+    pthread_mutex_lock(&m);
+    if (count == 0) pthread_cond_wait(&no_vacio, &m);
+    item = buf[--count];
+    pthread_cond_signal(&no_lleno);
+    pthread_mutex_unlock(&m);
+}
+```
+
+1. **`if` en vez de `while`:** con varios consumidores (o por un spurious wakeup), otro consumidor puede vaciar el buffer antes de que este reacquiera el lock, y entonces `buf[--count]` lee `buf[-1]`.
+2. **Corrección:** `while (count == 0) pthread_cond_wait(&no_vacio, &m);`.
+
+Si en cambio el `signal` estuviera **antes del `lock`** (fuera del monitor), sería un error de protección sobre `count`. Siempre modifica el estado y señala **con el lock tomado**.
+
+</Solucion>
 
 <Quiz
 	client:visible
 	id="monitores"
 	preguntas={[
-		{ q: '¿Qué hace `pthread_cond_wait(&c, &m)` con el mutex?', opts: ['Nada', 'Lo libera atómicamente al dormir y lo readquiere antes de retornar', 'Lo libera y el hilo debe volver a tomarlo manualmente', 'Lo destruye'], ok: 1 },
+		{ q: '¿Qué hace `pthread_cond_wait(&c, &m)` con el mutex?', opts: ['Nada', 'Lo libera atómicamente al dormir y lo readquiere antes de retornar', 'Lo libera y el hilo debe volver a tomarlo a mano', 'Lo destruye'], ok: 1 },
 		{ q: 'Un `pthread_cond_signal` cuando nadie espera…', opts: ['se acumula como en un semáforo', 'se pierde', 'bloquea al que señala', 'es un error'], ok: 1 },
-		{ q: 'En un monitor Mesa, ¿por qué `while` y no `if`?', opts: ['Por eficiencia', 'Porque el despertado no obtiene el lock de inmediato y la condición pudo cambiar (y por los spurious wakeups)', 'Porque Mesa no tiene broadcast', 'No hace falta'], ok: 1 },
-		{ q: 'En Hoare, tras `signal()`, ¿quién tiene el monitor?', opts: ['El que señaló', 'El despertado, de inmediato', 'Nadie', 'El primero en la cola de entrada'], ok: 1 },
+		{ q: 'En Hoare, tras `signal()`, el que señaló espera en…', opts: ['la cola de entrada', 'la urgent queue (con prioridad sobre la de entrada)', 'la cola de la condición', 'no espera'], ok: 1 },
+		{ q: '«Signal-and-continue» corresponde a…', opts: ['Hoare', 'Mesa', 'semáforos fuertes', 'Dijkstra'], ok: 1 },
+		{ q: '¿Cuándo conviene `broadcast` en vez de `signal`?', opts: ['Nunca', 'Cuando quien señala no sabe cuántos o cuáles de los que esperan pueden continuar', 'Solo en Hoare', 'Para ahorrar cambios de contexto'], ok: 1 },
+		{ q: 'Con monitores, el programador es responsable de…', opts: ['la exclusión mutua y la planificación', 'solo las restricciones de planificación (wait y signal)', 'nada', 'solo la exclusión mutua'], ok: 1 },
+		{ q: '¿Por qué con semáforos no se puede «esperar dentro de la SC»?', opts: ['Porque semWait no libera el mutex que tienes: bloquearse lo retiene y causa deadlock', 'Porque los semáforos son lentos', 'Porque POSIX lo prohíbe', 'Sí se puede'], ok: 0 },
 	]}
 />
 
-<Fuente archivos={['for_partial/pending_themes/09-OSL-Monitors_ReaderWriter.pdf', 'lab2/Resumenes/10-Monitores-Condition-Variables.md', 'lab2/Sem05_05-OST-Mutex mechanisms monitors.pdf']} />
+<Fuente archivos={['for_partial/pending_themes/09-OSL-Monitors_ReaderWriter.pdf', 'lab2/Sem05_05-OST-Mutex mechanisms monitors.pdf (diap. 40–60)', 'Stallings §5.5 (cwait/csignal, cnotify/cbroadcast, Lampson & Redell)', 'lab2/Resumenes/10-Monitores-Condition-Variables.md, 13-Stallings-Cap5']} />

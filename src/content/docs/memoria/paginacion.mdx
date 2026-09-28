@@ -4,6 +4,7 @@ description: Cálculo de bits, entradas y tamaño de la tabla de páginas (E1 20
 ---
 
 import PagingCalc from '../../../components/sim/PagingCalc.tsx';
+import TlbEat from '../../../components/sim/TlbEat.tsx';
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
@@ -12,9 +13,20 @@ import Fuente from '../../../components/Fuente.astro';
 La diapositiva de memoria de 2026-II termina en segmentación («more about pages in next session»). Aun así, la paginación **cayó en el E1 2022 y en el E1 2025-2**, así que conviene dominar el cálculo.
 :::
 
-## Idea
+## Paginación simple (Stallings §7.3)
 
-La memoria física se divide en **marcos** y la virtual en **páginas** del mismo tamaño. La **tabla de páginas** del proceso mapea cada número de página virtual (**VPN**) a un número de marco físico (**PFN**). No hay fragmentación externa; solo interna, en la última página.
+La memoria física se divide en **marcos** (*frames*) pequeños y de tamaño fijo, y cada proceso en **páginas** del **mismo** tamaño. Un proceso ocupa marcos **no contiguos**, cualesquiera que estén libres.
+
+**Ejemplo (fig. 7.9), con 15 marcos:**
+1. A ocupa los marcos 0–3, B los 4–6 y C los 7–10.
+2. **B sale** (*swap out*).
+3. Llega D, que necesita **5** páginas: recibe los marcos 4, 5, 6, 11 y 12, que **no son contiguos**, y no importa.
+
+- **Sin fragmentación externa**, porque cualquier marco sirve. La interna se limita a **una fracción de la última página**.
+- El SO mantiene una **lista de marcos libres** y **una tabla de páginas por proceso** (página → marco).
+- Es **transparente** para el programador, el ensamblador y el *linker*: la dirección lógica (página, offset) **es** la dirección relativa.
+
+**Traducción sin sumas:** como el tamaño de página es una potencia de 2, basta **concatenar** el marco con el offset:
 
 $$
 \underbrace{\text{VPN}}_{n_v - o \text{ bits}} \;\big|\; \underbrace{\text{offset}}_{o = \log_2 \text{página}}
@@ -22,7 +34,76 @@ $$
 \underbrace{\text{PFN}}_{n_f - o \text{ bits}} \;\big|\; \text{offset}
 $$
 
-Cada **PTE** (entrada) guarda el PFN y bits de estado: **V** (válida/presente), **D** (dirty), R (referenciada) y permisos.
+**Ejemplo del libro:** direcciones de 16 bits y páginas de 1 KB, así que el offset tiene 10 bits y la página 6 bits (64 páginas).
+- La dirección relativa **1502** = `000001 0111011110` es la **página 1**, **offset 478**.
+- Si la tabla dice página 1 → **marco 6** (`000110`), la dirección física es `000110 0111011110` = 6·1024 + 478 = **6622**.
+
+## La entrada de la tabla (PTE)
+
+| Campo | Para qué |
+| --- | --- |
+| **P / V** (presente o válido) | ¿la página está en RAM? Si no, se produce un **page fault** |
+| **M / D** (modificado o dirty) | ¿se escribió? Si no, al reemplazarla **no hace falta escribirla** a disco |
+| **R / A** (referenciado) | lo usan los algoritmos de reemplazo |
+| Protección y compartición | lectura, escritura, ejecución y usuario/kernel |
+| **Número de marco** (PFN) | la traducción propiamente dicha |
+
+Normalmente el **número de página** (n bits) es **más largo** que el **número de marco** (m bits): n > m, porque un proceso puede tener más páginas que marcos haya en la RAM.
+
+## Tablas grandes: multinivel e invertidas
+
+**El problema:** la tabla es proporcional al **espacio virtual**. En una VAX: 2 GB con páginas de 512 B dan $2^{22}$ PTE **por proceso**. Por eso las tablas se guardan en **memoria virtual** (también se paginan) y se usan jerarquías.
+
+**Dos niveles, 32 bits (fig. 8.3), típico del Pentium:**
+- Con páginas de 4 KB hay $2^{20}$ páginas. Con PTE de 4 B, la tabla de usuario ocupa **4 MB** = $2^{10}$ páginas.
+- Esas páginas se mapean con una **tabla raíz** (*page directory*) de $2^{10}$ PTE = **4 KB**, que **siempre está en RAM**.
+- La dirección se divide en `| 10 bits: raíz | 10 bits: tabla de usuario | 12 bits: offset |`. Si la página de la tabla de usuario **no** está en RAM, hay un page fault **antes** de llegar al dato: un **doble fallo** posible.
+
+**Tabla de páginas invertida** (PowerPC, UltraSPARC, IA-64):
+- Tiene **una entrada por marco físico**, no por página virtual. Su tamaño es **fijo**, proporcional a la RAM, sin importar cuántos procesos ni cuántas páginas virtuales haya.
+- Se busca con un **hash** del número de página, con encadenamiento para las colisiones (cadenas típicas de 1 a 2 entradas).
+- Cada entrada tiene el **número de página**, el **PID** del dueño, bits de control y un **puntero de cadena**.
+
+## TLB (Translation Lookaside Buffer)
+
+Sin ayuda, cada referencia virtual cuesta **dos accesos** a memoria (la PTE y el dato), es decir, **duplica** el tiempo. El **TLB** es una **caché de PTEs** recientes.
+
+1. Se busca la página en el TLB. En un **hit**, se obtiene el marco y la dirección real al instante.
+2. En un **miss**, se indexa la tabla de páginas del proceso. Si **P = 1**, se forma la dirección y **se actualiza el TLB**.
+3. Si **P = 0**, hay un **page fault**: se sale del hardware y entra el SO, que carga la página (E/S de disco; **el proceso queda Blocked**), actualiza la tabla y lo pasa a Ready.
+
+El TLB solo contiene **algunas** entradas, así que **no se puede indexar** por número de página. Cada entrada guarda **el número de página y la PTE completa**, y el hardware compara **todas a la vez**: es un **mapeo asociativo**, frente al mapeo **directo** (indexado) de la tabla. Después del TLB se consulta la **caché** con la dirección **real**.
+
+<TlbEat client:visible />
+
+## Tamaño de página: el compromiso
+
+| Página **pequeña** | Página **grande** |
+| --- | --- |
+| ✔ menos fragmentación interna | ✔ tablas más chicas y cada entrada del TLB cubre más memoria |
+| ✔ con muchas páginas en RAM, la localidad hace que falle poco | ✔ transferencias de disco más eficientes |
+| ✘ **tablas enormes**, que pueden tener que estar en memoria virtual (con doble fallo) | ✘ cada página incluye datos lejos de la referencia reciente, así que la localidad pierde efecto y **suben los fallos**, hasta que la página es tan grande como el proceso (fig. 8.10) |
+
+La tasa de fallos también **baja** al dar **más marcos** al proceso (tamaño del *working set*). Los tamaños reales van de 512 B (VAX) a 4 KB (x86); Pentium e Itanium soportan de 4 KB a 1 GB. Varios procesadores admiten **varios tamaños de página** (por ejemplo, páginas grandes para el código y chicas para las pilas), pero la mayoría de los SO usan uno solo.
+
+## Memoria virtual: la idea que lo cambia todo
+
+Con traducción **en ejecución** y un proceso partido en **trozos no contiguos**, ¡no hace falta que **todo** el proceso esté en RAM!
+
+- El **conjunto residente** (*resident set*) es la parte del proceso que está en RAM. Si se referencia algo fuera de él, se produce una **interrupción por fallo de acceso**, el proceso pasa a **Blocked**, se pide la E/S al disco y se despacha otro proceso. Cuando la página llega, una interrupción de E/S lo pasa a Ready.
+- **Dos consecuencias:**
+  1. caben **más procesos** en RAM, así que es más probable que alguno esté listo;
+  2. un proceso puede ser **más grande que toda la RAM**, lo que elimina los *overlays*.
+- **Memoria real** es la RAM. **Memoria virtual** es la que percibe el programa, del tamaño del disco.
+- Funciona gracias a la **localidad**: en poco tiempo se usan pocas páginas. Si el SO expulsa páginas que se van a necesitar enseguida, el sistema pasa más tiempo trayendo páginas que ejecutando: **thrashing**.
+
+| | Paginación simple | Paginación con MV | Segmentación simple | Segmentación con MV |
+| --- | --- | --- | --- | --- |
+| Partición | marcos fijos | marcos fijos | sin particionar | sin particionar |
+| ¿Quién divide? | compilador o SO | compilador o SO | **programador** | **programador** |
+| Fragmentación | **interna** | **interna** | **externa** | **externa** |
+| El SO mantiene | tabla de páginas + marcos libres | ídem | tabla de segmentos + huecos libres | ídem |
+| ¿Todo en RAM? | **sí** (salvo overlays) | **no**, bajo demanda | **sí** | **no**, bajo demanda |
 
 ## Calculadora
 
