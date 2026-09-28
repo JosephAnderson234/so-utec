@@ -1,0 +1,44 @@
+---
+title: 'Predicción del E1 2026-2 y cómo usar los simulacros'
+description: 'Qué es probable que venga en el E1 2026-2 (sin memoria) según los 6 exámenes previos y los temas nuevos del semestre, y tres simulacros de 20 puntos con solucionario y pauta.'
+---
+
+:::caution[Esto es una predicción propia]
+Nadie conoce el examen. Esta página extrapola **patrones** de los 6 exámenes previos (2021 → 2026-1) y de lo que se dictó en 2026-2. Los tres simulacros tienen preguntas **nuevas** en el mismo estilo; ninguna copia un examen anterior. Todas las respuestas están **verificadas**: el código C se compiló y ejecutó en WSL, y los algoritmos de exclusión mutua se revisaron con búsqueda exhaustiva de estados.
+:::
+
+## Lo que dicen los exámenes previos
+
+| Tipo de pregunta | Veces (de 6) | Último | Probabilidad en 2026-2 | Por qué |
+| --- | :-: | --- | --- | --- |
+| **Semáforos: analizar un código, dar la traza del bug (deadlock o starvation) y corregirlo** | **6/6** | 2026-1 (Morris) | **muy alta** | Aparece en todos los exámenes |
+| **Demostrar o refutar un algoritmo de exclusión mutua** (mutex, deadlock, starvation) | **5/6** | 2026-1 (Hyman) | **muy alta** | Solo faltó en 2024-II |
+| **Monitor o código C con pthreads** (escribirlo o completarlo) | 3/6 | 2026-1 (completar con [1]–[5]) | **alta** | Los tres últimos exámenes tienen código C |
+| **Alternativas o conceptos** | 4/6 | 2026-1 (alternativas con penalidad) | **alta** | 2026-1 cambió a alternativas con penalidad (cada 2 errores restan 1) |
+| Contar salidas con fork / exec / threads | 2/6 | 2024-II | media | Cayó en ambos exámenes de 2024 |
+| Implementar semáforos (con TAS, binarios o futex) | 2/6 | 2025-2 | media | En 2026-2, el lab 07 fue de futex |
+| Memoria | 2/6 | 2025-2 | **no entra** | Queda fuera de este E1 |
+
+**Temas nuevos de 2026-2** (las presentaciones de `pending_themes`, que ningún examen previo tiene):
+- **Registros safe / regular / atomic (Herlihy):** alta probabilidad de 1 pregunta corta o de alternativas.
+- **Monitores y lectores–escritores:** alta. Encaja en la pregunta de monitor en C o en la de análisis con semáforos.
+- **FUTEX y POSIX (lab 07):** media, más probable como alternativas.
+
+**Estructura más probable** (siguiendo la de 2026-1): alternativas (~4 pts) + algoritmo de mutex (~3–4) + semáforos (~5–6) + código C con pthreads/monitor (~6) = 20 pts, en unos 100 minutos.
+
+## Los tres simulacros
+
+| Simulacro | Estilo | Preguntas |
+| --- | --- | --- |
+| [**Simulacro 1**](/examen/simulacro-1/) | como 2026-1 | alternativas con penalidad · algoritmo «Peterson perezoso» · laboratorio de robótica (deadlock) · completar un monitor de lectores–escritores |
+| [**Simulacro 2**](/examen/simulacro-2/) | como 2024-II y 2025-2 | contar Hello (fork + exec + threads) · variantes de Bakery · monitor del puente de Barranco · semáforo con futex · conceptos |
+| [**Simulacro 3**](/examen/simulacro-3/) | temas nuevos | registros (historias) · dos variantes de Dekker/Peterson · lectores–escritores de Stallings sin `x` · moléculas de agua |
+
+## Cómo usarlos
+
+1. **Ponte un cronómetro de 100 minutos** y resuelve en papel, sin abrir las soluciones.
+2. Corrige con la **pauta** que acompaña cada solución: dice qué se exige para el puntaje completo y qué da puntaje parcial.
+3. En las preguntas de algoritmos, **reproduce la traza** en el intercalador; cada solución indica qué algoritmo elegir.
+4. Lo que falles, repásalo en la página enlazada al final de cada solución.
+
+**Orden sugerido:** el Simulacro 1 primero (es el formato más reciente), el 3 al día siguiente (temas nuevos) y el 2 como repaso final.

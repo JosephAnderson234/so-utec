@@ -244,6 +244,71 @@ const ALGOS: Algo[] = [
 		nota: '¡El orden SÍ importa! P0 escribe turn = 1; P1 escribe turn = 0 y flag[1] = T, ve flag[0] = F y entra. P0 escribe flag[0] = T y ve turn = 0 ≠ 1, así que también entra. La demostración de Peterson usa que flag[i] = T ocurre ANTES que turn = j: al invertirlas, el último en escribir turn puede no haber levantado aún su flag.',
 	},
 	{
+		id: 'sim-lazy',
+		name: 'Simulacro 1 · Algoritmo B («Peterson perezoso»)',
+		fuente: 'Simulacro 1, Pregunta 2 (propio)',
+		lines: ['// sección no crítica', 'flag[i] ← V;', 'mientras (flag[j] y turno = j) omitir;', '/* SECCIÓN CRÍTICA */', 'turno ← j;', 'flag[i] ← F;'],
+		ncs: 0,
+		cs: 3,
+		init: () => ({ flag: [false, false], turno: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'flag')[i] = true; return 2;
+				case 2: return arr(s.v, 'flag')[j] && s.v.turno === j ? 2 : 3;
+				case 3: return 4;
+				case 4: n.v.turno = j; return 5;
+				default: arr(n.v, 'flag')[i] = false; return 0;
+			}
+		}),
+		nota: 'Es Peterson SIN escribir turno en la entrada. ✘ exclusión mutua: P1 levanta su flag, ve flag[0] = F y entra; P0 levanta su flag, ve turno = 0 ≠ 1 y también entra. En Peterson, la escritura de turno en la ENTRADA es la que decide quién cede.',
+	},
+	{
+		id: 'sim-dekker-exit',
+		name: 'Simulacro 3 · Dekker con la salida invertida',
+		fuente: 'Simulacro 3, Pregunta 2a (propio)',
+		lines: ['// sección no crítica', 'flag[i] = true;', 'while (flag[j]) {', '    if (turn == j) {', '        flag[i] = false;', '        while (turn == j) ;', '        flag[i] = true; } }', '/* SECCIÓN CRÍTICA */', 'flag[i] = false;', 'turn = j;'],
+		ncs: 0,
+		cs: 7,
+		init: () => ({ flag: [false, false], turn: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'flag')[i] = true; return 2;
+				case 2: return arr(s.v, 'flag')[j] ? 3 : 7;
+				case 3: return s.v.turn === j ? 4 : 2;
+				case 4: arr(n.v, 'flag')[i] = false; return 5;
+				case 5: return s.v.turn === j ? 5 : 6;
+				case 6: arr(n.v, 'flag')[i] = true; return 2;
+				case 7: return 8;
+				case 8: arr(n.v, 'flag')[i] = false; return 9;
+				default: n.v.turn = j; return 0;
+			}
+		}),
+		nota: 'Sigue siendo correcto: ✔ mutex, ✔ deadlock-free, ✔ starvation-free. La prueba de exclusión mutua solo usa la ENTRADA; el orden de la salida no la afecta, y turn se sigue escribiendo únicamente al salir.',
+	},
+	{
+		id: 'sim-peterson-if',
+		name: 'Simulacro 3 · Peterson con if en vez de while',
+		fuente: 'Simulacro 3, Pregunta 2b (propio)',
+		lines: ['// sección no crítica', 'flag[i] = true;', 'turn = j;', 'if (flag[j] && turn == j)', '    esperar_un_rato();', '/* SECCIÓN CRÍTICA */', 'flag[i] = false;'],
+		ncs: 0,
+		cs: 5,
+		init: () => ({ flag: [false, false], turn: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'flag')[i] = true; return 2;
+				case 2: n.v.turn = j; return 3;
+				case 3: return arr(s.v, 'flag')[j] && s.v.turn === j ? 4 : 5;
+				case 4: return 5;
+				case 5: return 6;
+				default: arr(n.v, 'flag')[i] = false; return 0;
+			}
+		}),
+		nota: '✘ exclusión mutua: la condición se evalúa UNA vez. Si al esperar el otro sigue dentro, igual se entra. La espera debe repetirse hasta que la condición sea falsa: por eso es un while.',
+	},
+	{
 		id: 'hyman',
 		name: 'Algoritmo A del E1 2026-1 (Hyman)',
 		fuente: 'E1 2026-1, Pregunta 2',

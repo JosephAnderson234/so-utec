@@ -1,0 +1,257 @@
+---
+title: 'Simulacro 3 · temas nuevos de 2026-2'
+description: 'Simulacro de 20 puntos centrado en lo nuevo del semestre: historias de registros safe/regular/atomic, variantes de Dekker y Peterson, lectores–escritores de Stallings sin el semáforo x y las moléculas de agua con semáforos. Con solucionario verificado y pauta.'
+---
+
+import MutexStepper from '../../../components/sim/MutexStepper.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+:::note[Instrucciones]
+**Duración: 100 minutos. 20 puntos.** Resuelve en papel y abre las soluciones solo al terminar.
+:::
+
+## Pregunta 1 (4 pts) · Registros
+
+Un registro **MRSW** con valor inicial **0** y dominio de 0 a 9. Hay un único escritor. Los intervalos están en unidades de tiempo: `[inicio, fin]`.
+
+| Historia | Escrituras | Lecturas (intervalo → valor devuelto) |
+| --- | --- | --- |
+| **H1** | `write(5)` en [2, 10] | R1 [3, 5] → 5 · R2 [6, 8] → 0 |
+| **H2** | `write(5)` en [2, 10] | R1 [3, 5] → 3 |
+| **H3** | `write(5)` en [2, 10] | R1 [3, 5] → 0 · R2 [6, 8] → 5 · R3 [11, 12] → 5 |
+| **H4** | `write(5)` en [2, 4] | R1 [6, 7] → 0 |
+| **H5** | `write(5)` en [1, 3] · `write(7)` en [5, 12] | R1 [6, 8] → 7 · R2 [9, 11] → 5 |
+
+a) (3 pts) Para cada historia, indica si es posible en un registro **safe**, **regular** y **atómico**. Justifica en una línea.
+b) (1 pt) Tienes registros MRSW **safe booleanos**. ¿Cómo construyes uno **regular** booleano? ¿Por qué la idea no sirve directamente para un registro de 10 valores?
+
+<Solucion titulo="Solución">
+
+**a)**
+
+| | Safe | Regular | Atómico | Justificación |
+| --- | :-: | :-: | :-: | --- |
+| **H1** | ✔ | ✔ | ✘ | Cada lectura solapada devuelve el viejo (0) o el nuevo (5), pero R2 **empieza después de que R1 termina** y devuelve el viejo: hay **inversión nuevo → viejo**, así que no es linealizable. |
+| **H2** | ✔ | ✘ | ✘ | Una lectura solapada de un safe puede devolver **cualquier** valor del dominio (3 es legal), pero un regular solo puede devolver 0 o 5. |
+| **H3** | ✔ | ✔ | ✔ | Se linealiza así: R1 (0), luego write(5) entre 5 y 6, luego R2 (5) y R3 (5). R3 no se solapa y devuelve el último valor, como corresponde. |
+| **H4** | ✘ | ✘ | ✘ | R1 **no se solapa** con ninguna escritura y el último valor escrito es 5: devolver 0 es ilegal incluso para un safe. |
+| **H5** | ✔ | ✔ | ✘ | Ambas lecturas se solapan con write(7): el viejo es 5 y el nuevo 7, así que las dos son legales para un regular. Pero R1 devuelve el nuevo y R2, que empieza después, el viejo: **inversión**. |
+
+**b)** **Escribir solo si el valor cambia.** Si el escritor va a escribir el mismo valor que ya tiene, no escribe; así no hay solapamiento y la lectura devuelve el valor correcto. Si el valor cambia (0 → 1), una lectura solapada de un safe booleano devuelve «cualquier valor del dominio» = 0 o 1, que es justo **el viejo o el nuevo**: regular. Con 10 valores, «cualquier valor» podría ser uno que no es **ni** el viejo **ni** el nuevo (como en H2). Hace falta otra construcción: la **codificación unaria** con m bits regulares booleanos.
+
+**Pauta:** 0.6 por historia (las tres columnas bien, con justificación) y 1 punto en (b).
+
+Repaso: [registros](/hardware/registros/) (usa el simulador de líneas de tiempo).
+
+</Solucion>
+
+## Pregunta 2 (6 pts) · Dos modificaciones
+
+**a) (3 pts)** En Dekker se invierte el orden de las dos instrucciones de salida:
+
+```c
+flag[i] = true;
+while (flag[j]) {
+    if (turn == j) {
+        flag[i] = false;
+        while (turn == j) ;
+        flag[i] = true;
+    }
+}
+/* SC */
+flag[i] = false;      // ← antes era: turn = j; flag[i] = false;
+turn = j;
+```
+
+¿Sigue garantizando exclusión mutua, ausencia de deadlock y ausencia de starvation? Justifica cada una.
+
+**b) (3 pts)** En Peterson se cambia el `while` por un `if` que espera un rato:
+
+```c
+flag[i] = true;
+turn = j;
+if (flag[j] && turn == j)
+    esperar_un_rato();     // p. ej., usleep(100)
+/* SC */
+flag[i] = false;
+```
+
+¿Exclusión mutua? ¿Deadlock? ¿Starvation? Si algo falla, da la traza.
+
+<Solucion titulo="Solución (ambas verificadas con búsqueda exhaustiva)">
+
+**a) Sigue siendo correcto: ✔ ✔ ✔.**
+- **Exclusión mutua ✔:** la demostración solo usa la **entrada**. Por el lema de Dekker, flag[i] = T desde la última vez que se levanta antes de salir del `while` hasta que termina la SC (ahora, la primera línea de salida). La cadena $W_1(\text{flag}[1]=T) \to R_1(\text{flag}[0]=F) \to W_0(\text{flag}[0]=T) \to R_0(\text{flag}[1])$ obliga a $R_0$ a leer T. Contradicción, igual que en el original.
+- **Deadlock ✔:** `turn` se sigue escribiendo **solo al salir**, así que mientras nadie sale queda fijo, y el análisis de casos no cambia: el que no tiene el turno cede (baja su flag) y el que lo tiene entra.
+- **Starvation ✔:** si P0 espera para siempre, P1 entra infinitas veces y cada salida deja turn = 0. En la ventana nueva (flag[1] = F pero turn todavía en 1), si P0 estaba en el `while` externo, **entra**: eso solo ayuda. Una vez que turn = 0, P1 cede en su próximo intento y P0 entra.
+- La búsqueda exhaustiva no encuentra contraejemplo para ninguna de las tres propiedades.
+
+**b) ✘ Exclusión mutua**, ✔ deadlock y ✔ starvation (pero trivialmente: **nunca** se espera de verdad).
+
+| # | P0 | P1 | flag | turn |
+| - | --- | --- | --- | - |
+| 1 | `flag[0] = true` | | [T, F] | 0 |
+| 2 | `turn = 1` | | | 1 |
+| 3 | `if (flag[1] && …)`: flag[1] = F, así que **entra** | | | 1 |
+| 4 | *(en la SC)* | `flag[1] = true` | [T, T] | 1 |
+| 5 | | `turn = 0` | | 0 |
+| 6 | | `if (flag[0] && turn == 0)`: verdadero, así que espera un rato | | 0 |
+| 7 | *(sigue en la SC)* | termina de esperar y **entra** | | 0 |
+
+⇒ **ambos en la SC.** La condición de espera debe **reevaluarse** hasta que sea falsa; con `if` se evalúa una sola vez y el tiempo de espera no garantiza nada (no hay supuestos de velocidad). Nunca hay deadlock ni starvation porque nadie espera indefinidamente, pero sin exclusión mutua el algoritmo no sirve.
+
+**Pauta:**
+- a) 1 por propiedad, con justificación. Solo «sigue igual» sin argumento: 1 en total.
+- b) Traza de exclusión mutua: 2; deadlock y starvation con la aclaración: 1.
+
+Compruébalo:
+
+<MutexStepper client:visible algo="sim-dekker-exit" only={['sim-dekker-exit', 'dekker', 'sim-peterson-if', 'peterson-std']} />
+
+Repaso: [demostraciones formales](/mutex/demostraciones/).
+
+</Solucion>
+
+## Pregunta 3 (4 pts) · Lectores–escritores sin `x`
+
+Esta es la solución de Stallings (fig. 5.25, prioridad a lectores), a la que alguien le **quitó el semáforo `x`**, que protegía `readcount`:
+
+```c
+int readcount = 0;
+semaphore wsem = 1;
+
+void reader() {                          void writer() {
+    while (true) {                           while (true) {
+        readcount++;                             semWait(wsem);
+        if (readcount == 1) semWait(wsem);       WRITEUNIT();
+        READUNIT();                              semSignal(wsem);
+        readcount--;                         }
+        if (readcount == 0) semSignal(wsem); }
+    }
+}
+```
+
+`readcount++` y `readcount--` se compilan como *load*, *add* y *store* (no atómicos).
+
+a) (2 pts) Con 2 lectores y 1 escritor, da una traza en que el escritor escribe **mientras** un lector lee.
+b) (1 pt) Da una traza en que, sin ningún lector leyendo, el escritor queda bloqueado **para siempre**.
+c) (1 pt) Con `x` restituido, ¿quién puede sufrir starvation y por qué?
+
+<Solucion titulo="Solución (ambas trazas halladas por búsqueda exhaustiva: 6 y 14 pasos)">
+
+**a)** Los dos lectores ven `readcount == 2` y **ninguno** toma `wsem`:
+
+| # | R1 | R2 | W | readcount | wsem |
+| - | --- | --- | --- | :-: | :-: |
+| 1 | load readcount (0) | | | 0 | 1 |
+| 2 | store 1 | | | 1 | 1 |
+| 3 | | load readcount (1) | | 1 | 1 |
+| 4 | | store 2 | | 2 | 1 |
+| 5 | `if (readcount == 1)`: es 2, así que **no** hace semWait → READUNIT | | | 2 | 1 |
+| 6 | *(leyendo)* | | `semWait(wsem)`: pasa → **WRITEUNIT** | 2 | 0 |
+
+⇒ **escritor y lector a la vez.**
+
+**b)** Se **pierde un decremento** y `readcount` queda en 1 sin nadie dentro:
+
+| # | R1 | R2 | readcount | wsem |
+| - | --- | --- | :-: | :-: |
+| 1–3 | entra bien: readcount = 1, semWait(wsem), READUNIT | | 1 | 0 |
+| 4 | sale: load readcount (1) | | 1 | 0 |
+| 5 | | entra: load readcount (1) | 1 | 0 |
+| 6 | store 0 | | 0 | 0 |
+| 7 | | store 2 | 2 | 0 |
+| 8 | `if (readcount == 0)`: es 2, así que **no** hace semSignal | | 2 | 0 |
+| 9 | | `if (readcount == 1)`: es 2, no espera → READUNIT | 2 | 0 |
+| 10 | | sale: load 2, store 1; `if (readcount == 0)`: es 1, **no** hace semSignal | 1 | 0 |
+
+⇒ Nadie lee, `wsem = 0` y `readcount = 1`. **Ningún** escritor vuelve a entrar. Los lectores siguientes suben readcount a 2 y lo vuelven a 1, así que tampoco sueltan `wsem` nunca.
+
+**c)** Los **escritores**. Mientras haya al menos un lector dentro, los lectores nuevos entran sin tocar `wsem` (solo el primero lo toma). Si los lectores se solapan continuamente, `readcount` nunca vuelve a 0 y el escritor espera indefinidamente. Los lectores no sufren starvation: como mucho esperan a que termine **un** escritor. La fig. 5.26 invierte la prioridad con `rsem`, `y` y `z`.
+
+**Pauta:** a) traza completa: 2 (solo decir «race en readcount»: 0.5). b) 1. c) 1.
+
+Repaso: [lectores–escritores · Stallings](/monitores/lectores-escritores/#stallings-con-semáforos-fig-525-lectores-y-526-escritores).
+
+</Solucion>
+
+## Pregunta 4 (6 pts) · Moléculas de agua
+
+Llegan hilos **hidrógeno** e **oxígeno** (en cualquier orden). Hay que agruparlos en moléculas de H₂O: cada hilo llama a `bond()` y **los 3 átomos de una molécula (2 H + 1 O) deben llamar a `bond()` antes de que cualquier átomo de la molécula siguiente lo haga**. Un estudiante propone:
+
+```c
+sem_t hidro;   // = 0
+sem_t oxi;     // = 0
+
+void *hidrogeno(void *a) {               void *oxigeno(void *a) {
+    sem_post(&hidro);                        sem_wait(&hidro);
+    sem_wait(&oxi);                          sem_wait(&hidro);
+    bond();                                  sem_post(&oxi);
+    return NULL;                             sem_post(&oxi);
+}                                            bond();
+                                             return NULL;
+                                         }
+```
+
+a) (2 pts) Muestra con una traza (por ejemplo, con 2 oxígenos y 4 hidrógenos) que viola la regla.
+b) (3 pts) Escribe una solución correcta con semáforos (puedes usar `pthread_barrier_t`).
+c) (1 pt) En tu solución, ¿qué hilo hace `wait` del mutex y cuál el `post`? ¿Podrías usar un `pthread_mutex_t` en su lugar?
+
+<Solucion titulo="Solución (probada en WSL: la propuesta mezcla moléculas; la corrección da 300/300 sin violaciones)">
+
+**a)** Nada impide que **dos oxígenos** trabajen a la vez:
+
+| # | Evento | hidro | oxi |
+| - | --- | :-: | :-: |
+| 1 | H1, H2, H3 y H4 hacen `post(hidro)` y se bloquean en `wait(oxi)` | 4 | 0 |
+| 2 | O1 hace `wait(hidro)` ×2, `post(oxi)` ×2 y **`bond()`** | 2 | 2 |
+| 3 | O2 hace `wait(hidro)` ×2, `post(oxi)` ×2 y **`bond()`** | 0 | 4 |
+| 4 | H1–H4 despiertan y hacen `bond()` | | |
+
+⇒ **Dos oxígenos hicieron `bond()` antes de que terminara la primera molécula.** Además, los `post(oxi)` de O1 pueden despertar a H3 y H4 (y no a H1 y H2): los hidrógenos no quedan asociados a «su» oxígeno. En WSL, con 300 moléculas, la propuesta tuvo **2 y 3 violaciones** en dos corridas.
+
+**b)** La solución de *The Little Book of Semaphores*: el que completa la molécula la «arma» y un mutex no deja que otra empiece hasta que la barrera confirme los 3 `bond()`.
+
+```c
+sem_t mutex;            // = 1
+sem_t oxyQ, hydroQ;     // = 0
+pthread_barrier_t barrera;   // pthread_barrier_init(&barrera, NULL, 3)
+int oxygen = 0, hydrogen = 0;
+
+void *oxigeno(void *a) {                    void *hidrogeno(void *a) {
+    sem_wait(&mutex);                           sem_wait(&mutex);
+    oxygen++;                                   hydrogen++;
+    if (hydrogen >= 2) {                        if (hydrogen >= 2 && oxygen >= 1) {
+        sem_post(&hydroQ); sem_post(&hydroQ);       sem_post(&hydroQ); sem_post(&hydroQ);
+        hydrogen -= 2;                              hydrogen -= 2;
+        sem_post(&oxyQ);                            sem_post(&oxyQ);
+        oxygen--;                                   oxygen--;
+    } else                                      } else
+        sem_post(&mutex);                           sem_post(&mutex);
+    sem_wait(&oxyQ);                            sem_wait(&hydroQ);
+    bond();                                     bond();
+    pthread_barrier_wait(&barrera);             pthread_barrier_wait(&barrera);
+    sem_post(&mutex);   // lo reabre el O       return NULL;
+    return NULL;                            }
+}
+```
+
+- El hilo que **completa** una molécula (el tercero en llegar) libera exactamente 2 H y 1 O, y **se queda con el mutex**: nadie más puede armar otra molécula.
+- La **barrera** de 3 asegura que los tres hicieron `bond()`.
+- Después, el **oxígeno** de la molécula (hay exactamente uno) reabre el mutex.
+
+Resultado en WSL: *«versión 1: 300 moléculas completas, 0 violaciones»* en dos corridas.
+
+**c)** `sem_wait(&mutex)` lo hace **el tercer átomo en llegar**, que puede ser un H o un O. `sem_post(&mutex)` lo hace **siempre el oxígeno** de la molécula. Con frecuencia son **hilos distintos**, así que **no** se puede usar `pthread_mutex_t`: el mutex tiene dueño (el unlock desde otro hilo es indefinido, o EPERM con ERRORCHECK). El semáforo, sin dueño, sí lo permite.
+
+**Pauta:**
+- a) traza con dos `bond()` de oxígeno en la misma «ronda»: 2.
+- b) liberar exactamente 2 H + 1 O: 1.5; impedir que la siguiente molécula empiece antes de los 3 bond (barrera + mutex retenido): 1.5.
+- c) 1.
+
+Repaso: [montaña rusa](/semaforos/clasicos/#montaña-rusa-utec-e1-2022--p2a) (el mismo tipo de bug: señales anónimas que no garantizan emparejamiento) y [mutex vs semáforo](/hardware/futex/#mutex-vs-semáforo-binario-vs-spinlock).
+
+</Solucion>
+
+<Fuente archivos={['Simulacro propio basado en for_partial/pending_themes (registros, lectores–escritores) y el estilo del PC1 2021 / E1 2022', 'WSL ~/so/verif_parcial/simulacros/s3_h2o.c', 'Verificación: scratchpad rw.py (Stallings 5.25 sin x) y el intercalador (Dekker con salida invertida, Peterson con if)', 'A. Downey, The Little Book of Semaphores (H2O)']} />

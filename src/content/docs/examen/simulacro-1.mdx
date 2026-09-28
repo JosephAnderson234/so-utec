@@ -1,0 +1,219 @@
+---
+title: 'Simulacro 1 · estilo E1 2026-1'
+description: 'Simulacro de 20 puntos (100 min) en el formato del último examen: alternativas con penalidad, un algoritmo de exclusión mutua nuevo, semáforos con deadlock y un monitor de lectores–escritores para completar. Con solucionario verificado y pauta.'
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import MutexStepper from '../../../components/sim/MutexStepper.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+:::note[Instrucciones]
+**Duración: 100 minutos. 20 puntos.** Sin apuntes. Resuelve en papel y abre las soluciones solo al terminar. En la Pregunta 1, **cada 2 respuestas incorrectas restan 1 punto** (las que dejes en blanco no restan).
+:::
+
+## Pregunta 1 (4 pts) · Alternativas
+
+<Quiz
+	client:visible
+	id="sim1-p1"
+	titulo="Pregunta 1 (0.5 pts c/u)"
+	preguntas={[
+		{ q: 'Un proceso tiene 4 hilos. El hilo 2 llama a `fork()`. ¿Cuántos hilos tiene el proceso hijo?', opts: ['4, uno por cada hilo del padre', '1: solo una copia del hilo que llamó a fork', '0 hasta que llame a pthread_create', 'Depende del planificador'], ok: 1, why: 'POSIX: el hijo tiene un solo hilo, réplica del que llamó. Por eso los mutex que otros hilos tenían tomados quedan tomados para siempre en el hijo.' },
+		{ q: 'La variable `x` vale 1 y un hilo ejecuta `futex_wait(&x, 0)`. ¿Qué pasa?', opts: ['Duerme hasta un futex_wake', 'Retorna de inmediato (EAGAIN), porque x ≠ 0', 'Pone x en 0 y duerme', 'Queda en espera activa'], ok: 1, why: 'El kernel duerme al hilo solo si *addr == val, comprobado atómicamente. Así se evita el lost wake-up.' },
+		{ q: 'Un hilo toma un `pthread_mutex_t` de tipo ERRORCHECK y lo vuelve a pedir con `pthread_mutex_lock`. Resultado:', opts: ['Deadlock', 'Retorna EDEADLK', 'Retorna 0 y cuenta 2', 'Comportamiento indefinido'], ok: 1, why: 'NORMAL: deadlock. ERRORCHECK: EDEADLK. RECURSIVE: 0 (cuenta +1). Probado en WSL.' },
+		{ q: '`sem_t s;` es global; `main` hace `sem_init(&s, 0, 1)` y luego `fork()`. Padre e hijo usan `sem_wait(&s)`/`sem_post(&s)` para proteger un archivo. ¿Funciona?', opts: ['Sí: fork comparte las variables globales', 'No: cada proceso tiene su propia copia del semáforo; se necesita memoria compartida (o sem_open) y pshared ≠ 0', 'Sí, si pshared = 0', 'Solo si el semáforo es binario'], ok: 1 },
+		{ q: 'Un registro con valor inicial 0. Mientras dura `write(1)`, la lectura A (solapada) devuelve 1. Después de que A termina, empieza la lectura B (también solapada con la escritura) y devuelve 0. El registro es:', opts: ['Atómico', 'Regular, pero no atómico', 'Ni siquiera safe', 'Safe, pero no regular'], ok: 1, why: 'Cada lectura por separado devuelve el viejo o el nuevo (regular), pero hay inversión nuevo→viejo: no es linealizable.' },
+		{ q: 'En un monitor con semántica de **Hoare**, ¿basta `if (cond) wait(c);`?', opts: ['No, siempre se necesita while', 'Sí: signal le entrega el monitor de inmediato al señalado, así que la condición sigue siendo cierta cuando despierta', 'Solo con broadcast', 'Solo si hay un único hilo esperando'], ok: 1, why: 'En Mesa (pthreads, Java) sí hace falta while.' },
+		{ q: 'Peterson con `flag` y `turn` declarados `volatile`, compilado con -O2 y ejecutado en x86 multinúcleo:', opts: ['Siempre funciona: volatile impide reordenamientos', 'Puede violar la exclusión mutua: la CPU puede adelantar la lectura de flag[j] a la escritura de turn (store buffer); hace falta una barrera (mfence)', 'Nunca compila', 'Produce deadlock'], ok: 1, why: 'Probado: sin barrera, el contador da 9 999 439 en vez de 10 000 000.' },
+		{ q: 'Dentro de un **manejador de interrupciones** del kernel necesitas exclusión mutua sobre una lista. ¿Qué usas?', opts: ['Un mutex bloqueante (sleep)', 'Un semáforo con sem_wait', 'Un spinlock (y deshabilitar interrupciones locales si la lista también se usa fuera del handler)', 'pthread_cond_wait'], ok: 2, why: 'Un handler no puede dormir: no es un proceso planificable.' },
+	]}
+/>
+
+## Pregunta 2 (4 pts) · Algoritmo B
+
+Dos procesos ejecutan el siguiente protocolo (P_i, con j = 1 − i). Al inicio, `flag = [F, F]` y `turno = 0`.
+
+```text
+1. flag[i] ← V
+2. mientras (flag[j] y turno = j) hacer omitir
+3. /* sección crítica */
+4. turno ← j
+5. flag[i] ← F
+```
+
+a) (1.5 pts) ¿Garantiza exclusión mutua? Si no, da una traza numerada.
+b) (1.5 pts) ¿Está libre de deadlock? Justifica.
+c) (1 pt) ¿Cuál es el cambio **mínimo** que lo convierte en un algoritmo correcto? ¿Qué algoritmo obtienes?
+
+<Solucion titulo="Solución (verificada con búsqueda exhaustiva)">
+
+**a) Exclusión mutua ✘.** El `turno` solo se escribe **al salir**, así que en la entrada nadie cede.
+
+| # | P0 | P1 | flag | turno |
+| - | --- | --- | --- | - |
+| 1 | | `flag[1] ← V` | [F, V] | 0 |
+| 2 | | línea 2: flag[0] = F, así que **entra a la SC** | | 0 |
+| 3 | `flag[0] ← V` | *(en la SC)* | [V, V] | 0 |
+| 4 | línea 2: flag[1] = V pero turno = 0 ≠ 1, así que **entra** | | | 0 |
+
+⇒ **ambos en la SC.**
+
+**b) Deadlock-free ✔.** P0 espera solo si turno = 1, y P1 solo si turno = 0. Mientras los dos esperan en la línea 2 **nadie escribe turno** (solo se escribe en la línea 4), así que su valor es fijo y **uno de los dos** tiene la condición falsa y entra. Si solo uno quiere entrar, el flag del otro es F y entra (tampoco hay problema de progreso).
+
+**c) Mover `turno ← j` a la entrada**, entre las líneas 1 y 2 (y quitarlo de la salida): queda `flag[i] ← V; turno ← j; mientras (flag[j] y turno = j) …`, que es **Peterson**. La escritura de turno en la entrada es la que hace que **el último en escribir sea el que cede**; en eso se apoya la demostración de la exclusión mutua.
+
+**Pauta:**
+- a) Traza correcta que termina en «ambos en la SC»: 1.5. Solo «no», sin traza: 0.5.
+- b) Argumento de «turno fijo mientras ambos esperan»: 1.5. Solo «turno tiene un valor»: 1.
+- c) Mover turno a la entrada y nombrar Peterson: 1.
+
+Reprodúcelo en el intercalador (elige «Simulacro 1 · Algoritmo B» y pulsa *Buscar contraejemplo*):
+
+<MutexStepper client:visible algo="sim-lazy" only={['sim-lazy', 'peterson-std']} />
+
+Repaso: [demostraciones formales · Peterson](/mutex/demostraciones/#3-peterson).
+
+</Solucion>
+
+## Pregunta 3 (6 pts) · Laboratorio de robótica
+
+El laboratorio tiene **3 kits Arduino** y **2 osciloscopios**. Los grupos de *hardware* (tipo A) arman el circuito con un kit y luego miden con un osciloscopio. Los grupos de *firmware* (tipo B) primero calibran un osciloscopio y luego programan con un kit. Hay **4 grupos A y 3 grupos B**.
+
+```c
+sem_t kits;   // inicializado en 3
+sem_t osc;    // inicializado en 2
+
+void *grupoA(void *arg) {                void *grupoB(void *arg) {
+    while (1) {                              while (1) {
+        sem_wait(&kits);                         sem_wait(&osc);
+        armar();                                 calibrar();
+        sem_wait(&osc);                          sem_wait(&kits);
+        medir();                                 programar();
+        sem_post(&osc);                          sem_post(&kits);
+        sem_post(&kits);                         sem_post(&osc);
+    }                                        }
+}                                        }
+```
+
+a) (2 pts) ¿Puede haber deadlock? Si sí, describe el estado (quién tiene qué y quién espera qué) y verifica las 4 condiciones de Coffman.
+b) (2 pts) Propón una corrección que elimine el deadlock sin serializar todo el laboratorio. ¿Qué condición de Coffman rompe?
+c) (1 pt) Si hubiera solo **2** grupos A (y cualquier número de grupos B), ¿podría haber deadlock con el código original? Justifica.
+d) (1 pt) Con tu corrección y semáforos **débiles**, ¿puede algún grupo sufrir starvation? ¿Y con semáforos fuertes?
+
+<Solucion titulo="Solución (probada en WSL: ~/so/verif_parcial/simulacros/s1_lab.c)">
+
+**a) Sí.** Un estado de deadlock:
+
+| Grupo | Tiene | Espera |
+| --- | --- | --- |
+| A1, A2, A3 | 1 kit cada uno (los **3**) | un osciloscopio |
+| B1, B2 | 1 osciloscopio cada uno (los **2**) | un kit |
+| A4, B3 | nada | kit / osciloscopio |
+
+Traza: A1, A2 y A3 hacen `sem_wait(&kits)` (kits = 0); B1 y B2 hacen `sem_wait(&osc)` (osc = 0). Luego A1–A3 se bloquean en `sem_wait(&osc)` y B1–B2 en `sem_wait(&kits)`. **Nadie hace post.**
+
+Condiciones de Coffman:
+1. **Exclusión mutua:** cada kit y cada osciloscopio lo usa un grupo a la vez.
+2. **Hold and wait:** A retiene un kit mientras espera un osciloscopio, y B al revés.
+3. **Sin expropiación:** nadie le quita el kit a un grupo.
+4. **Espera circular:** los A esperan osciloscopios que tienen los B, y los B esperan kits que tienen los A.
+
+En WSL, con 4 A y 3 B, el programa **se bloquea al instante** («DEADLOCK tras 0 usos, kits libres = 0, osc libres = 0»).
+
+**b) Orden global de adquisición:** que **todos** pidan primero el kit y después el osciloscopio. El grupo B quedaría `sem_wait(&kits); sem_wait(&osc); calibrar(); programar(); …`. Rompe la **espera circular**: nadie puede tener un osciloscopio y esperar un kit. Probado con 4 A + 3 B y con 6 A + 6 B: **sin deadlock en 10 s** (unos 55 000 usos).
+
+Alternativas válidas con menor puntaje:
+- un mutex alrededor de los dos `sem_wait` (rompe *hold and wait* al pedir ambos «a la vez», pero serializa las adquisiciones);
+- limitar a 2 los grupos A que pueden tener un kit (un semáforo extra en 2).
+
+**c) No.** Para el deadlock, los **3** kits tienen que estar en manos de grupos que esperan un osciloscopio. Un B que tiene un kit ya tiene también su osciloscopio y va a terminar, así que esos 3 grupos tendrían que ser **A**. Con 2 grupos A es imposible. Por simetría, también hace falta tener al menos **2** grupos B. Probado: con 2 A + 5 B y con 5 A + 1 B, sin deadlock en 10 s.
+
+**d) Débiles: sí.** Un semáforo débil no garantiza el orden de la cola, así que un grupo puede quedar siempre detrás de otros que llegan después. **Fuertes (FIFO): no.** Con el orden global no hay deadlock, cada grupo retiene los recursos un tiempo finito, y la cola FIFO atiende a todos.
+
+**Pauta:**
+- a) Estado correcto: 1; las 4 condiciones: 1.
+- b) Corrección que funciona: 1.5; condición que rompe: 0.5.
+- c) «No» con la justificación de los 3 kits: 1 (sin justificación: 0).
+- d) Débil sí y fuerte no, con la razón: 1.
+
+Repaso: [deadlock](/semaforos/deadlock/) y el [ejercicio 7 · Hospital](/examen/ejercicios/) (orden fijo de adquisición).
+
+</Solucion>
+
+## Pregunta 4 (6 pts) · Sistema de notas (completar el monitor)
+
+El sistema de notas de UTEC tiene **alumnos** que consultan (lectores) y **profesores** que publican notas (escritores):
+- varios alumnos pueden consultar a la vez, pero el servidor admite como máximo **10** consultas simultáneas;
+- un profesor publica **solo**: sin alumnos ni otros profesores dentro;
+- **prioridad a profesores**: si un profesor espera, no entran alumnos nuevos.
+
+```c
+#define MAX_LECT 10
+pthread_mutex_t m = /* [1] */;
+pthread_cond_t puede_leer = PTHREAD_COND_INITIALIZER, puede_escribir = PTHREAD_COND_INITIALIZER;
+int lectores = 0, escribiendo = 0, esperan_escribir = 0;
+
+void empezar_lectura(void) {                    void empezar_escritura(void) {
+    pthread_mutex_lock(&m);                         pthread_mutex_lock(&m);
+    while (/* [2] */)                               esperan_escribir++;
+        pthread_cond_wait(&puede_leer, &m);         while (/* [5] */)
+    lectores++;                                         pthread_cond_wait(&puede_escribir, &m);
+    pthread_mutex_unlock(&m);                       esperan_escribir--;
+}                                                   escribiendo = 1;
+                                                    pthread_mutex_unlock(&m);
+void terminar_lectura(void) {                   }
+    pthread_mutex_lock(&m);
+    lectores--;                                 void terminar_escritura(void) {
+    if (/* [3] */)                                  pthread_mutex_lock(&m);
+        pthread_cond_signal(&puede_escribir);       escribiendo = 0;
+    else if (esperan_escribir == 0)                 if (/* [6] */)
+        /* [4] */;                                      pthread_cond_signal(&puede_escribir);
+    pthread_mutex_unlock(&m);                       else
+}                                                       /* [7] */;
+                                                    pthread_mutex_unlock(&m);
+                                                }
+```
+
+a) (3.5 pts) Completa [1] a [7].
+b) (1 pt) ¿Por qué en [7] conviene `broadcast` y en [4] basta `signal`?
+c) (1 pt) ¿Pueden sufrir starvation los alumnos? ¿Y los profesores?
+d) (0.5 pts) Si en `empezar_lectura` se usara `if` en vez de `while`, ¿qué invariante se puede romper? Da un escenario.
+
+<Solucion titulo="Solución (probada en WSL: 30 alumnos + 3 profesores, 3 s, con asserts)">
+
+**a)**
+
+| Hueco | Código | Por qué |
+| --- | --- | --- |
+| [1] | `PTHREAD_MUTEX_INITIALIZER` | inicialización estática |
+| [2] | `escribiendo \|\| esperan_escribir > 0 \|\| lectores == MAX_LECT` | no leer si alguien escribe, si **espera** un profesor (prioridad) o si ya hay 10 |
+| [3] | `lectores == 0 && esperan_escribir > 0` | el **último** alumno despierta a un profesor que espera |
+| [4] | `pthread_cond_signal(&puede_leer)` | se liberó **un** cupo: entra un alumno |
+| [5] | `escribiendo \|\| lectores > 0` | escribir solo con la base vacía |
+| [6] | `esperan_escribir > 0` | prioridad: si hay otro profesor, pasa él |
+| [7] | `pthread_cond_broadcast(&puede_leer)` | si no hay profesores, pueden entrar **muchos** alumnos (hasta 10) |
+
+Resultado en WSL: *«21 689 lecturas, 2 758 escrituras, máximo de lectores simultáneos = 10 (nunca lector + escritor)»*. Los asserts no se dispararon.
+
+**b)** Al terminar una escritura pueden entrar **hasta 10** alumnos: con `signal` entraría uno solo y los demás seguirían dormidos aunque la condición ya sea verdadera. Al terminar una lectura se libera **un solo** cupo, así que basta despertar a uno. Con `broadcast` también funcionaría (por el `while`), solo que despierta de más.
+
+**c) Alumnos: sí.** Si llegan profesores sin parar, `esperan_escribir > 0` siempre y los alumnos no entran (es el precio de la prioridad a escritores). **Profesores:** como grupo no, porque en cuanto uno espera no entran alumnos nuevos y los que están dentro terminan. Pero **un** profesor concreto podría ser adelantado por otros profesores, porque `pthread_cond_signal` no garantiza orden FIFO.
+
+**d)** Se rompe «**nunca un alumno junto con un profesor**». Escenario (semántica Mesa):
+1. El alumno A espera en `puede_leer` porque un profesor escribe.
+2. El profesor termina y hace `broadcast`. A queda listo, pero **todavía no** tiene el mutex.
+3. Llega el profesor P2: `lectores == 0` y `escribiendo == 0`, así que entra a escribir.
+4. A por fin obtiene el mutex. Con `if` no vuelve a mirar la condición: hace `lectores++` y lee **mientras P2 escribe**.
+
+**Pauta:**
+- a) 0.5 por hueco. [2] cuenta solo si incluye las tres condiciones.
+- b) 1.
+- c) 0.5 alumnos y 0.5 profesores.
+- d) 0.5 con un escenario válido.
+
+Repaso: [lectores–escritores](/monitores/lectores-escritores/), [condition variables y el `while`](/hardware/futex/#6-condition-variables-el-monitor-en-c).
+
+</Solucion>
+
+<Fuente archivos={['Simulacro propio basado en for_partial/Evaluaciones_OS_20261 (1).pdf (formato)', 'WSL ~/so/verif_parcial/simulacros/{s1_lab,s1_notas}.c', 'Intercalador: «Simulacro 1 · Algoritmo B»']} />

@@ -1,0 +1,283 @@
+---
+title: 'Simulacro 2 · estilo E1 2024-II / 2025-2'
+description: 'Simulacro de 20 puntos: contar Hello con fork + exec + threads, variantes de Bakery, un monitor del puente de Barranco, un semáforo con futex y conceptos. Con solucionario verificado en WSL y pauta.'
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+:::note[Instrucciones]
+**Duración: 100 minutos. 20 puntos.** Resuelve en papel y abre las soluciones solo al terminar.
+:::
+
+## Pregunta 1 (3 pts) · ¿Cuántos «Hello!»?
+
+El ejecutable se llama `./hola` y se lanza **sin argumentos**. Supón que `fork`, `execv` y `pthread_create` nunca fallan.
+
+```c
+void *hilo(void *arg) {
+    printf("Hello!\n");
+    if (fork() == 0) {
+        printf("Hello!\n");
+        exit(0);
+    }
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+    setbuf(stdout, NULL);                          /* salida sin buffer */
+    pthread_t t[2];
+    printf("Hello!\n");
+    if (argc == 1 && fork() == 0) {
+        char *args[] = {argv[0], "otra", NULL};
+        execv(argv[0], args);
+        printf("Hello!\n");
+    }
+    for (int i = 0; i < 2; i++) pthread_create(&t[i], NULL, hilo, NULL);
+    for (int i = 0; i < 2; i++) pthread_join(t[i], NULL);
+    while (wait(NULL) > 0) ;
+    printf("Hello!\n");
+    return 0;
+}
+```
+
+a) (2 pts) ¿Cuántas veces se imprime «Hello!»? Justifica por proceso.
+b) (0.5 pts) ¿Cuántos procesos existen en total, incluido el original?
+c) (0.5 pts) Si se borra `setbuf(stdout, NULL)` y se ejecuta `./hola | wc -l`, ¿cambia el resultado? ¿Por qué?
+
+<Solucion titulo="Solución (ejecutado en WSL: 12 líneas)">
+
+**a) 12.**
+
+| Proceso | Qué imprime | Total |
+| --- | --- | :-: |
+| **P** (original, argc = 1) | «Hello» inicial (1), sus 2 hilos (2) y el final (1) | 4 |
+| 2 hijos de los hilos de P | cada uno imprime 1 y hace `exit(0)` | 2 |
+| **C** (hijo de P que hace `execv`) | **vuelve a empezar `main` con argc = 2**: «Hello» inicial (1), **no** hace fork (argc ≠ 1), 2 hilos (2) y el final (1) | 4 |
+| 2 hijos de los hilos de C | 1 cada uno | 2 |
+| | | **12** |
+
+Trampas:
+- El `printf` que viene **después** de `execv` **nunca** se ejecuta, porque `execv` reemplaza la imagen y no retorna.
+- El «Hello» inicial de C **sí** cuenta: es el `main` del programa nuevo.
+- `fork()` dentro de un hilo crea un hijo con **un solo hilo**, que imprime y sale.
+- El `while (wait(NULL) > 0)` espera a los hijos, pero no cambia el conteo.
+
+**b) 6 procesos:** P, C, 2 hijos de los hilos de P y 2 de los hilos de C.
+
+**c) Sí, cambia y no es determinista.** En WSL dio **22, 23 o 24** en 6 corridas (con terminal, 12). Con la salida a un pipe, stdout tiene **buffer completo**. Cada `fork()` de un hilo copia el buffer de P, con los «Hello» aún no escritos, y el `exit(0)` del hijo los **vacía otra vez** (duplicados). En cambio, `execv` **descarta** el buffer copiado en C. Cuántas líneas hay en el buffer en el momento de cada fork depende del intercalado de los hilos.
+
+**Pauta:**
+- a) 12 con el desglose: 2. 12 sin desglose: 1. 10 (olvidar el «Hello» inicial de C) o 14 (contar el printf después de execv): 0.5.
+- b) 0.5.
+- c) «Sí» con la explicación del buffer copiado por fork: 0.5.
+
+Repaso: [fork](/procesos/fork/) y [syscalls y señales](/procesos/syscalls-senales/).
+
+</Solucion>
+
+## Pregunta 2 (4 pts) · Variantes de Bakery
+
+Recuerda el algoritmo de la panadería para N procesos:
+
+```c
+flag[i]  = true;
+label[i] = 1 + max(label[0], …, label[N-1]);    // no atómico: lee uno por uno
+flag[i]  = false;
+for (j = 0; j < N; j++) {
+    while (flag[j]) ;
+    while (label[j] != 0 && (label[j], j) < (label[i], i)) ;
+}
+/* SC */
+label[i] = 0;
+```
+
+Para cada modificación, responde si se mantiene la **exclusión mutua** y la **ausencia de deadlock**. Si alguna falla, da una traza con N = 2.
+
+a) (1.5 pts) Se eliminan las tres líneas de `flag` (ni se escribe ni se espera).
+b) (1.5 pts) La comparación usa solo el número: `while (label[j] != 0 && label[j] < label[i])`.
+c) (1 pt) Igual que (b), pero con `<=`: `while (label[j] != 0 && label[j] <= label[i])`.
+
+<Solucion titulo="Solución (verificada con búsqueda exhaustiva para N = 2, max no atómico)">
+
+**a) Exclusión mutua ✘.**
+
+| # | P0 | P1 | label |
+| - | --- | --- | --- |
+| 1 | calcula max: lee label[1] = 0 | | [0, 0] |
+| 2 | | calcula max: lee label[0] = 0 | |
+| 3 | | escribe label[1] = 1 | [0, 1] |
+| 4 | | compara con P0: label[0] = 0, así que **entra** | |
+| 5 | escribe label[0] = 1 | *(en la SC)* | [1, 1] |
+| 6 | compara con P1: ¿(1,1) < (1,0)? **No**, así que **entra** | | |
+
+⇒ **ambos en la SC.** P0 tiene prioridad por su id, pero P1 comparó contra un label **a medio calcular** (0). El `while (flag[j])` existe justamente para esperar a que j **termine** de elegir número. La ausencia de deadlock ✔ se mantiene: el par (label, id) sigue siendo un orden total.
+
+**b) Exclusión mutua ✘.** Ambos pueden sacar **el mismo número**:
+
+| # | P0 | P1 | label |
+| - | --- | --- | --- |
+| 1 | flag = T; lee label[1] = 0 | | [0, 0] |
+| 2 | | flag = T; lee label[0] = 0 | |
+| 3 | label[0] = 1; flag = F | | [1, 0] |
+| 4 | | label[1] = 1; flag = F | [1, 1] |
+| 5 | ¿label[1] < label[0]? 1 < 1 es **no**, así que **entra** | | |
+| 6 | | ¿label[0] < label[1]? **no**, así que **entra** | |
+
+⇒ **ambos en la SC.** Sin el id no hay desempate. La ausencia de deadlock se mantiene: con `<`, nadie espera a alguien con el mismo número.
+
+**c) Exclusión mutua ✔, pero ✘ deadlock.** Con los labels empatados (la misma traza, pasos 1–4), cada uno espera mientras `label[j] <= label[i]`, es decir, 1 ≤ 1: **ambos esperan para siempre**. Si los labels difieren, gana el menor y no hay problema. Moraleja: el id cumple **dos** funciones, la **seguridad** (b) y el **progreso** (c).
+
+**Pauta:** en cada parte, el veredicto correcto vale la mitad y la traza o la justificación, la otra mitad.
+
+Repaso: [Bakery](/mutex/bakery/) (para qué sirve `flag`, FCFS).
+
+</Solucion>
+
+## Pregunta 3 (7 pts) · Puente de Barranco (monitor en C)
+
+El puente de madera hacia la playa tiene **un solo carril**. Los autos llegan desde el **Norte** y desde el **Sur**. Implementa con `pthread_mutex_t` y `pthread_cond_t` las funciones `entrar(int sentido)` y `salir(int sentido)`, que cada auto llama antes y después de cruzar:
+- **R1:** nunca hay autos de sentidos opuestos sobre el puente;
+- **R2:** como máximo **3** autos sobre el puente;
+- **R3 (sin inanición):** si hay autos esperando en el sentido contrario, pasan **como máximo 5** autos seguidos del sentido actual; después, el puente debe cederse.
+
+a) (5 pts) Escribe las variables compartidas y las dos funciones.
+b) (1 pt) Explica por qué tu solución cumple R3.
+c) (1 pt) ¿Dónde usas `broadcast` y dónde podrías usar `signal`? Justifica.
+
+<Solucion titulo="Solución (probada en WSL: 6 autos por lado, 3 s, con asserts)">
+
+```c
+#define CAP 3
+#define CUOTA 5
+enum { NORTE = 0, SUR = 1 };
+
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cola[2] = {PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER};
+int en_puente = 0, sentido = NORTE, esperando[2] = {0, 0}, seguidos = 0;
+
+static int puede_entrar(int d) {
+    if (en_puente == CAP) return 0;                                   // R2
+    if (en_puente > 0 && sentido != d) return 0;                      // R1
+    if (sentido == d && seguidos >= CUOTA && esperando[1 - d] > 0)    // R3: agoté mi cuota
+        return 0;
+    return 1;
+}
+
+void entrar(int d) {
+    pthread_mutex_lock(&m);
+    esperando[d]++;
+    while (!puede_entrar(d))
+        pthread_cond_wait(&cola[d], &m);
+    esperando[d]--;
+    if (sentido != d) { sentido = d; seguidos = 0; }    // cambio de sentido: reinicio la cuota
+    seguidos++;
+    en_puente++;
+    pthread_mutex_unlock(&m);
+}
+
+void salir(int d) {
+    pthread_mutex_lock(&m);
+    en_puente--;
+    pthread_cond_broadcast(&cola[d]);                   // se liberó un cupo en mi sentido
+    if (en_puente == 0)
+        pthread_cond_broadcast(&cola[1 - d]);           // puente vacío: el otro lado puede entrar
+    pthread_mutex_unlock(&m);
+}
+```
+
+Resultado en WSL: *«cruces norte = 9 120, sur = 9 118; nunca sentidos opuestos ni más de 3; máximo de autos seguidos con el otro lado esperando = 5»*. Los asserts de R1 y R2 no se dispararon, y el reparto casi exacto entre los dos lados muestra que no hay inanición.
+
+**b) R3:** mientras el sentido d tiene el puente y hay alguien esperando del otro lado, cada entrada suma `seguidos`. Al llegar a 5, `puede_entrar(d)` es falso para los nuevos autos de d, así que el puente **se vacía** (a lo sumo 3 autos terminan de cruzar en tiempo finito). Con el puente vacío, `puede_entrar(1−d)` es verdadero: el primero del otro lado entra, cambia `sentido` y reinicia `seguidos`. Cada lado espera, como máximo, 5 cruces del otro más los que estaban sobre el puente.
+
+**c)** Al salir, un solo cupo liberado permitiría usar `signal(&cola[d])`, pero con `signal` puede despertar a un auto que **no** puede entrar (la cuota de d está agotada) mientras el auto que sí podría queda dormido. `broadcast` y el `while` son seguros: cada uno reevalúa su condición. Cuando el puente se vacía **hay que** usar `broadcast(&cola[1−d])`, porque pueden entrar hasta 3 autos del otro lado.
+
+**Pauta:**
+- a) Variables y estado: 1. R1 y R2 en el while: 1.5. R3 con cuota y reinicio: 1.5. Uso correcto de mutex, while y señales: 1.
+- b) 1.
+- c) 1.
+- Se descuenta 1 punto si se usa `if` en vez de `while`, y 1.5 si R3 permite que un lado espere para siempre.
+
+Repaso: [baño unisex](/monitores/problemas/) (misma estructura) y el [ejercicio 9 · Ascensor](/examen/ejercicios/).
+
+</Solucion>
+
+## Pregunta 4 (4 pts) · Semáforo contador con futex
+
+Usando `atomic_int` (con `atomic_load`, `atomic_fetch_add`, `atomic_fetch_sub` y `atomic_compare_exchange_weak`) y las funciones del laboratorio `futex_wait(addr, val)` y `futex_wake(addr, n)`, implementa:
+
+```c
+typedef struct { atomic_int val; atomic_int esperando; } fsem_t;
+void fsem_wait(fsem_t *s);
+void fsem_post(fsem_t *s);
+```
+
+Requisitos: sin espera activa prolongada, sin *lost wake-up* y, para el puntaje completo, **sin syscall** en `fsem_post` cuando nadie espera.
+
+a) (3 pts) Escribe ambas funciones.
+b) (1 pt) Muestra con una traza por qué tu solución no pierde despertares.
+
+<Solucion titulo="Solución (probada en WSL: como mutex, como multiplex y en productor–consumidor 3×3)">
+
+```c
+void fsem_wait(fsem_t *s) {
+    for (;;) {
+        int v = atomic_load(&s->val);
+        while (v > 0)                                         // hay unidades: intento tomar una
+            if (atomic_compare_exchange_weak(&s->val, &v, v - 1))
+                return;                                       // (si el CAS falla, v se recarga)
+        atomic_fetch_add(&s->esperando, 1);
+        futex_wait(&s->val, 0);                               // duermo SOLO si val sigue en 0
+        atomic_fetch_sub(&s->esperando, 1);
+    }
+}
+
+void fsem_post(fsem_t *s) {
+    atomic_fetch_add(&s->val, 1);
+    if (atomic_load(&s->esperando) > 0)                       // syscall solo si alguien espera
+        futex_wake(&s->val, 1);
+}
+```
+
+Pruebas en WSL:
+- como mutex (8 hilos × 200 000 incrementos): **1 600 000** ✔;
+- como multiplex (valor 3): nunca más de 3 dentro ✔;
+- productor–consumidor 3 × 3 con buffer de 4: la suma es **exacta** ✔.
+
+**b) Las dos carreras peligrosas:**
+
+| Caso | Traza | Por qué funciona |
+| --- | --- | --- |
+| El post llega **antes** de anotar la espera | W ve val = 0 → P hace val = 1 y lee esperando = 0 (no despierta) → W hace esperando++ y `futex_wait(&val, 0)` | El kernel ve val = 1 ≠ 0 y **no duerme** a W; W reintenta y toma la unidad. |
+| El post llega **después** de anotar la espera | W: esperando = 1 → P: val = 1 y `futex_wake` (quizá nadie duerme aún) → W: `futex_wait(&val, 0)` | Igual: val ≠ 0, así que retorna y reintenta. |
+
+La clave es que `futex_wait` **compara y duerme atómicamente** en el kernel: el valor esperado (0) es el que hacía necesario dormir. Si `esperando` se incrementara **después** del `futex_wait`, el post podría no ver al que está por dormir; aun así no se perdería el despertar, gracias a la comprobación del kernel, pero la versión de arriba es la clara.
+
+**Pauta:**
+- a) wait con CAS y futex_wait(val, 0) en un loop: 1.5; post correcto: 1; sin syscall cuando nadie espera: 0.5. Una versión que siempre hace `futex_wake` es correcta y vale 2.5.
+- b) 1.
+
+:::note[Curiosidad verificada: GCC y las variables `static`]
+En la prueba, un contador `static long` protegido por este semáforo dio **203 895** en vez de 1 600 000 con `gcc -O2`. El optimizador interprocedural de GCC 13 vio que `fsem_wait`/`fsem_post` (del **mismo archivo**) no tocan esa variable y la **cacheó en un registro** durante todo el loop. Con el contador global no `static` (o con las funciones en otra unidad de compilación, como `pthread_mutex_lock` en libc) el resultado es **exacto**. La lección: las primitivas de sincronización caseras son delicadas también a nivel del compilador.
+:::
+
+Repaso: [Mutex POSIX y futex](/hardware/futex/).
+
+</Solucion>
+
+## Pregunta 5 (2 pts) · Conceptos
+
+a) (1 pt) ¿Por qué `pthread_mutex_lock` **no** entra al kernel cuando el mutex está libre? ¿Cuándo sí?
+b) (1 pt) En lectores–escritores con semáforos, el **primer** lector hace `semWait(wsem)` y el **último** hace `semSignal(wsem)`. ¿Se puede reemplazar `wsem` por un `pthread_mutex_t`?
+
+<Solucion>
+
+**a)** En Linux, `pthread_mutex_t` es un **futex**: un entero en memoria de usuario. Si está libre, lo toma con **una instrucción atómica** (CAS 0 → 1) sin syscall. Solo hay syscall con **contención**: `futex_wait` para dormir cuando está tomado, y `futex_wake` en el unlock si el estado indica que puede haber esperadores (el estado 2 del mutex de 3 estados).
+
+**b) No.** El lock lo toma **un** lector y lo suelta **otro** (el último en salir). Un mutex tiene **dueño**: el unlock desde otro hilo es indefinido con NORMAL y da EPERM con ERRORCHECK. El semáforo **no** tiene dueño, así que cualquier hilo puede hacer `post`. Es exactamente el error de la «solución 2» de las diapositivas de lectores–escritores.
+
+**Pauta:** 1 punto cada una. En (b), mencionar «dueño» es obligatorio.
+
+</Solucion>
+
+<Fuente archivos={['Simulacro propio basado en for_partial/E1_OS_2024_II__Solucionario_.pdf y E1_OS_20252.pdf (formato)', 'WSL ~/so/verif_parcial/simulacros/{s2_hello,s2_puente,s2_fsem}.c', 'Verificación de Bakery: scratchpad bakery.py (N = 2, max no atómico)']} />

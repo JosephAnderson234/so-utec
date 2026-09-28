@@ -104,6 +104,15 @@ export default defineConfig({
 						{ label: 'Flashcards y simulacro', slug: 'examen/flashcards' },
 					],
 				},
+				{
+					label: '8 · Simulacros E1 2026-2',
+					items: [
+						{ label: 'Predicción y cómo usarlos', slug: 'examen/prediccion', badge: { text: 'nuevo', variant: 'tip' } },
+						{ label: 'Simulacro 1 · estilo 2026-1', slug: 'examen/simulacro-1' },
+						{ label: 'Simulacro 2 · estilo 2024-II/2025-2', slug: 'examen/simulacro-2' },
+						{ label: 'Simulacro 3 · temas nuevos', slug: 'examen/simulacro-3' },
+					],
+				},
 			],
 		}),
 		react(),
