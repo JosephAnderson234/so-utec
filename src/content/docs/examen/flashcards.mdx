@@ -109,6 +109,21 @@ Marca «La sé» o «Repasar». El progreso se guarda en este navegador. Usa «s
 		{ t: 'Memoria', f: 'Thrashing', b: 'El sistema pasa más tiempo **trayendo páginas** que ejecutando, porque expulsa páginas que va a necesitar enseguida.' },
 		{ t: 'Memoria', f: 'Carga absoluta / relocalizable / dinámica en ejecución', b: 'Dirección fija / el cargador suma la base (con diccionario de relocalización) / la traducción ocurre en **cada** instrucción (base + límite).' },
 		{ t: 'Registros', f: 'Construir un regular booleano a partir de un safe booleano', b: '**Escribir solo si el valor cambia**: así la lectura solapada devuelve el viejo o el nuevo.' },
+		{ t: 'Demostraciones', f: 'Esqueleto de la prueba de exclusión mutua de Peterson', b: 'Supón ambos en la SC; sea A **el último en escribir turn**. W_B(flag=T) → W_B(turn) → W_A(turn) → R_A(flag[B]), así que A leyó flag[B] = T y turn = B: no pudo salir del while. **Contradicción.**' },
+		{ t: 'Demostraciones', f: '«turn solo puede valer 0 o 1» prueba…', b: '**Ausencia de deadlock**, NO exclusión mutua. Para la exclusión mutua hace falta la cadena de eventos con los flags.' },
+		{ t: 'Demostraciones', f: 'Peterson con `turn = j` ANTES de `flag[i] = true`', b: '✘ **exclusión mutua** (8 pasos): el último en escribir turn miró el flag del otro antes de que lo levantara.' },
+		{ t: 'Demostraciones', f: 'Cota de bypass de Peterson vs Dekker', b: 'Peterson: **1** (tras escribir turn). Dekker: **no acotada**. Si P0 no recibe CPU en `while (turn == 1)`, P1 reentra una y otra vez; solo el planificador justo lo acota.' },
+		{ t: 'Demostraciones', f: 'Dijkstra 1965 (b[], c[], k): propiedades', b: '✔ mutex, ✔ deadlock-free (propiedad (d): nada de «after you – after you»), ✘ **starvation**. Knuth (1966) dio la primera solución con espera acotada.' },
+		{ t: 'Demostraciones', f: 'Lema del filtro (Herlihy)', b: 'A lo sumo **n − L** procesos completan el nivel L. Se prueba tomando al **último en escribir victim[L]**. Con L = n − 1, uno solo entra a la SC.' },
+		{ t: 'Demostraciones', f: 'Árbol de torneo: orden de liberación', b: '**De la raíz a la hoja.** Si sueltas la hoja primero, el hermano juega el mismo lado de la raíz y tu `flag = false` pisa el suyo: ✘ mutex (verificado, 24 pasos).' },
+		{ t: 'Demostraciones', f: 'Bakery: propiedad FCFS', b: 'Si A **termina su doorway** antes de que B empiece la suya, A entra antes que B (L_B > L_A).' },
+		{ t: 'POSIX/futex', f: '¿Qué hace `futex_wait(&x, v)`?', b: 'Si **x == v** (comprobado atómicamente en el kernel), duerme; si no, retorna **EAGAIN** de inmediato. Así se evita el **lost wake-up**. Siempre dentro de un `while`.' },
+		{ t: 'POSIX/futex', f: 'Mutex con futex de 3 estados', b: '**0** libre, **1** tomado sin esperadores, **2** tomado y quizá con esperadores. Lock: CAS 0→1 (camino rápido) o exchange a 2 y futex_wait. Unlock: si era 1, sin syscall; si era 2, pone 0 y hace futex_wake.' },
+		{ t: 'POSIX/futex', f: 'Mutex vs semáforo binario', b: 'El **mutex tiene dueño** (solo quien lo tomó lo suelta; ERRORCHECK da EPERM). El semáforo lo puede postear **cualquier** hilo, así que sirve para señalizar.' },
+		{ t: 'POSIX/futex', f: 'Tipos de pthread_mutex: relock por el dueño', b: 'NORMAL: **deadlock**. ERRORCHECK: **EDEADLK**. RECURSIVE: éxito (cuenta +1).' },
+		{ t: 'POSIX/futex', f: 'Semáforo entre procesos', b: '`sem_open("/n", O_CREAT, 0600, v)` (con nombre, en /dev/shm) o `sem_init(p, 1, v)` con **p en memoria compartida** (mmap MAP_SHARED). Una global + fork NO sirve.' },
+		{ t: 'POSIX/futex', f: '¿`sem_getvalue` puede dar negativo en Linux?', b: '**No**: con esperadores devuelve 0. En Stallings, count < 0 indica cuántos esperan.' },
+		{ t: 'POSIX/futex', f: 'Cond var con `if` en vez de `while` (3 prod, 3 cons)', b: 'Falla: un consumidor despertado encuentra el buffer **vacío** porque otro se llevó el ítem (Mesa). Verificado: la suma no cuadra en 3/3 corridas.' },
 	]}
 />
 

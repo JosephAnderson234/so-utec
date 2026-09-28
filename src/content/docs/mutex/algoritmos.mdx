@@ -28,10 +28,13 @@ Elige un algoritmo y juega de planificador: cada clic ejecuta **una línea**. Ha
 | **Dekker** | ✔ | ✔ | ✔ | ✔ |
 | **Peterson** | ✔ | ✔ | ✔ | ✔ |
 | Dijkstra del lab (N = 2) | ✔ | ✔ | ✔ | ✘ |
+| **Dijkstra 1965 real** (`b[]`, `c[]`, `k`; N = 2) | ✔ | ✔ | ✔ | **✘** |
+| Peterson de las diapositivas (`turn = j`) | ✔ | ✔ | ✔ | ✔ (cota 1) |
+| Peterson con `turn = j` **antes** que `flag[i] = true` | **✘** (8 pasos) | ✔ | ✔ | — |
 | Hyman (E1 2026-1) | **✘** (9 pasos) | ✔ | ✔ | ✘ |
 | Flaky (E1 2024-I) | ✔ | **✘** (6 pasos) | ✔ | ✘ |
 
-La tabla sale de ejecutar los dos buscadores sobre cada algoritmo. Todos suponen lecturas y escrituras atómicas y ejecución en el orden del código (consistencia secuencial).
+La tabla sale de ejecutar los dos buscadores sobre cada algoritmo. Todos suponen lecturas y escrituras atómicas y ejecución en el orden del código (consistencia secuencial). Las **demostraciones** formales de cada «✔» (Dekker, Peterson, filtro, torneo) están en [demostraciones](/mutex/demostraciones/).
 
 ## La progresión: por qué cada intento falla
 

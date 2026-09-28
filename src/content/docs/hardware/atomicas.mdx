@@ -130,6 +130,8 @@ Acquire() {                               Release() {
 - `futex_wait(addr, val)`: el kernel verifica **atómicamente** que `*addr == val` antes de dormir al hilo, y así evita el *lost wake-up*;
 - `futex_wake(addr, n)`: despierta hasta n hilos.
 
+Todo el detalle (el mutex de 3 estados, mediciones, pthread_mutex a fondo y semáforos POSIX entre procesos) está en [Mutex POSIX y futex](/hardware/futex/).
+
 ## ¿Peterson y Dekker funcionan en hardware real? (probado)
 
 Las demostraciones suponen **consistencia secuencial**. Pero x86 usa **TSO**: una escritura puede quedar en el *store buffer* mientras se ejecuta una **lectura posterior** (reordenamiento *store → load*). Eso es exactamente lo que rompe a Peterson: `flag[i] = 1; turn = j;` queda en el buffer y, al mismo tiempo, se lee `flag[j]`.

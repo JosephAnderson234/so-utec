@@ -35,12 +35,25 @@ Esta página se imprime bien (Ctrl + P). Cada bloque enlaza a su tema.
 | Algoritmo | Mutex | Deadlock-free | Starvation-free |
 | --- | :-: | :-: | :-: |
 | Peterson / PC1 2021 | ✔ | ✔ | ✔ (espera ≤ 1) |
-| Dekker | ✔ | ✔ | ✔ |
+| Peterson con turn **antes** que flag | ✘ | ✔ | — |
+| Dekker | ✔ | ✔ | ✔ (sin cota numérica) |
+| Dijkstra 1965 real (b, c, k) | ✔ | ✔ | ✘ |
+| Filtro (N) / torneo (liberar raíz → hoja) | ✔ | ✔ | ✔ (filtro sin espera acotada) |
 | Hyman (E1 2026-1) | ✘ | ✔ | ✘ |
 | Flaky (E1 2024-I) | ✔ | ✘ | ✘ |
 | Bakery / Lamport lexicográfico | ✔ | ✔ | ✔ (FCFS) |
 | Dijkstra 1965 (N procesos) | ✔ | ✔ | ✘ |
 | TAS / CAS spinlock | ✔ | ✔ | ✘ |
+
+**Prueba de exclusión mutua en 3 líneas** ([detalle](/mutex/demostraciones/)): supón ambos en la SC → toma al **último en escribir** la variable de desempate → encadena $W(\text{flag}) \to W(\text{turn}) \to W_{\text{último}}(\text{turn}) \to R(\text{flag})$ → contradicción. «turn tiene un solo valor» prueba **deadlock-freedom**, no exclusión mutua.
+
+## POSIX y futex ([ir](/hardware/futex/))
+
+- `futex_wait(&x, v)`: duerme **solo si x == v** (atómico en el kernel; si no, EAGAIN). `futex_wake(&x, n)`. Siempre en un `while`.
+- Mutex de futex con 3 estados: 0 libre, 1 tomado, 2 con esperadores. Sin contención, **cero syscalls**.
+- `pthread_mutex`: tiene **dueño**. Relock: NORMAL → deadlock, ERRORCHECK → EDEADLK, RECURSIVE → ok. `trylock` → EBUSY. Retorna el error (sin errno).
+- `sem_t`: sin dueño (sirve para señalizar). Entre procesos: `sem_open` o `sem_init(p, 1, v)` **en memoria compartida**. `sem_wait` puede dar EINTR; `sem_getvalue` ≥ 0 en Linux.
+- `pthread_cond_wait(c, m)`: suelta m atómicamente y lo retoma; siempre con **while**.
 
 ## Deadlock: 4 condiciones necesarias (Coffman)
 

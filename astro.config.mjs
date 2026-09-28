@@ -54,14 +54,16 @@ export default defineConfig({
 					items: [
 						{ label: 'Requisitos y cómo demostrar', slug: 'mutex/requisitos' },
 						{ label: 'Algoritmos: Peterson, Hyman, Flaky…', slug: 'mutex/algoritmos' },
+						{ label: 'Demostraciones formales', slug: 'mutex/demostraciones', badge: { text: 'nuevo', variant: 'tip' } },
 						{ label: 'N procesos: Dijkstra 1965', slug: 'mutex/n-procesos' },
 						{ label: 'Bakery de Lamport', slug: 'mutex/bakery' },
 					],
 				},
 				{
-					label: '3 · Hardware y registros',
+					label: '3 · Hardware, POSIX y registros',
 					items: [
 						{ label: 'Operaciones atómicas y spinlocks', slug: 'hardware/atomicas' },
+						{ label: 'Mutex POSIX, futex y semáforos POSIX', slug: 'hardware/futex', badge: { text: 'nuevo', variant: 'tip' } },
 						{ label: 'Registros safe/regular/atomic', slug: 'hardware/registros', badge: { text: 'nuevo', variant: 'tip' } },
 					],
 				},

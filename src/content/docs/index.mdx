@@ -27,15 +27,15 @@ import Terminal from '../../components/Terminal.astro';
 <div class="so-stats not-content">
 	<div><b data-count="15">0</b><span>simuladores interactivos</span></div>
 	<div><b data-count="6">0</b><span>exámenes previos (2021 → 2026)</span></div>
-	<div><b data-count="25">0</b><span>páginas de teoría</span></div>
-	<div><b data-count="244">0</b><span>flashcards y preguntas</span></div>
+	<div><b data-count="27">0</b><span>páginas de teoría</span></div>
+	<div><b data-count="276">0</b><span>flashcards y preguntas</span></div>
 </div>
 
 <div class="so-cards not-content">
 	<a class="so-card" href="/fundamentos/hardware/"><span class="n">00</span><h3>Fundamentos</h3><p>Interrupciones anidadas, jerarquía de memoria, DMA, evolución del SO, monolítico vs microkernel.</p></a>
 	<a class="so-card" href="/procesos/estados/"><span class="n">01</span><h3>Procesos y threads</h3><p>PCB, modelos de 5, 7 y 9 estados, mode switch vs process switch, señales, fork, ULT/KLT, Selfie.</p></a>
-	<a class="so-card" href="/mutex/algoritmos/"><span class="n">02</span><h3>Exclusión mutua</h3><p>11 algoritmos en un intercalador que verifica exclusión mutua, deadlock, progreso y starvation.</p></a>
-	<a class="so-card" href="/hardware/registros/"><span class="n">03</span><span class="tagnew">nuevo</span><h3>Atómicas y registros</h3><p>TAS, CAS, spinlocks, Peterson fallando en x86 (probado) y registros safe, regular y atómicos.</p></a>
+	<a class="so-card" href="/mutex/algoritmos/"><span class="n">02</span><h3>Exclusión mutua</h3><p>14 algoritmos en un intercalador que verifica exclusión mutua, deadlock, progreso y starvation, y demostraciones formales paso a paso.</p></a>
+	<a class="so-card" href="/hardware/futex/"><span class="n">03</span><span class="tagnew">nuevo</span><h3>Atómicas, futex y registros</h3><p>TAS, CAS, spinlocks, Peterson fallando en x86, mutex con futex medido, pthread_mutex, semáforos POSIX y registros safe, regular y atómicos.</p></a>
 	<a class="so-card" href="/semaforos/deadlock/"><span class="n">04</span><h3>Semáforos y deadlock</h3><p>Productor–consumidor, Morris, filósofos y el algoritmo del banquero paso a paso.</p></a>
 	<a class="so-card" href="/monitores/lectores-escritores/"><span class="n">05</span><span class="tagnew">nuevo</span><h3>Monitores y mensajes</h3><p>Hoare vs Mesa, AR/WR/AW/WW, baño unisex, cine y send/receive.</p></a>
 	<a class="so-card" href="/memoria/paginacion/"><span class="n">06</span><span class="tagnew">nuevo</span><h3>Memoria</h3><p>Buddy, placement, segmentación, TLB, tablas multinivel e invertidas, memoria virtual.</p></a>

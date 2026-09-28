@@ -159,6 +159,31 @@ const ALGOS: Algo[] = [
 		nota: 'Resultado exhaustivo: ✔ exclusión mutua, ✔ sin deadlock, ✔ progreso, ✘ starvation posible (pulsa «¿Starvation?»). Coincide con lo que se sabe del algoritmo de Dijkstra de 1965: garantiza que ALGUIEN entra, pero no que TÚ entres (Knuth, 1966, fue el primero en acotar la espera). El paper original usa dos arreglos b[] y c[].',
 	},
 	{
+		id: 'dijkstra1965',
+		name: 'Dijkstra 1965 real (b[], c[], k) con N = 2',
+		fuente: 'lab2/dijskstra proff.pdf (CACM 8(9), 1965)',
+		lines: ['// sección no crítica', 'Li0: b[i] := false;', 'Li1: if (k ≠ i) {', '    Li2: c[i] := true;', '    Li3: if (b[k])', '             k := i;  goto Li1 }', 'else { Li4: c[i] := false;', '    for j ≠ i: if (!c[j]) goto Li1 }', '/* SECCIÓN CRÍTICA */', 'c[i] := true;', 'b[i] := true;'],
+		ncs: 0,
+		cs: 8,
+		init: () => ({ b: [true, true], c: [true, true], k: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'b')[i] = false; return 2;
+				case 2: return s.v.k !== i ? 3 : 6;
+				case 3: arr(n.v, 'c')[i] = true; return 4;
+				case 4: return arr(s.v, 'b')[s.v.k as number] ? 5 : 2;
+				case 5: n.v.k = i; return 2;
+				case 6: arr(n.v, 'c')[i] = false; return 7;
+				case 7: return !arr(s.v, 'c')[j] ? 2 : 8;
+				case 8: return 9;
+				case 9: arr(n.v, 'c')[i] = true; return 10;
+				default: arr(n.v, 'b')[i] = true; return 0;
+			}
+		}),
+		nota: 'El algoritmo del paper, línea por línea (la lectura de b[k] y la escritura k := i son pasos separados). Resultado exhaustivo: ✔ exclusión mutua, ✔ sin deadlock (la propiedad (d) del paper: nada de «after you – after you»), pero ✘ STARVATION: el dueño de k puede reentrar una y otra vez. Por eso Knuth (1966) propuso la primera solución con espera acotada.',
+	},
+	{
 		id: 'peterson',
 		name: 'Peterson (PC1 2021: FLAG / AFTER_YOU)',
 		fuente: 'PC1 2021, P1(b)',
@@ -177,6 +202,46 @@ const ALGOS: Algo[] = [
 			}
 		}),
 		nota: 'Cumple las tres: exclusión mutua, sin deadlock y sin starvation (espera acotada a 1 turno). Intenta encontrar un contraejemplo: el buscador no hallará ninguno.',
+	},
+	{
+		id: 'peterson-std',
+		name: 'Peterson (Stallings fig. 5.3 / diapositivas)',
+		fuente: 'Stallings §5.1 · 06-OSL-Mutual_exclusion algorithms_demostrations',
+		lines: ['// sección no crítica', 'flag[i] = true;', 'turn = j;', 'while (flag[j] && turn == j) ;', '/* SECCIÓN CRÍTICA */', 'flag[i] = false;'],
+		ncs: 0,
+		cs: 4,
+		init: () => ({ flag: [false, false], turn: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: arr(n.v, 'flag')[i] = true; return 2;
+				case 2: n.v.turn = j; return 3;
+				case 3: return arr(s.v, 'flag')[j] && s.v.turn === j ? 3 : 4;
+				case 4: return 5;
+				default: arr(n.v, 'flag')[i] = false; return 0;
+			}
+		}),
+		nota: 'La versión de las diapositivas. Se comporta igual que la del PC1 2021 (allí AFTER_YOU ← i equivale a turn = j). Ninguno de los dos buscadores encuentra nada: mutex, deadlock-free y starvation-free.',
+	},
+	{
+		id: 'peterson-swap',
+		name: 'Peterson con el orden invertido (turn antes que flag)',
+		fuente: 'Variante típica de examen: ¿importa el orden de las dos escrituras?',
+		lines: ['// sección no crítica', 'turn = j;', 'flag[i] = true;', 'while (flag[j] && turn == j) ;', '/* SECCIÓN CRÍTICA */', 'flag[i] = false;'],
+		ncs: 0,
+		cs: 4,
+		init: () => ({ flag: [false, false], turn: 0 }),
+		step: mk((s, i, j, n) => {
+			switch (s.pc[i]) {
+				case 0: return 1;
+				case 1: n.v.turn = j; return 2;
+				case 2: arr(n.v, 'flag')[i] = true; return 3;
+				case 3: return arr(s.v, 'flag')[j] && s.v.turn === j ? 3 : 4;
+				case 4: return 5;
+				default: arr(n.v, 'flag')[i] = false; return 0;
+			}
+		}),
+		nota: '¡El orden SÍ importa! P0 escribe turn = 1; P1 escribe turn = 0 y flag[1] = T, ve flag[0] = F y entra. P0 escribe flag[0] = T y ve turn = 0 ≠ 1, así que también entra. La demostración de Peterson usa que flag[i] = T ocurre ANTES que turn = j: al invertirlas, el último en escribir turn puede no haber levantado aún su flag.',
 	},
 	{
 		id: 'hyman',
@@ -261,6 +326,8 @@ const ALGOS: Algo[] = [
 ];
 
 const key = (s: State) => JSON.stringify(s);
+/** En la sección de entrada: ya pidió entrar pero aún no llega a la SC (las líneas de salida no cuentan). */
+const enEntrada = (a: Algo, pc: number) => pc !== a.ncs && pc < a.cs;
 
 /** Progreso: si p quiere entrar y el otro está en su sección no crítica, ¿p llega solo a la SC? */
 function soloReaches(a: Algo, s0: State, p: 0 | 1): boolean {
@@ -338,7 +405,7 @@ function starvation(a: Algo): { p: 0 | 1; path: (0 | 1)[]; size: number } | null
 	};
 	for (const p of [0, 1] as const) {
 		const q = (1 - p) as 0 | 1;
-		const allowed = (v: number) => states[v].pc[p] !== a.ncs && states[v].pc[p] !== a.cs;
+		const allowed = (v: number) => enEntrada(a, states[v].pc[p]);
 		const comp = sccs(allowed);
 		const info = new Map<number, { vs: number[]; byP: boolean; byQ: boolean; qCS: boolean }>();
 		for (let v = 0; v < states.length; v++) {
@@ -380,7 +447,7 @@ function search(a: Algo): { path: (0 | 1)[]; kind: 'mutex' | 'deadlock' | 'progr
 		}
 		return path;
 	};
-	// deadlock = ambos quieren entrar y ningún estado alcanzable tiene a alguien en CS
+	// deadlock = ambos están en su sección de entrada y ningún estado alcanzable tiene a alguien en CS
 	const canReachCS = (s0: State) => {
 		const q2 = [s0];
 		const vis = new Set([key(s0)]);
@@ -404,7 +471,7 @@ function search(a: Algo): { path: (0 | 1)[]; kind: 'mutex' | 'deadlock' | 'progr
 		const s = q.shift()!;
 		const k = key(s);
 		if (s.pc[0] === a.cs && s.pc[1] === a.cs) return { path: rebuild(k), kind: 'mutex' };
-		if (s.pc[0] !== a.ncs && s.pc[1] !== a.ncs && !canReachCS(s)) return { path: rebuild(k), kind: 'deadlock' };
+		if (enEntrada(a, s.pc[0]) && enEntrada(a, s.pc[1]) && !canReachCS(s)) return { path: rebuild(k), kind: 'deadlock' };
 		if (progressViolation(a, s)) return { path: rebuild(k), kind: 'progreso' };
 		for (const p of [0, 1] as const) {
 			const n = a.step(s, p);

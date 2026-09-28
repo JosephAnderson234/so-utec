@@ -109,6 +109,8 @@ pthread_barrier_init(&b, NULL, N);  // N hilos deben llegar
 pthread_barrier_wait(&b);           // el último libera a todos; uno recibe PTHREAD_BARRIER_SERIAL_THREAD
 ```
 
+Los semáforos **con nombre** (`sem_open`, para sincronizar procesos), los errores (`EAGAIN`, `EINTR`), por qué `sem_getvalue` nunca da negativo en Linux, y la comparación **mutex vs semáforo binario** (el mutex tiene dueño) están en [Mutex POSIX y futex](/hardware/futex/#5-semáforos-posix-a-fondo).
+
 <Solucion titulo="Preguntas de la diapositiva sobre barreras (Sem05)">
 
 1. **`pthread_barrier_init`** prepara la barrera para que se liberen **N** hilos cuando lleguen todos.

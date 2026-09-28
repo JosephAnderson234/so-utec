@@ -97,6 +97,8 @@ La **versión del laboratorio** (con `order = -1` e `interest[]`) es este mismo 
 - **Árbol de torneo:** los procesos juegan partidos de Peterson de a dos. El ganador de cada partido sube un nivel y el de la raíz entra. Es lo que anotó el profesor en el PC1 2021: *«Peterson, tournament of 2 processes»*.
 - **Bakery de Lamport:** números de turno, orden FCFS y [demostración completa](/mutex/bakery/).
 
+Las demostraciones del filtro (lema «a lo sumo n − L completan el nivel L») y del torneo (y por qué hay que liberar **de la raíz a la hoja**) están en [demostraciones](/mutex/demostraciones/#5-algoritmo-del-filtro-peterson-para-n). Allí también está la verificación de que **Dijkstra 1965 real** (con `b[]`, `c[]` y `k`) cumple exclusión mutua y deadlock-freedom, pero **no** starvation-freedom.
+
 ## Línea histórica
 
 | Año | Algoritmo | Procesos | Aporte |

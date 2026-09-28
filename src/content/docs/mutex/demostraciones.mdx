@@ -1,0 +1,364 @@
+---
+title: 'Demostraciones formales: cómo probar (y refutar) un algoritmo de exclusión mutua'
+description: 'El método de las diapositivas «Prove of Correctness» y la versión rigurosa con orden de eventos: Dekker, Peterson (y por qué importa el orden), Almost Dijkstra, Dijkstra 1965, filtro y árbol de torneo, con cotas de espera verificadas por búsqueda exhaustiva.'
+---
+
+import MutexStepper from '../../../components/sim/MutexStepper.tsx';
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+En el examen siempre piden lo mismo: **¿garantiza exclusión mutua? ¿es libre de deadlock? ¿es libre de starvation?** (diapositivas *06-OSL · Prove of Correctness*). Esta página tiene dos niveles para cada algoritmo:
+
+1. **El argumento de las diapositivas**, que es lo que el profesor escribe en clase y el mínimo que se espera.
+2. **La versión rigurosa** con orden de eventos (Herlihy & Shavit, cap. 2). Cierra los huecos del argumento corto y te blinda ante preguntas trampa.
+
+:::tip[Cómo usar esta página]
+Para cada algoritmo, lee primero la versión de las diapositivas y después la rigurosa. En el examen, escribe la rigurosa en forma compacta: **supuesto → cadena de eventos → contradicción**. Todas las afirmaciones de «✔/✘» de esta página están verificadas con búsqueda exhaustiva del espacio de estados (el intercalador de abajo y scripts propios).
+:::
+
+## 1. Herramientas
+
+### El modelo que se asume
+
+- **Registros atómicos:** cada lectura o escritura de una variable compartida ocurre «de una vez», y una lectura devuelve el valor de la **última escritura** anterior.
+- **Consistencia secuencial:** la ejecución es un intercalado (*interleaving*) de los pasos de cada proceso, **respetando el orden del código** de cada uno. En hardware real esto es falso sin barreras: ver [Peterson en x86](/hardware/atomicas/#peterson-y-dekker-funcionan-en-hardware-real-probado).
+- **Supuestos de progreso:** todo proceso que está en la SC **sale en tiempo finito**. Un proceso **puede quedarse para siempre** en su sección no crítica (NCS). El planificador es **justo** (*weak fairness*): un proceso listo eventualmente ejecuta su siguiente paso. Sin justicia, cualquier algoritmo «muere de hambre» (el planificador simplemente nunca te elige).
+
+### Notación de eventos
+
+| Notación | Significado |
+| --- | --- |
+| $W_A(x = v)$ | el proceso A escribe v en x |
+| $R_A(x = v)$ | A lee x y obtiene v |
+| $\mathit{CS}_A$ | intervalo en que A está en la sección crítica |
+| $a \to b$ | el evento a ocurre **antes** que b |
+
+Dos reglas hacen todo el trabajo:
+- **Orden de programa:** los eventos de un mismo proceso están ordenados como en el código.
+- **Transitividad:** si $a \to b$ y $b \to c$, entonces $a \to c$. Las escrituras a una misma variable atómica tienen un **orden total**, así que siempre existe **«el último en escribir»**.
+
+### Las tres técnicas
+
+| Técnica | Para | Esqueleto |
+| --- | --- | --- |
+| **Contradicción + orden de eventos** | *safety* (exclusión mutua) | «Supón A y B en la SC. Sea A el último en escribir x… entonces A leyó… pero B había escrito… **contradicción**.» |
+| **Invariante** | *safety* | Una propiedad que vale al inicio y que **cada paso preserva** (inducción sobre la ejecución). Por ejemplo: «si P_i está entre la línea 5 y el fin de la SC, entonces flag[i] = T». |
+| **Análisis de casos con variables estabilizadas** | *liveness* (deadlock, starvation) | «Supón que P0 espera **para siempre**. Desde algún momento, las variables que solo cambian al salir de la SC quedan **fijas**. Entonces, caso por caso…» |
+
+**Relaciones que conviene citar:** starvation-free ⇒ deadlock-free; si encuentras deadlock, el algoritmo **tampoco** es starvation-free. **Espera acotada** (*bounded bypass* o *r-bounded waiting*) es más fuerte que starvation-free: pide una cota **numérica** de cuántas veces pueden adelantarte, contada desde que terminaste tu *doorway* (la parte de la entrada que se ejecuta en un número acotado de pasos).
+
+### El formato de las diapositivas: «Prof 1» y «Prof 2»
+
+Para la exclusión mutua de Dekker, las diapositivas dan dos pruebas:
+
+- **Prof 1 (escenario):** *«Supón que P1 entra primero a la SC y se queda. Entonces flag[1] = T. Si P0 quiere entrar, el `while (flag[1])` se lo impide sea cual sea `turn`. P0 entra solo cuando flag[1] = F, lo que ocurre cuando P1 sale.»*
+- **Prof 2 (contradicción):** *«Supón P0 y P1 ambos en la SC. P0 puso flag[0] = T y vio flag[1] = F; P1 puso flag[1] = T y vio flag[0] = F. Cada uno puso su flag antes de mirar el del otro, así que es imposible: contradicción.»*
+
+<Solucion titulo="Observación propia: por qué Prof 2 es la que vale">
+
+**Prof 1** solo cubre el caso en que uno **ya está dentro** cuando el otro llega. No cubre la **carrera**: los dos en la entrada a la vez, con sus pasos intercalados. Es justo ahí donde fallan los algoritmos malos (Hyman, el intento 2 de Dekker). **Prof 2** es general porque parte de «ambos dentro», sin suponer quién llegó primero. En el examen escribe la Prof 2, y si quieres agrega la 1 como intuición.
+
+</Solucion>
+
+## 2. Dekker
+
+```c
+/* bool flag[2] = {false, false};  int turn = 0;   — código de P_i, j = 1 - i */
+ 5    flag[i] = true;
+ 6    while (flag[j]) {
+ 8        if (turn == j) {
+10            flag[i] = false;
+11            while (turn == j) ;      /* do nothing */
+12            flag[i] = true;
+          }
+      }
+15    /* critical section */
+16    turn = j;
+17    flag[i] = false;
+```
+
+Los números de línea son los de las diapositivas. La idea es que `flag` dice **«quiero entrar»** y `turn` dice **a quién le toca ceder si ambos quieren**.
+
+**Lema D1 (invariante).** Desde la **última** escritura `flag[i] = true` (línea 5 o 12) antes de salir del `while` externo, y hasta la línea 17, se cumple flag[i] = T.
+*Prueba:* la única otra escritura de `flag[i]` en la entrada es la línea 10, y siempre va seguida de la línea 12 antes de volver a evaluar el `while` externo. ∎
+
+<Solucion titulo="Exclusión mutua ✔ (rigurosa)">
+
+Supón P0 y P1 ambos en la SC. Cada uno salió del `while` externo leyendo el flag del otro en F. Sean:
+- $R_0$ la última lectura `flag[1] = F` de P0, y $W_0$ su última escritura `flag[0] = T` antes de $R_0$;
+- $R_1$ y $W_1$ lo análogo para P1.
+
+Por orden de programa, $W_0 \to R_0$ y $W_1 \to R_1$. Por el lema D1, flag[0] = T durante todo el intervalo que va de $W_0$ al instante actual (P0 sigue en la SC). Como $R_1$ leyó flag[0] = F, $R_1$ tuvo que ocurrir **antes** de $W_0$:
+
+```text
+W1(flag[1]=T)  →  R1(flag[0]=F)  →  W0(flag[0]=T)  →  R0(flag[1]=?)
+```
+
+Entonces $R_0$ ocurre después de $W_1$, y por D1 flag[1] = T en ese momento (P1 también sigue en la SC). **$R_0$ debió leer T: contradicción.** ∎
+
+</Solucion>
+
+<Solucion titulo="Deadlock-free ✔ (rigurosa)">
+
+**Diapositivas:** si ambos quieren entrar, los dos están en `while (flag[j])`. Si turn == 0, P1 pone flag[1] = F, lo que rompe el `while` de P0 y P0 entra. Lo mismo con turn == 1. Como `turn` tiene un solo valor, siempre alguien entra.
+
+**Versión rigurosa.** Supón que desde algún momento alguien intenta entrar para siempre y **nadie** entra. `turn` solo se escribe en la línea 16 (al salir de la SC), así que queda **fijo**; llámalo $t$ y sea $j$ el otro.
+
+1. **Si $P_j$ intenta:** como no entra, en algún momento lee flag[t] = T en el `while` externo. Como `turn == t` (le toca al otro), ejecuta la línea 10 (flag[j] = F) y queda en `while (turn == t)` para siempre. Desde entonces flag[j] = F de forma permanente.
+2. **Si $P_t$ intenta:** en su `while (flag[j])` la condición `turn == j` es falsa, así que nunca cede y solo vuelve a mirar flag[j]. Por (1), o porque $P_j$ está en su NCS, eventualmente lee F y **entra**. Contradicción.
+3. **Si $P_t$ no intenta** (está en su NCS para siempre), $P_j$ no puede quedar atrapado en el `while` externo, porque flag[t] = F. ¿Podría estar en `while (turn == t)`? Para llegar ahí leyó flag[t] = T, así que $P_t$ **estaba intentando**; por (2) $P_t$ entra y al salir escribe turn = $j$, lo que contradice que turn estaba fijo.
+
+En todos los casos hay contradicción. ∎
+
+</Solucion>
+
+<Solucion titulo="Starvation-free ✔ (rigurosa)">
+
+**Diapositivas:** si P0 quiere entrar y flag[1] = F, entra. La excepción es si quedó atrapado en `while (turn == 1)`; pero antes de eso puso flag[0] = F, lo que deja entrar a P1, y P1 al salir hace turn = 0, lo que libera a P0. Si P1 no está corriendo, P0 no puede llegar a ese `while` (necesitaba flag[1] = T), y si P1 nunca corrió, P0 entra directo.
+
+**Versión rigurosa.** Supón que P0 intenta para siempre y nunca entra. Como el algoritmo es deadlock-free, **P1 entra infinitas veces**, y cada salida de P1 escribe turn = 0. Tras la primera, turn = 0 **para siempre**: solo P0 podría escribir turn = 1, y P0 nunca sale de la SC porque nunca entra.
+- Con turn = 0, si P0 estaba en `while (turn == 1)`, sale (planificador justo) y ejecuta flag[0] = T. Desde entonces flag[0] = T de forma permanente, porque P0 nunca cede con turn == 0.
+- En su siguiente intento, P1 ve flag[0] = T y turn == 0, así que **cede** (flag[1] = F) y queda en `while (turn == 0)` para siempre. Entonces P1 **no** entra infinitas veces. Contradicción. ∎
+
+</Solucion>
+
+<Solucion titulo="Hallazgo propio (verificado): Dekker NO tiene espera acotada">
+
+Mientras P0 está en `while (turn == 1)` con flag[0] = F, si el planificador **no le da CPU**, P1 puede salir (turn = 0, flag[1] = F), volver a pedir (flag[1] = T), ver flag[0] = F y **entrar de nuevo**, y así repetirlo cuantas veces quiera. P0 solo lo frena cuando por fin ejecuta la línea 12.
+
+La búsqueda exhaustiva lo confirma: **con P0 congelado en la línea 11, P1 tiene un ciclo que pasa por la SC** (bypass no acotado). Dekker es *starvation-free* porque el planificador justo termina dándole CPU a P0, pero **no** tiene una cota numérica. Peterson sí la tiene (ver abajo).
+
+</Solucion>
+
+## 3. Peterson
+
+```c
+/* bool flag[2] = {false, false};  int turn = 0;   — código de P_i, j = 1 - i */
+5    flag[i] = true;                    // quiero entrar
+6    turn = j;                          // pero te cedo el paso
+7    while (flag[j] && turn == j) ;     // espero si tú quieres Y te toca a ti
+8    /* critical section */
+9    flag[i] = false;
+```
+
+`turn` funciona como una **víctima** invertida: el **último** en escribir `turn` es el que cede. Es la misma variable que `AFTER_YOU` en el [PC1 2021](/mutex/algoritmos/#peterson-en-el-pc1-2021) y que `victim` en Herlihy (allí `victim = i`, y turn == j equivale a victim == i).
+
+**Lema P1 (invariante).** flag[i] = T desde la línea 5 hasta la línea 9. La única escritura que lo baja es la 9.
+
+<Solucion titulo="Exclusión mutua ✔ (rigurosa, estilo Herlihy)">
+
+**Diapositivas:** si P1 está en la SC, flag[1] = T; P0 no pasa `while (flag[1] && …)` hasta que P1 salga. Hay que notar que esta es solo la Prof 1 (el escenario).
+
+**Versión rigurosa.** Supón P0 y P1 ambos en la SC. Las escrituras de `turn` tienen un orden total; sea A **el último en escribir turn** (sin pérdida de generalidad A = P0, que escribió turn = 1). Entonces:
+
+```text
+W1(flag[1]=T) → W1(turn=0) → W0(turn=1) → R0(flag[1]) , R0(turn)
+      (P1, orden de programa)   (P0 fue el último)   (P0 lee después de escribir)
+```
+
+- Como nadie escribe `turn` después de $W_0$, **P0 leyó turn = 1**.
+- Como $W_1(\text{flag}[1]=T) \to R_0(\text{flag}[1])$ y, por el lema P1, flag[1] sigue en T (P1 está en la SC), **P0 leyó flag[1] = T**.
+
+Entonces la condición `flag[1] && turn == 1` era verdadera y P0 **no pudo salir del while**. Contradicción. ∎
+
+Nota: la prueba no depende del orden en que se evalúen las dos lecturas del `while`, porque ambas ocurren después de $W_0$.
+
+</Solucion>
+
+<Solucion titulo="Deadlock-free ✔ y progreso ✔">
+
+**Diapositivas:** si ambos quieren entrar, el último en escribir `turn` fija su valor. Si turn == 1, P1 rompe el loop y entra; si turn == 0, entra P0. `turn` no puede tener ambos valores.
+
+**Versión rigurosa.** Si ambos esperan para siempre en la línea 7, nadie escribe `turn` (solo se escribe en la línea 6), así que queda fijo. P0 espera solo si turn == 1, y P1 solo si turn == 0: **imposible a la vez**. Si solo uno espera y el otro está en su NCS, el flag del otro es F y la condición es falsa, así que entra (**progreso**). ∎
+
+</Solucion>
+
+<Solucion titulo="Starvation-free ✔ con cota 1 (bounded bypass = 1)">
+
+**Diapositivas:** si P1 está en la SC, P0 espera hasta flag[1] = F; cuando P1 sale, P0 entra aunque turn == 1. Pi no puede monopolizar la SC porque pone flag[i] = F al salir.
+
+**Versión rigurosa, con la cota.** Supón que P0 ya ejecutó las líneas 5 y 6 (su *doorway*) y espera en la 7.
+- Si P1 está en su NCS, flag[1] = F y P0 entra.
+- Si P1 entra y sale, puede ocurrir que P0 lea flag[1] = F y entre, **o** que P1 vuelva a pedir. En ese caso P1 escribe **turn = 0**, y desde entonces solo P0 podría cambiarlo, pero P0 está esperando. P1 queda bloqueado (flag[0] = T y turn == 0) y P0 ve turn ≠ 1, así que **entra**.
+
+Entonces P1 entra **a lo sumo una vez** mientras P0 espera. La búsqueda exhaustiva lo confirma: con P0 congelado en la línea 7, el máximo de entradas de P1 es **1**. ∎
+
+</Solucion>
+
+### El orden de las dos escrituras importa
+
+Pregunta típica: *«¿qué pasa si se intercambian las líneas 5 y 6?»*.
+
+| # | P0 | P1 | flag | turn |
+| - | --- | --- | --- | - |
+| 1 | `turn = 1` | | [F, F] | 1 |
+| 2 | | `turn = 0` | | 0 |
+| 3 | | `flag[1] = true` | [F, T] | 0 |
+| 4 | | `while (flag[0] && …)`: flag[0] = F, así que **entra** | | 0 |
+| 5 | `flag[0] = true` | *(en la SC)* | [T, T] | 0 |
+| 6 | `while (flag[1] && turn == 1)`: turn = 0, así que **entra** | | | 0 |
+
+⇒ **ambos en la SC.** La cadena de la demostración necesitaba $W_1(\text{flag}[1]=T) \to W_1(\text{turn}=0)$. Al invertirlas, el último en escribir `turn` (P1) puede haber mirado a P0 **antes** de que P0 levantara su flag.
+
+Otra variante que falla: `turn = i` (me doy prioridad a mí) con `while (flag[j] && turn == j)`. Si P0 hace flag y turn = 0 y entra porque flag[1] = F, y luego P1 hace flag y turn = 1, P1 ve turn ≠ 0 y **también entra**. En Peterson, **el último en escribir turn debe ser el que espera**.
+
+Compara las tres versiones en el intercalador:
+
+<MutexStepper client:visible algo="peterson-swap" only={['peterson-std', 'peterson-swap', 'peterson', 'dekker']} />
+
+## 4. Almost Dijkstra (N procesos, diapositivas)
+
+```c
+/* bool flag[n] = {false, …};  int turn = -1; */
+ 3    flag[i] = true;
+ 4    while (exist j != i such that flag[j]) {
+ 6        if (turn != i) {
+ 8            flag[i] = false;
+ 9            while (turn != -1) ;     /* do nothing */
+10            turn = i;
+11            flag[i] = true;
+          }
+      }
+14    /* Critical Section */
+15    turn = -1;
+16    flag[i] = false;
+```
+
+<Solucion titulo="Exclusión mutua ✔">
+
+**Diapositivas:** si P0 está en la SC, flag[0] = T y el resto en F. Si Pi quiere entrar, el `while (exist j …)` se lo impide sea cual sea `turn`; entra solo cuando flag[0] = F, es decir, cuando P0 sale.
+
+**Versión rigurosa** (es la de Dekker generalizada): para entrar, $P_i$ lee **todos** los flag[j] = F **después** de su última escritura flag[i] = T (línea 3 u 11), y flag[i] se mantiene en T hasta la línea 16. Si $P_a$ y $P_b$ están dentro, aplica la cadena de Dekker a ese par: $W_b \to R_b(\text{flag}[a]=F) \to W_a \to R_a(\text{flag}[b])$, y $R_a$ debió leer T. ∎
+
+</Solucion>
+
+<Solucion titulo="Deadlock-free ✔ (argumento de las diapositivas, completado)">
+
+**Diapositivas:** si todos quieren entrar con turn == −1, todos entran a la línea 8, ponen su flag en F, pasan `while (turn != -1)` y escriben turn = i. **El último en escribir, Pi, entra primero**: los demás vuelven con flag = T, ven turn ≠ i y quedan en `while (turn != -1)`. Como `turn` tiene un solo valor a la vez, siempre hay un proceso con el turno que entra.
+
+**Lo que falta decir:** con turn = k fijo, cada $P_m$ con m ≠ k que intenta llega a la línea 8 (flag[m] = F) y queda esperando turn == −1. Los que recién llegan levantan su flag **una sola vez** (línea 3) antes de quedar igual. Entonces $P_k$ eventualmente ve **todos** los flags en F y entra. ∎
+
+</Solucion>
+
+<Solucion titulo="Starvation ✘ (contraejemplo de las diapositivas)">
+
+P0 está en la SC. Los demás quieren entrar: **solo uno** queda con el turno y los otros esperan `turn != -1`. El que tiene el turno no puede avanzar hasta que flag[0] = F. P0 sale: turn = −1 y flag[0] = F. **El que tenía el turno pierde su ventaja:** otro proceso ve turn == −1, se lo roba y entra. Con mala suerte, eso se repite para siempre.
+
+La diapositiva termina con *«Is there a solution?»*. La traza completa está en [N procesos](/mutex/n-procesos/#almost-dijkstra-demostraciones-del-curso).
+
+</Solucion>
+
+:::caution[Corrección a la actividad de las diapositivas]
+La diapositiva *«Real Dijkstra Algorithm · Activity»* pide *«leer el paper y entender cómo se evita la starvation»*. Pero **el algoritmo de Dijkstra de 1965 tampoco es starvation-free**. Su propiedad (d) solo prohíbe el bloqueo *«After you – After you»*, que es la **ausencia de deadlock**. Lo verifiqué modelando el algoritmo del paper línea por línea (con `b[]`, `c[]` y `k`, N = 2): **✔ exclusión mutua, ✔ deadlock-free, ✘ starvation** (hay un ciclo de 24 estados en que el dueño de `k` reentra mientras el otro espera). La primera solución sin starvation fue la de **Knuth (1966)**, y después vinieron Bakery (1974) y Peterson (1981). Pruébalo en el intercalador de [algoritmos](/mutex/algoritmos/) con «Dijkstra 1965 real».
+:::
+
+## 5. Algoritmo del filtro (Peterson para N)
+
+```c
+/* int level[n] = {0};  int victim[n];   — hay N-1 niveles de "sala de espera" */
+for (int L = 1; L < n; L++) {
+    level[i] = L;                                         // entro al nivel L
+    victim[L] = i;                                        // me ofrezco como víctima
+    while (∃ k != i : level[k] >= L  &&  victim[L] == i) ; // espero
+}
+/* SC */
+level[i] = 0;
+```
+
+En cada nivel **queda atrás al menos un proceso**: la última víctima. Al nivel $n-1$ (que es la SC) llega uno solo.
+
+<Solucion titulo="Exclusión mutua ✔ (lema de Herlihy, por inducción)">
+
+**Lema:** para $0 \le L \le n-1$, a lo sumo $n - L$ procesos **completan** el nivel L.
+
+*Base:* L = 0, trivial ($n$ procesos).
+
+*Paso:* supón que a lo sumo $n - L + 1$ procesos completan el nivel L − 1, y por contradicción que $n - L + 1$ completan el nivel L. Sea A **el último en escribir victim[L]**. Para cualquier otro B de ese grupo:
+
+```text
+W_B(level[B]=L) → W_B(victim[L]=B) → W_A(victim[L]=A) → R_A(level[B])
+```
+
+Entonces A leyó level[B] ≥ L y victim[L] == A (nadie lo sobrescribió después), así que **no pudo salir del while**. Contradicción. Con L = n − 1, a lo sumo **1** proceso está en la SC. ∎
+
+</Solucion>
+
+<Solucion titulo="Starvation-free ✔, pero sin espera acotada">
+
+Por inducción **descendente** sobre los niveles: el nivel n − 1 es la SC, y quien la tiene sale en tiempo finito. Supón que todo proceso que llega al nivel L + 1 termina entrando, y que A queda atrapado en el nivel L para siempre. Todos los que están en niveles ≥ L + 1 terminan entrando y salen (con level = 0). Si otro B llega al nivel L, escribe victim[L] = B y **libera a A**. Si nadie más llega, A es el único con level ≥ L entre los que quedan, y la condición del while se vuelve falsa. Contradicción. ∎
+
+**No es justo:** un proceso puede ser adelantado un número arbitrario de veces en el nivel 1 antes de que otro llegue y lo reemplace como víctima (Herlihy, §2.5). Para orden FCFS hace falta [Bakery](/mutex/bakery/).
+
+Lo verifiqué con búsqueda exhaustiva para n = 3: ✔ exclusión mutua, ✔ deadlock-free (963 estados).
+
+</Solucion>
+
+## 6. Árbol de torneo (la nota del profesor en el PC1 2021)
+
+Cada nodo interno es un **lock de Peterson para 2** (lado izquierdo = 0, derecho = 1). Cada proceso empieza en una hoja y **sube** ganando los partidos; el que gana la raíz entra a la SC.
+
+```text
+               [raíz: Peterson]
+               /              \
+      [nodo L: Peterson]   [nodo R: Peterson]
+        /        \           /         \
+      T0          T1       T2           T3        (T0 juega el lado 0 del nodo L y el lado 0 de la raíz, …)
+```
+
+Para **3 hilos** se usa el mismo árbol con una hoja vacía (o T2 juega directo el lado derecho de la raíz). Para **4**, son 3 locks y 2 niveles. En general hay $\lceil \log_2 n \rceil$ niveles.
+
+<Solucion titulo="Demostraciones">
+
+- **Exclusión mutua ✔:** para estar en la SC hay que tener el lock de la raíz, que es un Peterson de 2 **siempre y cuando** cada lado lo juegue un solo proceso a la vez. Eso se garantiza por inducción: el lado izquierdo de un nodo solo lo juega quien ganó el subárbol izquierdo, y ese subárbol es exclusivo por hipótesis.
+- **Starvation-free ✔:** por inducción sobre la altura. Cada nodo es un Peterson starvation-free y quien lo tiene lo suelta en tiempo finito (la SC es finita), así que todo proceso sube eventualmente cada nivel.
+- **Espera acotada:** en cada nodo te adelantan a lo sumo 1 vez **por partido**, y la cota total crece con la altura.
+
+**Orden de liberación: de la raíz hacia la hoja** (el inverso de la adquisición). Si se libera la hoja primero, el hermano puede ganar la hoja y subir a jugar **el mismo lado** de la raíz que tú todavía no soltaste. Al soltarla, tu `flag = false` **pisa** su `flag = true` y un tercero entra junto con él. Lo verifiqué con búsqueda exhaustiva para 4 hilos: raíz → hoja da ✔ mutex y ✔ deadlock-free (7 784 estados); hoja → raíz da **✘ mutex, con una traza de 24 pasos**.
+
+</Solucion>
+
+## 7. Bakery
+
+Tiene su propia página con las tres demostraciones, la propiedad FCFS formal (*doorway*) y las preguntas del E1 2022 y 2025-2: [Bakery de Lamport](/mutex/bakery/).
+
+## 8. Cómo refutar «en formato de prueba»
+
+Para un algoritmo incorrecto no basta con decir «falla»: hay que mostrar **en qué paso de la demostración se rompe** y dar la **traza**.
+
+| Algoritmo | Qué se rompe | Dónde falla la prueba |
+| --- | --- | --- |
+| [Hyman (E1 2026-1)](/mutex/algoritmos/#algoritmo-a-del-e1-2026-1-hyman-1966) | exclusión mutua | Entre leer f[j] = F y escribir turno = i no hay nada que impida al otro entrar. **No existe** la cadena «escribí mi flag → leí el tuyo» que usa Dekker, porque la decisión final depende de `turno` y no de `f`. |
+| [Flaky (E1 2024-I)](/mutex/algoritmos/#flaky-e1-2024-i) | deadlock | `busy = true` se escribe **antes** de confirmar que se ganó `turn`. El perdedor deja busy en true y ambos giran en `while (busy)`. |
+| Intento 3 de Dekker | deadlock | Ambos levantan el flag antes de mirar el del otro y **nadie cede**: falta el desempate `turn`. |
+| Peterson invertido | exclusión mutua | Falta $W(\text{flag}) \to W(\text{turn})$ en la cadena. |
+| Almost Dijkstra, Dijkstra 1965 | starvation | «Alguien entra» no implica «**tú** entras»: el turno se puede robar. |
+
+**Formato de la traza:** tabla `# | P0 | P1 | variables` que termina en **«⇒ ambos en la SC»**, **«⇒ ambos giran para siempre»** o, para starvation, **«⇒ se vuelve al estado del paso k: el ciclo se repite indefinidamente»**.
+
+## 9. Errores que restan puntos
+
+- **Usar «turn tiene un solo valor» para probar exclusión mutua.** Eso prueba **deadlock-freedom**. Para la exclusión mutua necesitas la cadena de eventos con los **flags**.
+- **Olvidar el caso «el otro está en su sección no crítica»** al probar ausencia de deadlock o progreso (el error de la alternancia estricta).
+- **Suponer que `while (a && b)` se evalúa atómicamente.** Tu prueba debe valer si las lecturas se intercalan con pasos del otro (en Peterson vale porque ambas lecturas ocurren después del último $W(\text{turn})$).
+- **Confundir starvation-free con espera acotada.** Dekker es lo primero pero no lo segundo; Peterson es ambos (cota 1); Bakery es FCFS.
+- **Probar solo un escenario** (la Prof 1).
+- **Afirmar starvation-freedom sin planificador justo.** Sin justicia, ningún algoritmo la tiene.
+- **Olvidar que todo esto supone consistencia secuencial.** En x86, Peterson necesita `mfence` ([probado](/hardware/atomicas/#peterson-y-dekker-funcionan-en-hardware-real-probado)).
+
+<Quiz
+	client:visible
+	id="demos"
+	preguntas={[
+		{ q: 'En Peterson, «turn solo puede valer 0 o 1» es el argumento clave para…', opts: ['la exclusión mutua', 'la ausencia de deadlock', 'la espera acotada', 'la atomicidad'], ok: 1, why: 'Para la exclusión mutua hace falta la cadena W(flag) → W(turn) → W_último(turn) → R(flag).' },
+		{ q: 'En la prueba de exclusión mutua de Peterson se elige como A…', opts: ['al que entró primero a la SC', 'al último en escribir turn', 'al de menor id', 'al que escribió flag primero'], ok: 1 },
+		{ q: 'Si se intercambian `flag[i] = true` y `turn = j` en Peterson:', opts: ['sigue siendo correcto', 'se pierde la exclusión mutua', 'solo se pierde la starvation-freedom', 'aparece deadlock'], ok: 1, why: 'Traza de 8 pasos: el último en escribir turn miró el flag del otro antes de que este lo levantara.' },
+		{ q: '¿Cuántas veces puede entrar P1 mientras P0 espera en el while de Peterson (después de escribir turn)?', opts: ['0', '1', 'N − 1', 'ilimitadas'], ok: 1 },
+		{ q: 'Dekker es…', opts: ['starvation-free y con espera acotada 1', 'starvation-free pero sin cota numérica de bypass', 'no es starvation-free', 'solo deadlock-free'], ok: 1, why: 'Con P0 sin CPU en while(turn == 1), P1 puede reentrar indefinidamente; la justicia del planificador lo acota solo cualitativamente.' },
+		{ q: 'El algoritmo de Dijkstra de 1965 (con b[] y c[])…', opts: ['es starvation-free', 'garantiza que alguien entra, pero puede haber starvation', 'no garantiza exclusión mutua', 'tiene deadlock'], ok: 1 },
+		{ q: 'En el árbol de torneo, al salir de la SC se liberan los locks…', opts: ['de la hoja a la raíz', 'de la raíz a la hoja', 'en cualquier orden', 'solo la raíz'], ok: 1, why: 'Liberar la hoja primero permite que el hermano juegue el mismo lado de la raíz: dos procesos en un lado de Peterson rompen la exclusión mutua.' },
+		{ q: 'La «Prof 1» de las diapositivas (P1 ya está dentro y P0 llega) es insuficiente porque…', opts: ['usa contradicción', 'no cubre el caso en que ambos están en la entrada a la vez', 'no menciona turn', 'supone planificador justo'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['lab2/06-OSL-Mutual_exclusion algorithms_demostrations.pdf (25 diapositivas: Dekker, Peterson, Almost Dijkstra, Real Dijkstra)', 'lab2/Resumenes/05-Mutual-Exclusion-Demonstrations.md', 'lab2/dijskstra proff.pdf', 'Herlihy & Shavit, The Art of Multiprocessor Programming, cap. 2 (Peterson, filtro, Bakery, notación de eventos)', 'Stallings §5.1 y apéndice A', 'Verificación propia: intercalador de esta web + scratchpad bypass.py / nproc.py (cota de bypass, filtro n=3, torneo n=4)']} />

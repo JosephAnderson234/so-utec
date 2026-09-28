@@ -30,7 +30,22 @@ Un **productor** deja ítems en un **buffer de tamaño N** y un **consumidor** l
 
 **3. Dormir «a mano»** (`if (c == 0) sleep(); … if (c == 1) wakeup_consumer();`) causa un **lost wake-up**. Entre que el consumidor evalúa `c == 0` y ejecuta `sleep()`, el productor produce y llama a `wakeup` **antes** de que el consumidor duerma: el aviso se pierde y el consumidor duerme para siempre. **Revisar la condición y dormir debe ser atómico.**
 
-**4. FUTEX:** `while (c == 0) futex_wait(&c, 0);`. El kernel comprueba **atómicamente** que `c` siga valiendo 0 antes de dormir; si ya cambió, retorna de inmediato.
+**4. FUTEX** (`prod-cons-futex.c`): el contador se actualiza con `__atomic_fetch_add` y la espera usa futex.
+
+```c
+/* productor */                                   /* consumidor */
+while (cont == N_ITEMS)                           while (cont == 0)
+    futex_wait(&cont, N_ITEMS);                       futex_wait(&cont, 0);
+final = (final + 1) % N_ITEMS;                    initial = (initial + 1) % N_ITEMS;
+buffer[final] = i;                                aux = buffer[initial];
+__atomic_fetch_add(&cont, 1, __ATOMIC_SEQ_CST);   __atomic_fetch_add(&cont, -1, __ATOMIC_SEQ_CST);
+if (cont == 1) futex_wake(&cont, 1);              if (cont == N_ITEMS - 1) futex_wake(&cont, 1);
+```
+
+- **Por qué no hay lost wake-up:** `futex_wait(&cont, 0)` hace que el kernel compruebe **atómicamente** que `cont` siga valiendo 0 antes de dormir; si el productor ya lo incrementó, retorna de inmediato y el `while` vuelve a mirar ([traza](/hardware/futex/#por-qué-evita-el-lost-wake-up)).
+- **Por qué solo despierta en los bordes:** solo puede haber alguien durmiendo si el buffer **estaba** vacío (`cont` pasó de 0 a 1) o lleno (pasó de N a N − 1). En los demás casos se ahorra la syscall.
+- **Detalle fino (propio):** `if (cont == 1)` **vuelve a leer** `cont` después del `fetch_add`, y el otro hilo puede haberlo cambiado entre medio. Con 1 productor y 1 consumidor no causa un bug (quien podría estar durmiendo no puede cambiar `cont`), pero lo robusto es usar el **valor que retorna** la operación atómica: `if (__atomic_fetch_add(&cont, 1, __ATOMIC_SEQ_CST) == 0) futex_wake(&cont, 1);`.
+- Con **varios** productores o consumidores, esto no basta: los índices `final` e `initial` también se comparten y hace falta un lock.
 
 **5. Semáforos**, la solución canónica. Con **1 productor y 1 consumidor** ni siquiera hace falta un mutex, porque cada uno toca solo su extremo del buffer:
 
@@ -105,6 +120,40 @@ void *productor(void *arg) {         void *consumidor(void *arg) {
 ```
 
 **Regla:** primero el semáforo de **conteo** y después `mutex`. Nunca te bloquees sosteniendo `mutex`. El orden de los `sem_post` **no** importa, porque `post` no bloquea.
+
+## Buffer acotado con `pthread_mutex` + `pthread_cond` (el monitor en C)
+
+```c
+int buf[N], in = 0, out = 0, count = 0;
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t notfull = PTHREAD_COND_INITIALIZER, notempty = PTHREAD_COND_INITIALIZER;
+
+void put(int x) {                                 int get(void) {
+    pthread_mutex_lock(&m);                           pthread_mutex_lock(&m);
+    while (count == N)                                while (count == 0)
+        pthread_cond_wait(&notfull, &m);                  pthread_cond_wait(&notempty, &m);
+    buf[in] = x; in = (in + 1) % N; count++;          int x = buf[out]; out = (out + 1) % N; count--;
+    pthread_cond_signal(&notempty);                   pthread_cond_signal(&notfull);
+    pthread_mutex_unlock(&m);                         pthread_mutex_unlock(&m);
+}                                                     return x; }
+```
+
+**Diferencias con la versión de semáforos:**
+- **Un solo lock** protege todo el estado (`count`, `in`, `out`); las condition variables **no cuentan** nada, son solo colas de espera. La condición se expresa en código (`count == N`).
+- `pthread_cond_wait` **suelta el mutex atómicamente** mientras duerme, así que no hay deadlock por dormir con el lock tomado.
+- **`while`, no `if`:** lo probé con 3 productores y 3 consumidores. Con `while`, la suma de lo consumido es **exacta** en las 3 corridas; con `if`, **falla en las 3** (se sacan ítems de un buffer vacío). Los números están en [Mutex POSIX y futex](/hardware/futex/#6-condition-variables-el-monitor-en-c).
+
+### Todas las implementaciones, comparadas
+
+| Versión | Correcta | Espera | Qué la rompe o la limita |
+| --- | :-: | --- | --- |
+| Sin sincronización | ✘ | — | lee antes de producir, sobrescribe |
+| Busy wait + `c++` | ✘ | activa | `c++` no es atómico |
+| Busy wait + atómico | ✔ | activa (gasta CPU) | ineficiente |
+| `sleep`/`wakeup` a mano | ✘ | bloqueante | **lost wake-up** |
+| FUTEX + atómico | ✔ (1 productor, 1 consumidor) | bloqueante | con varios hace falta lock para los índices |
+| Semáforos (`llenos`, `vacios`, `mutex`) | ✔ | bloqueante | orden de los `wait` (deadlock si se invierte) |
+| Mutex + condition variables | ✔ | bloqueante | `if` en vez de `while` |
 
 ## Simulador
 

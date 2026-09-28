@@ -1,0 +1,314 @@
+---
+title: 'Mutex POSIX, futex y semáforos POSIX'
+description: 'Del hardware a pthreads: la syscall futex y por qué evita el lost wake-up, un mutex con futex de 2 y de 3 estados (Drepper) medido en WSL, el lab 07 (transfers.c de tres maneras), pthread_mutex a fondo (tipos, errores, atributos), semáforos POSIX con y sin nombre entre procesos, y condition variables.'
+---
+
+import Quiz from '../../../components/Quiz.tsx';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+Los algoritmos de software (Dekker, Peterson, Bakery) y los spinlocks resuelven la exclusión mutua **con espera activa**: el que no puede entrar gira gastando CPU. La sesión 07 del laboratorio da el salto a los mecanismos que **bloquean** al hilo (lo sacan de la cola de listos) y lo **despiertan** cuando puede avanzar. Eso requiere al kernel, porque solo él puede dormir y despertar hilos.
+
+```text
+ ┌─────────────────────────────────────────────────────────────┐
+ │ monitores / synchronized (Java) / std::mutex               │   lenguaje
+ ├─────────────────────────────────────────────────────────────┤
+ │ pthread_mutex · sem_t · pthread_cond · pthread_barrier     │   glibc (espacio de usuario)
+ ├─────────────────────────────────────────────────────────────┤
+ │ futex(FUTEX_WAIT / FUTEX_WAKE)                              │   syscall de Linux
+ ├─────────────────────────────────────────────────────────────┤
+ │ XCHG · CMPXCHG · LOCK XADD  (TAS, CAS, FAA)                 │   hardware
+ └─────────────────────────────────────────────────────────────┘
+```
+
+## 1. FUTEX: *Fast Userspace muTEX*
+
+Un futex es **un entero común en memoria de usuario** más una operación del kernel para dormir o despertar hilos **asociados a su dirección**. Si nadie espera, el kernel **no guarda nada**: no existe ningún objeto del kernel.
+
+```c
+#include <linux/futex.h>
+#include <sys/syscall.h>
+
+// glibc no trae envoltura: se llama con syscall(). Son las del laboratorio (prod-cons-futex.c):
+int futex_wait(void *addr, int val) {           // si *addr == val, duerme
+    return syscall(SYS_futex, addr, FUTEX_WAIT, val, NULL, NULL, 0);
+}
+int futex_wake(void *addr, int n) {             // despierta hasta n hilos que duermen en addr
+    return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
+}
+```
+
+| Operación | Qué hace | Retorna |
+| --- | --- | --- |
+| `FUTEX_WAIT(addr, val)` | **Atómicamente** respecto de `FUTEX_WAKE`: si `*addr == val`, encola al hilo y lo duerme. Si no, retorna **de inmediato**. | 0 si lo despertaron; −1 con `EAGAIN` si `*addr != val`; `EINTR` si llegó una señal; `ETIMEDOUT` si se venció el timeout |
+| `FUTEX_WAKE(addr, n)` | Despierta hasta n hilos dormidos en `addr` (`INT_MAX` = todos, es decir, broadcast). | cuántos despertó |
+| `..._PRIVATE` | Las mismas operaciones, para hilos del **mismo proceso** (más rápidas). Sin `_PRIVATE` funciona entre procesos si el entero está en memoria compartida. | |
+
+**Reglas de uso:**
+1. **Siempre en un `while`:** `while (cond) futex_wait(&x, v);`. El despertar puede ser espurio, puede llegar una señal, u otro hilo puede ganar la carrera.
+2. `futex_wait` **no** es un lock: solo garantiza que no duermes si el valor ya cambió. La lógica del lock la pones tú con instrucciones atómicas.
+3. El camino rápido (sin contención) **no hace syscall**: por eso es *fast userspace*.
+
+### Por qué evita el lost wake-up
+
+El «dormir a mano» del laboratorio 08 (`if (c == 0) sleep(); … wakeup();`) pierde el aviso si el productor despierta **entre** la comprobación y el `sleep`. Con futex, la comprobación la **repite el kernel** en el mismo instante en que encola:
+
+| # | Consumidor | Productor | c |
+| - | --- | --- | - |
+| 1 | `while (c == 0)`: es 0, así que va a dormir… | | 0 |
+| 2 | *(desalojado antes de la syscall)* | `c++` y `futex_wake(&c, 1)`: **no hay nadie dormido** | 1 |
+| 3 | `futex_wait(&c, 0)`: el kernel ve **c = 1 ≠ 0** y retorna `EAGAIN` | | 1 |
+| 4 | vuelve al `while`: c ≠ 0, así que **consume** | | 1 |
+
+Sin futex, el paso 3 sería un `sleep()` incondicional y el consumidor dormiría para siempre. Dentro del kernel, `FUTEX_WAIT` toma el lock de la cola (*hash bucket*) de esa dirección, **lee** `*addr`, compara y encola, todo bajo el mismo lock que usa `FUTEX_WAKE`.
+
+## 2. Un mutex con futex (lab 07)
+
+### Versión 1: dos estados (0 = libre, 1 = tomado)
+
+```c
+atomic_int f = 0;
+
+void lock(void) {
+    while (atomic_exchange(&f, 1) != 0)   // TAS: si estaba en 0, ya es mío
+        futex_wait(&f, 1);                // si sigue tomado, duermo (si ya se liberó, retorna)
+}
+void unlock(void) {
+    atomic_store(&f, 0);
+    futex_wake(&f, 1);                    // ← SIEMPRE una syscall: no sé si alguien espera
+}
+```
+
+Es **correcto**, pero `unlock` hace una syscall aunque nadie esté esperando. En la medición de abajo hizo **5 000 000** `futex_wake`, uno por cada unlock.
+
+### Versión 2: tres estados (Drepper, *«Futexes Are Tricky»*)
+
+Es el mismo esquema que usa `pthread_mutex_t` de glibc (su *low-level lock*):
+
+| Valor | Significado |
+| - | --- |
+| 0 | libre |
+| 1 | tomado, **sin** esperadores |
+| 2 | tomado y **quizá** con esperadores |
+
+```c
+atomic_int f = 0;
+
+void lock(void) {
+    int c = 0;
+    if (atomic_compare_exchange_strong(&f, &c, 1))
+        return;                       // (1) camino rápido: 0 → 1 con un CAS, SIN syscall
+    if (c != 2)
+        c = atomic_exchange(&f, 2);   // (2) anuncio «hay esperadores» (y si justo quedó libre, lo tomo)
+    while (c != 0) {                  // (3) mientras no lo haya obtenido:
+        futex_wait(&f, 2);            //     duermo solo si sigue en 2
+        c = atomic_exchange(&f, 2);   //     al despertar, reintento DEJÁNDOLO EN 2
+    }
+}
+
+void unlock(void) {
+    if (atomic_fetch_sub(&f, 1) != 1) {   // (4) si era 1: nadie espera, quedó en 0 y NO hay syscall
+        atomic_store(&f, 0);              // (5) si era 2: lo libero…
+        futex_wake(&f, 1);                //     …y despierto a uno
+    }
+}
+```
+
+**Línea por línea:**
+- **(1)** Sin contención, adquirir cuesta un solo CAS. Es el caso común.
+- **(2)** Si el CAS falló, el lock estaba tomado. Pongo 2 con un `exchange`. Si el valor anterior era **0** (el dueño lo soltó entre medio), **ya es mío** (con valor 2, lo que es pesimista pero correcto).
+- **(3)** Al despertar **no sé** si quedan otros esperando, así que lo tomo con **2** y no con 1. Si lo tomara con 1, al soltarlo nadie despertaría a los demás: sería **un lost wake-up**.
+- **(4)** `fetch_sub` devuelve el valor anterior. Si era 1, no había nadie: quedó en 0 **sin** syscall.
+- **(5)** Si era 2, alguien puede estar durmiendo: lo dejo en 0 y despierto a uno.
+
+<Solucion titulo="¿Por qué no basta con 2 estados y un «if hay alguien»?">
+
+Porque «¿hay alguien esperando?» **no se puede saber** con un solo bit: el esperador anuncia su espera **antes** de dormir, y hay una ventana en que ya anunció pero todavía no llegó al kernel (o ya despertó pero aún no reintentó). El estado 2 significa «**quizá** hay esperadores». Se paga, a lo sumo, un `futex_wake` de más, pero **nunca** se pierde uno. Por eso el artículo de Drepper se llama *«Futexes Are Tricky»*: sus primeras versiones «obvias» tenían exactamente ese bug.
+
+</Solucion>
+
+### Mediciones (WSL2, 12 núcleos, glibc 2.39)
+
+`transfers.c` del lab con 5 hilos, 10⁶ transferencias por hilo y 10 cuentas. El lock se toma **en cada transferencia** (5·10⁶ lock/unlock en total). Fuente: `~/so/verif_parcial/futex/locks.c`.
+
+| Lock | Tiempo | Resultado | `futex_wait` | `futex_wake` |
+| --- | --: | --- | --: | --: |
+| sin lock | 120 ms | **FALLA** (balances erróneos) | 0 | 0 |
+| spinlock TAS | ~730 ms | OK | 0 | 0 |
+| futex de **2** estados | 540–800 ms | OK | ~0.5–0.9 M | **5 000 000** |
+| futex de **3** estados | ~290 ms | OK | ~0.56 M | ~0.76 M |
+| semáforo binario (`sem_t`) | ~730 ms | OK | (interno) | (interno) |
+| `pthread_mutex_t` | ~275 ms | OK | (interno) | (interno) |
+| futex de 3 estados, **un lock por hilo** | **11 ms** | OK | 4 | 5 |
+
+**Lo que muestran los números:**
+- El futex de 3 estados **empata con `pthread_mutex`**, porque es el mismo algoritmo.
+- El de 2 estados paga una syscall por **cada** unlock.
+- El spinlock quema CPU con 5 hilos peleando.
+- `sem_t` usado como mutex salió más lento en esta prueba de alta contención. Funciona, pero `pthread_mutex` está optimizado para ese caso; la causa exacta depende de la implementación interna de glibc.
+- La **granularidad** domina todo: tomar el lock una vez por hilo (alrededor de todo el `for`) es 25 veces más rápido, pero **serializa** a los hilos (el trabajo ya no es paralelo). En este problema todos tocan las mismas 10 cuentas, así que no hay paralelismo que perder. Si cada hilo tocara cuentas distintas, convendría **un lock por cuenta**.
+
+## 3. Lab 07: `transfers.c` de las tres maneras
+
+El código base suma `amount` a las 10 cuentas `N_TRANSFERS` veces por hilo. `accounts[j] += amount` **no es atómico** (load, add, store), así que sin lock se pierden sumas. El balance esperado es $\sum_{i=1}^{5} 10\,i \cdot N = 150\,N$.
+
+```c
+/* 1) FUTEX (versión de 3 estados de arriba) */
+futex_lock(&f);      for (...) accounts[j] += amount;      futex_unlock(&f);
+
+/* 2) Semáforo binario */
+sem_t mutex;         sem_init(&mutex, 0, 1);               // 0 = entre hilos, valor inicial 1
+sem_wait(&mutex);    for (...) accounts[j] += amount;      sem_post(&mutex);
+
+/* 3) pthread_mutex_t */
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;          // o pthread_mutex_init(&lock, NULL)
+pthread_mutex_lock(&lock);  for (...) accounts[j] += amount;  pthread_mutex_unlock(&lock);
+```
+
+*«De manera eficiente»* (enunciado): usar primitivas que **bloquean** y no giran, y elegir bien **dónde** va el lock (ver la tabla anterior).
+
+## 4. `pthread_mutex_t` a fondo
+
+```c
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;   // inicialización estática (atributos por defecto)
+pthread_mutex_init(&m, &attr);                    // o dinámica con atributos
+pthread_mutex_lock(&m);                           // bloquea si está tomado
+pthread_mutex_trylock(&m);                        // no bloquea: EBUSY si está tomado
+pthread_mutex_timedlock(&m, &abstime);            // ETIMEDOUT (abstime en CLOCK_REALTIME)
+pthread_mutex_unlock(&m);
+pthread_mutex_destroy(&m);                        // no destruir un mutex tomado
+```
+
+Las funciones de pthreads **retornan** el código de error (0 = éxito); **no** usan `errno`.
+
+### Tipos de mutex (probado en WSL, `tipos.c`)
+
+| Situación | `NORMAL` | `ERRORCHECK` | `RECURSIVE` |
+| --- | --- | --- | --- |
+| El dueño vuelve a hacer `lock` | **deadlock** eterno (con `timedlock`: `ETIMEDOUT`) | `EDEADLK` | 0: cuenta +1 (hay que hacer tantos unlock como lock) |
+| Otro hilo hace `trylock` | `EBUSY` | `EBUSY` | `EBUSY` |
+| Otro hilo (no dueño) hace `unlock` | **indefinido** | `EPERM` | `EPERM` |
+| `unlock` de un mutex libre | **indefinido** | `EPERM` | `EPERM` |
+
+`PTHREAD_MUTEX_DEFAULT` en Linux se comporta como `NORMAL`. Se elige con `pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK)`. **Para depurar, usa ERRORCHECK.** El tipo RECURSIVE sirve cuando una función con lock llama a otra que toma el mismo lock (aunque suele indicar un mal diseño).
+
+### Otros atributos
+
+| Atributo | Para qué |
+| --- | --- |
+| `pthread_mutexattr_setpshared(&a, PTHREAD_PROCESS_SHARED)` | mutex **entre procesos**; debe vivir en memoria compartida (`mmap MAP_SHARED` o `shm_open`) |
+| `pthread_mutexattr_setprotocol(&a, PTHREAD_PRIO_INHERIT)` | **herencia de prioridad**: el dueño hereda la prioridad del esperador más prioritario (resuelve la [inversión de prioridad](/semaforos/basicos/#errores-típicos)) |
+| `pthread_mutexattr_setrobust(&a, PTHREAD_MUTEX_ROBUST)` | si el dueño **muere** con el lock tomado, el siguiente `lock` retorna `EOWNERDEAD` (y se repara con `pthread_mutex_consistent`) en vez de colgarse para siempre |
+| `PTHREAD_MUTEX_ADAPTIVE_NP` (GNU) | **gira un poco antes de dormir** (*two-phase lock*): conviene si las SC son cortas |
+
+### Mutex vs semáforo binario vs spinlock
+
+| | `pthread_mutex_t` | `sem_t` con valor 1 | spinlock (`pthread_spin_lock` o TAS) |
+| --- | --- | --- | --- |
+| **Dueño** | sí: solo el que lo tomó puede soltarlo | **no**: cualquier hilo puede hacer `sem_post` | no |
+| Espera | bloquea (futex) | bloquea (futex) | gira |
+| Sirve para **señalizar** entre hilos (A avisa a B) | no | **sí** (`sem = 0`, A hace post y B hace wait) | no |
+| Contar recursos | no | sí (valor k) | no |
+| Herencia de prioridad, robustez | sí | no | no |
+| Uso típico | exclusión mutua | contar y señalizar, entre procesos | SC muy cortas, kernel, handlers |
+
+:::caution[fork con un mutex tomado]
+`fork()` copia **solo el hilo que llama**. Si otro hilo tenía un mutex tomado, en el hijo el mutex queda **tomado para siempre** (su dueño no existe). Ver [fork](/procesos/fork/).
+:::
+
+## 5. Semáforos POSIX a fondo
+
+### Sin nombre (`sem_init`) y con nombre (`sem_open`)
+
+```c
+/* SIN nombre: vive en una variable */
+sem_t s;
+sem_init(&s, 0, 1);        // pshared = 0: entre hilos del proceso
+sem_init(p, 1, 1);         // pshared ≠ 0: entre PROCESOS, pero p debe estar en memoria compartida
+
+/* CON nombre: lo encuentra cualquier proceso por su nombre; vive en /dev/shm/sem.cs3015 */
+sem_t *s = sem_open("/cs3015", O_CREAT | O_EXCL, 0600, 1);  // crear con valor 1
+sem_t *s = sem_open("/cs3015", 0);                          // abrir uno existente
+sem_close(s);              // lo cierra este proceso
+sem_unlink("/cs3015");     // lo borra del sistema (persiste hasta unlink o reinicio)
+```
+
+Probado en WSL (`semproc.c`: 4 procesos hijos con `fork`, 200 000 incrementos cada uno de un contador en `mmap MAP_SHARED`):
+
+```text
+sin semáforo       cont =  609245  (esperado 800000)  RACE
+sem_open (nombre)  cont =  800000  (esperado 800000)  OK
+sem_init pshared=1 cont =  800000  (esperado 800000)  OK
+```
+
+:::caution[El error clásico entre procesos]
+`sem_init(&s, 1, 1)` sobre una variable **global normal** y luego `fork()` **no funciona**: cada proceso tiene su **copia** del semáforo (y del contador). El semáforo **y los datos** deben estar en memoria compartida, o hay que usar `sem_open`.
+:::
+
+### Detalles que preguntan
+
+- `sem_trywait`: retorna −1 con `errno = EAGAIN` si el valor es 0. `sem_timedwait`: `ETIMEDOUT`.
+- Los semáforos **sí** usan `errno` (retornan −1), a diferencia de pthreads.
+- `sem_wait` puede retornar −1 con **`EINTR`** si llega una señal. Lo robusto es `while (sem_wait(&s) == -1 && errno == EINTR) ;`.
+- `sem_post` es **async-signal-safe**: se puede llamar desde un *signal handler* (`pthread_mutex_unlock` no).
+- `sem_getvalue` **nunca** devuelve negativo en Linux: si hay esperadores devuelve 0. En la notación de Stallings, `count < 0` indica cuántos esperan; en POSIX eso **no** se ve.
+- Por dentro, glibc implementa `sem_t` con un contador y un contador de esperadores, sobre **futex**.
+- Hay una API anterior, **System V** (`semget`, `semop`, `semctl`), con **conjuntos** de semáforos y operaciones múltiples atómicas. Es legado.
+
+## 6. Condition variables (el «monitor en C»)
+
+```c
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t  c = PTHREAD_COND_INITIALIZER;
+
+pthread_mutex_lock(&m);
+while (!condicion)                 // WHILE, nunca if (semántica Mesa + despertares espurios)
+    pthread_cond_wait(&c, &m);     // libera m ATÓMICAMENTE, duerme y, al volver, retoma m
+/* … usar el estado … */
+pthread_mutex_unlock(&m);
+
+pthread_cond_signal(&c);           // despierta a uno (si hay)
+pthread_cond_broadcast(&c);        // despierta a todos
+```
+
+**Por qué `while`, con evidencia:** buffer acotado con 3 productores y 3 consumidores (`pc_cond.c`, 600 000 ítems). Tres corridas de cada versión:
+
+```text
+while suma=60000300000 esperado=60000300000  errores(buffer vacío/lleno)=0   OK
+if    suma=61772231084 esperado=60000300000  errores(buffer vacío/lleno)=35  FALLA
+if    suma=61551859094 esperado=60000300000  errores(buffer vacío/lleno)=8   FALLA
+if    suma=66735960505 esperado=60000300000  errores(buffer vacío/lleno)=62  FALLA
+```
+
+Con `if`, un consumidor despertado por `signal` compite por el mutex con otros. Cuando por fin lo obtiene, **otro consumidor ya se llevó el ítem**, y saca de un buffer vacío (lee basura, por eso la suma no cuadra). Es la semántica **Mesa**: `signal` es solo una pista. Ver [monitores](/monitores/monitores/).
+
+## 7. ¿Qué primitiva uso?
+
+| Necesito… | Uso |
+| --- | --- |
+| exclusión mutua entre hilos | `pthread_mutex_t` |
+| exclusión mutua en el kernel o en un handler (no se puede dormir) | spinlock (y deshabilitar interrupciones en monoprocesador) |
+| limitar a k el acceso a un recurso | semáforo con valor k |
+| que A avise a B (orden entre hilos) | semáforo con valor 0, o cond + flag |
+| esperar una condición arbitraria sobre el estado | mutex + condition variable (`while`) |
+| que N hilos se esperen en una fase | `pthread_barrier_t` |
+| sincronizar **procesos** | `sem_open`, o mutex/sem con `pshared` en memoria compartida |
+| construir una primitiva nueva | futex + atómicas (con cuidado: *«Futexes Are Tricky»*) |
+
+<Quiz
+	client:visible
+	id="futex"
+	preguntas={[
+		{ q: '¿Qué hace `futex_wait(&x, v)` si x ya NO vale v?', opts: ['Duerme igual', 'Retorna de inmediato (EAGAIN)', 'Espera a que x valga v', 'Hace x = v'], ok: 1, why: 'La comprobación atómica en el kernel es lo que evita el lost wake-up.' },
+		{ q: 'En el mutex de 3 estados, ¿por qué el que despierta toma el lock con 2 y no con 1?', opts: ['Por rendimiento', 'Porque no sabe si quedan otros esperando; con 1 nadie los despertaría', 'Porque 1 significa libre', 'Es indistinto'], ok: 1 },
+		{ q: '¿Cuándo `unlock` del mutex de 3 estados NO hace syscall?', opts: ['Nunca', 'Cuando el valor era 1 (sin esperadores)', 'Cuando era 2', 'Siempre'], ok: 1 },
+		{ q: 'Un hilo con un mutex ERRORCHECK lo vuelve a pedir:', opts: ['deadlock', 'EDEADLK', 'EBUSY', 'éxito'], ok: 1 },
+		{ q: 'Un hilo que NO es dueño hace unlock de un mutex NORMAL:', opts: ['EPERM', 'Se libera sin problema', 'Comportamiento indefinido', 'Deadlock'], ok: 2, why: 'Con ERRORCHECK o RECURSIVE retorna EPERM; con NORMAL/DEFAULT es indefinido.' },
+		{ q: 'La diferencia clave entre mutex y semáforo binario:', opts: ['El mutex no bloquea', 'El mutex tiene dueño; el semáforo lo puede postear cualquier hilo', 'El semáforo es más rápido', 'Ninguna'], ok: 1 },
+		{ q: 'Para sincronizar dos procesos después de fork con `sem_init`:', opts: ['pshared = 0 y variable global', 'pshared ≠ 0 y el sem_t en memoria compartida (mmap MAP_SHARED)', 'basta pshared ≠ 0', 'no se puede'], ok: 1 },
+		{ q: '¿Por qué `pthread_cond_wait` va dentro de un while?', opts: ['Por estilo', 'Semántica Mesa y despertares espurios: la condición puede ser falsa al volver', 'Para no liberar el mutex', 'Porque signal es Hoare'], ok: 1 },
+		{ q: '`sem_getvalue` con 3 hilos bloqueados en Linux devuelve…', opts: ['−3', '0', '3', 'error'], ok: 1, why: 'POSIX permite 0 o el negativo; Linux/glibc devuelve 0.' },
+	]}
+/>
+
+<Fuente archivos={['lab2/07-OSL-Mutex_Locks_Semaphores.pdf (actividad: transfers.c con FUTEX, semáforo binario y pthread_mutex)', 'lab2/Resumenes/07-Locks-Semaphores-Pthreads-Futex.md', 'WSL ~/so/sem4/07_locks_semaphores/locks_semaphores/transfers.c', 'WSL ~/so/sem4/08-Producer-consumer/prod-cons-futex.c', 'Verificación propia: WSL ~/so/verif_parcial/futex/{locks,tipos,semproc,pc_cond}.c', 'U. Drepper, «Futexes Are Tricky» (2011)', 'man 2 futex, man 7 sem_overview, man 3 pthread_mutexattr_settype', 'Stallings §5.4 (semáforos)']} />
