@@ -1,6 +1,6 @@
 ---
 title: 'Simulacro 2 · estilo E1 2024-II / 2025-2'
-description: 'Simulacro de 20 puntos: contar Hello con fork + exec + threads, variantes de Bakery, un monitor del puente de Barranco, un semáforo con futex y conceptos. Con solucionario verificado en WSL y pauta.'
+description: 'Simulacro de 20 puntos: contar Hello con fork + exec + threads, variantes de Bakery, un monitor del puente de Barranco, un semáforo con futex y conceptos. Con solucionario verificado en ejecuciones de prueba y pauta.'
 ---
 
 import Solucion from '../../../components/Solucion.astro';
@@ -45,7 +45,7 @@ a) (2 pts) ¿Cuántas veces se imprime «Hello!»? Justifica por proceso.
 b) (0.5 pts) ¿Cuántos procesos existen en total, incluido el original?
 c) (0.5 pts) Si se borra `setbuf(stdout, NULL)` y se ejecuta `./hola | wc -l`, ¿cambia el resultado? ¿Por qué?
 
-<Solucion titulo="Solución (ejecutado en WSL: 12 líneas)">
+<Solucion titulo="Solución (ejecución de prueba: 12 líneas)">
 
 **a) 12.**
 
@@ -65,7 +65,7 @@ Trampas:
 
 **b) 6 procesos:** P, C, 2 hijos de los hilos de P y 2 de los hilos de C.
 
-**c) Sí, cambia y no es determinista.** En WSL dio **22, 23 o 24** en 6 corridas (con terminal, 12). Con la salida a un pipe, stdout tiene **buffer completo**. Cada `fork()` de un hilo copia el buffer de P, con los «Hello» aún no escritos, y el `exit(0)` del hijo los **vacía otra vez** (duplicados). En cambio, `execv` **descarta** el buffer copiado en C. Cuántas líneas hay en el buffer en el momento de cada fork depende del intercalado de los hilos.
+**c) Sí, cambia y no es determinista.** En la ejecución de prueba dio **22, 23 o 24** en 6 corridas (con terminal, 12). Con la salida a un pipe, stdout tiene **buffer completo**. Cada `fork()` de un hilo copia el buffer de P, con los «Hello» aún no escritos, y el `exit(0)` del hijo los **vacía otra vez** (duplicados). En cambio, `execv` **descarta** el buffer copiado en C. Cuántas líneas hay en el buffer en el momento de cada fork depende del intercalado de los hilos.
 
 **Pauta:**
 - a) 12 con el desglose: 2. 12 sin desglose: 1. 10 (olvidar el «Hello» inicial de C) o 14 (contar el printf después de execv): 0.5.
@@ -145,7 +145,7 @@ a) (5 pts) Escribe las variables compartidas y las dos funciones.
 b) (1 pt) Explica por qué tu solución cumple R3.
 c) (1 pt) ¿Dónde usas `broadcast` y dónde podrías usar `signal`? Justifica.
 
-<Solucion titulo="Solución (probada en WSL: 6 autos por lado, 3 s, con asserts)">
+<Solucion titulo="Solución (ejecución de prueba: 6 autos por lado, 3 s, con asserts)">
 
 ```c
 #define CAP 3
@@ -186,7 +186,7 @@ void salir(int d) {
 }
 ```
 
-Resultado en WSL: *«cruces norte = 9 120, sur = 9 118; nunca sentidos opuestos ni más de 3; máximo de autos seguidos con el otro lado esperando = 5»*. Los asserts de R1 y R2 no se dispararon, y el reparto casi exacto entre los dos lados muestra que no hay inanición.
+Resultado de la ejecución de prueba: *«cruces norte = 9 120, sur = 9 118; nunca sentidos opuestos ni más de 3; máximo de autos seguidos con el otro lado esperando = 5»*. Los asserts de R1 y R2 no se dispararon, y el reparto casi exacto entre los dos lados muestra que no hay inanición.
 
 **b) R3:** mientras el sentido d tiene el puente y hay alguien esperando del otro lado, cada entrada suma `seguidos`. Al llegar a 5, `puede_entrar(d)` es falso para los nuevos autos de d, así que el puente **se vacía** (a lo sumo 3 autos terminan de cruzar en tiempo finito). Con el puente vacío, `puede_entrar(1−d)` es verdadero: el primero del otro lado entra, cambia `sentido` y reinicia `seguidos`. Cada lado espera, como máximo, 5 cruces del otro más los que estaban sobre el puente.
 
@@ -217,7 +217,7 @@ Requisitos: sin espera activa prolongada, sin *lost wake-up* y, para el puntaje 
 a) (3 pts) Escribe ambas funciones.
 b) (1 pt) Muestra con una traza por qué tu solución no pierde despertares.
 
-<Solucion titulo="Solución (probada en WSL: como mutex, como multiplex y en productor–consumidor 3×3)">
+<Solucion titulo="Solución (ejecución de prueba: como mutex, como multiplex y en productor–consumidor 3×3)">
 
 ```c
 void fsem_wait(fsem_t *s) {
@@ -239,7 +239,7 @@ void fsem_post(fsem_t *s) {
 }
 ```
 
-Pruebas en WSL:
+Ejecuciones de prueba:
 - como mutex (8 hilos × 200 000 incrementos): **1 600 000** ✔;
 - como multiplex (valor 3): nunca más de 3 dentro ✔;
 - productor–consumidor 3 × 3 con buffer de 4: la suma es **exacta** ✔.
@@ -280,4 +280,4 @@ b) (1 pt) En lectores–escritores con semáforos, el **primer** lector hace `se
 
 </Solucion>
 
-<Fuente archivos={['Simulacro propio basado en for_partial/E1_OS_2024_II__Solucionario_.pdf y E1_OS_20252.pdf (formato)', 'WSL ~/so/verif_parcial/simulacros/{s2_hello,s2_puente,s2_fsem}.c', 'Verificación de Bakery: scratchpad bakery.py (N = 2, max no atómico)']} />
+<Fuente archivos={['Simulacro propio basado en for_partial/E1_OS_2024_II__Solucionario_.pdf y E1_OS_20252.pdf (formato)', 'prueba propia verif_parcial/simulacros/{s2_hello,s2_puente,s2_fsem}.c', 'Verificación de Bakery: scratchpad bakery.py (N = 2, max no atómico)']} />

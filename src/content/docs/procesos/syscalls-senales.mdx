@@ -75,7 +75,7 @@ else { wait(NULL); printf("Child Complete"); }                // padre: espera a
 | Cómo verlo | `ps aux` → STAT `Z` (`<defunct>`) | `ps -o ppid` → PPID = 1 |
 | Código de clase | `if (fork() == 0) exit(0); sleep(20);` | `if (fork() != 0) exit(0); else sleep(23);` |
 
-<Solucion titulo="Ejercicio (WSL ~/so/tree_forks/main.c): ¿qué imprime?">
+<Solucion titulo="Ejercicio (código del curso so/tree_forks/main.c): ¿qué imprime?">
 
 ```c
 int j = 2; printf("P0\n");
@@ -85,7 +85,7 @@ fork();
 printf("j = %d\n", j);
 ```
 
-- «P0» se imprime **una vez** si la salida es una **terminal** (buffer de línea: el `\n` lo vacía antes del fork). Pero con `./t | sort | uniq -c` en WSL salió **4 veces**: con un pipe el buffer es completo, «P0\n» sigue en el buffer de usuario al hacer fork y **cada copia del proceso lo imprime al salir**. Para evitarlo: `fflush(stdout)` antes de `fork()`.
+- «P0» se imprime **una vez** si la salida es una **terminal** (buffer de línea: el `\n` lo vacía antes del fork). Pero con `./t | sort | uniq -c` en la ejecución de prueba salió **4 veces**: con un pipe el buffer es completo, «P0\n» sigue en el buffer de usuario al hacer fork y **cada copia del proceso lo imprime al salir**. Para evitarlo: `fflush(stdout)` antes de `fork()`.
 - Tras el primer fork: el hijo tiene `j = 5` y el padre `j = 4`. El segundo fork duplica **ambos**, así que quedan 4 procesos: se imprime `j = 4` dos veces y `j = 5` dos veces, **en cualquier orden**.
 - Cada proceso tiene su **copia** de `j`, así que los cambios de uno no afectan a otro.
 
@@ -167,4 +167,4 @@ Comandos: `kill -2 1234` y `kill -SIGINT 1234` son equivalentes; `kill 1234` env
 	]}
 />
 
-<Fuente archivos={['lab 1/Resumenes/Procesos-Signals/01-Procesos-Syscalls-Signals.md (02-OSL-Processes-Syscalls-Signals)', 'WSL ~/so/OST-02-Processes_Syscalls_Signals/{zombie,orphan,fork1,fork2,sigaction}.c', 'WSL ~/so/tree_forks/main.c', 'Stallings 9e tablas 2.6–2.7']} />
+<Fuente archivos={['lab 1/Resumenes/Procesos-Signals/01-Procesos-Syscalls-Signals.md (02-OSL-Processes-Syscalls-Signals)', 'código del curso so/OST-02-Processes_Syscalls_Signals/{zombie,orphan,fork1,fork2,sigaction}.c', 'código del curso so/tree_forks/main.c', 'Stallings 9e tablas 2.6–2.7']} />

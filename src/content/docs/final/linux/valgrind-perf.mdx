@@ -1,0 +1,175 @@
+---
+title: 'Valgrind (memcheck, helgrind) y perf'
+description: 'La actividad de Valgrind resuelta: qué detecta memcheck (con la salida real de cada tipo de error), las respuestas a mem1.c, mem2.c y mem3.c (dos de ellos no tienen errores), lo que memcheck NO ve, helgrind detectando una race, y cómo contar page faults con perf.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+**Valgrind** ejecuta tu programa dentro de una **CPU simulada** que vigila cada lectura y escritura de memoria. Es como un **inspector** que te sigue mientras cocinas: anota cada vez que usas un ingrediente que no compraste, tocas un plato que ya lavaste o te olvidas algo en el horno. Va unas 20–50 veces más lento, pero te dice **la línea exacta** del error.
+- **memcheck** busca errores de memoria.
+- **helgrind** busca condiciones de carrera entre hilos.
+- **perf** es otra herramienta: cuenta eventos del hardware y del kernel, como los page faults.
+</EnSimple>
+
+## Uso
+
+```bash
+gcc -g -O0 prog.c -o prog                       # -g: números de línea en los reportes
+valgrind --tool=memcheck ./prog                 # memcheck es la herramienta por defecto
+valgrind --leak-check=full ./prog               # detalle de cada fuga
+valgrind --track-origins=yes ./prog             # de dónde salió un valor sin inicializar
+valgrind --tool=helgrind ./prog_con_hilos
+```
+
+Compila con **`-g`**: sin eso, los reportes muestran solo direcciones y no `archivo.c:línea`.
+
+## Qué detecta memcheck (con su mensaje real)
+
+Cada caso es un programa de prueba propio (`errores.c <caso>`), ejecutado con `valgrind --leak-check=full`:
+
+| # | Error | Código | Lo que dice memcheck |
+| :-: | --- | --- | --- |
+| 1 | **escritura fuera del bloque** (heap) | `a = malloc(10*sizeof(int)); a[10] = 7;` | `Invalid write of size 4 … Address … is 0 bytes after a block of size 40 alloc'd` |
+| 2 | **usar memoria ya liberada** | `free(a); printf("%d", a[0]);` | `Invalid read of size 4 … Address … is 0 bytes inside a block of size 40 free'd` |
+| 3 | **doble free** | `free(a); free(a);` | `Invalid free() / delete / delete[] / realloc()` |
+| 4 | **fuga de memoria** | `s = malloc(64); s = NULL;` | `64 bytes in 1 blocks are definitely lost` |
+| 5 | **valor sin inicializar** | `int x; *p = x + 1; if (*p > 3) …` | `Conditional jump or move depends on uninitialised value(s)` |
+| 6 | **free de algo que no es del heap** | `int pila[4]; free(pila);` | `Invalid free() … Address … is on thread 1's stack` |
+
+**Detalles que suelen preguntar:**
+- En el caso **5**, el error aparece en la línea del **`if`**, no en la de `x + 1`. Memcheck solo protesta cuando un valor no inicializado **cambia el comportamiento**: un salto condicional, una dirección o una syscall. Copiarlo o hacer aritmética con él no se reporta. Con `--track-origins=yes` te dice dónde nació el valor.
+- **Tipos de fuga:**
+  - **definitely lost**: no queda ningún puntero al bloque;
+  - **indirectly lost**: solo se llega a él desde un bloque perdido;
+  - **possibly lost**: queda un puntero al interior del bloque;
+  - **still reachable**: sigue habiendo un puntero al terminar, que no es grave.
+- `ERROR SUMMARY: N errors from M contexts` cuenta errores **distintos** (M) y sus apariciones (N).
+
+## La actividad: `mem1.c`, `mem2.c`, `mem3.c`
+
+> «¿Qué errores tiene el programa? ¿En qué líneas? Corregir y validar con memcheck.»
+
+<Solucion titulo="mem1.c: 100 malloc y 100 free">
+
+```c
+char *ptr[100];
+for (size_t i = 0; i < 100; i++) ptr[i] = malloc(100);
+for (size_t i = 0; i < 100; i++) free(ptr[i]);
+```
+
+**Ejecución de prueba:**
+
+```text
+total heap usage: 100 allocs, 100 frees, 10,000 bytes allocated
+All heap blocks were freed -- no leaks are possible
+ERROR SUMMARY: 0 errors from 0 contexts
+```
+
+**No tiene errores.** Cada bloque se libera exactamente una vez. Es el caso de control: así se ve un reporte limpio. Una respuesta completa también menciona que no se revisa si `malloc` devolvió NULL, aunque memcheck no lo reporta.
+
+</Solucion>
+
+<Solucion titulo="mem2.c: puntero a una variable global">
+
+```c
+int a;
+int main() { int *ptr = &a; *ptr = 73; return 0; }
+```
+
+**Ejecución de prueba:** `0 allocs, 0 frees … ERROR SUMMARY: 0 errors`.
+
+**No tiene errores.** `a` es una global en **bss**, inicializada en 0 y válida durante toda la ejecución. `ptr` apunta a ella y escribir ahí es legal. No hay heap involucrado, así que tampoco hay fugas.
+
+</Solucion>
+
+<Solucion titulo="mem3.c: variable sin inicializar (el único con error)">
+
+```c
+int number;            // línea 4: Should be initialized
+if (number == 0) {     // línea 6
+    printf("Number is zero");
+}
+```
+
+**Ejecución de prueba** (con `--track-origins=yes`):
+
+```text
+Conditional jump or move depends on uninitialised value(s)
+   at 0x109159: main (mem3.c:6)
+ Uninitialised value was created by a stack allocation
+   at 0x109149: main (mem3.c:3)
+ERROR SUMMARY: 1 errors from 1 contexts
+```
+
+- **Error:** se usa `number` sin inicializar en la **línea 6**, la del `if`. Memcheck indica que el valor nace en el marco de `main` (línea 3).
+- **Corrección:** `int number = 0;`. Con eso, memcheck da 0 errores.
+- GCC también lo advierte con `-Wall`: `'number' is used uninitialized`.
+
+</Solucion>
+
+<Solucion titulo="hello.c y los «2 allocs» misteriosos">
+
+`hello.c` hace un `malloc(sizeof(int))` y su `free`, pero memcheck reporta **`2 allocs, 2 frees, 4,100 bytes allocated`**. El segundo bloque, de **4096 B**, es el **buffer de `stdout`** que `printf` reserva la primera vez. Ojo: 4100 = 4 + 4096. glibc lo libera al terminar.
+
+</Solucion>
+
+## Lo que memcheck **no** ve
+
+- **Desbordes en el stack o en globales.** [`memcpy1.c`](/final/linux/espacio-direcciones/#memcpy-y-sus-bugs) copia 1024 bytes a un arreglo local de 20 y memcheck reporta **0 errores**. Memcheck conoce los límites de cada bloque del heap porque intercepta `malloc`, pero no los de cada arreglo del stack. Para eso existe **AddressSanitizer** (`gcc -fsanitize=address`) o `-D_FORTIFY_SOURCE=2`.
+- **Errores de lógica** que no tocan memoria inválida.
+- **Caminos que no se ejecutaron:** Valgrind analiza **una** ejecución, no el programa completo.
+
+## helgrind: condiciones de carrera
+
+Dos hilos incrementan un contador global 1000 veces cada uno (`race.c`):
+
+```text
+== sin lock
+Possible data race during read of size 8 at 0x10C040 by thread #3
+   at 0x10921B: f (race.c:11)
+This conflicts with a previous write of size 8 by thread #2
+   at 0x109226: f (race.c:11)
+ Address 0x10c040 is 0 bytes inside data symbol "contador"
+
+== con pthread_mutex alrededor de contador++
+contador = 2000
+ERROR SUMMARY: 0 errors from 0 contexts
+```
+
+helgrind detecta la race **aunque esa ejecución haya dado el resultado correcto**: no depende de la suerte del entrelazado, sino de que **no hay un lock común** que ordene esos dos accesos (algoritmo *happens-before*). También detecta los mal usos de la API de pthreads (unlock de un mutex que no tienes) y las inversiones en el orden de los locks, que son posibles deadlocks.
+
+## perf: contar page faults
+
+La guía pide:
+
+```bash
+getconf PAGESIZE                       # 4096
+gcc -O0 arreglo.c -o arreglo           # sin optimizaciones, para que el recorrido no desaparezca
+sudo perf stat -e page-faults ./arreglo
+```
+
+`perf stat -e page-faults` muestra cuántos fallos de página tuvo el proceso. La guía escribe `sudo perf -e page-faults`, pero falta el subcomando `stat`. Si `perf` no está disponible (por ejemplo, en máquinas virtuales con un kernel sin `linux-tools`), el mismo número se obtiene desde el programa con `getrusage` (`ru_minflt + ru_majflt`), o con `/usr/bin/time -v ./arreglo` (líneas *Minor/Major page faults*).
+
+**Resultado esperado**, medido con `getrusage`: los fallos crecen **linealmente con N**, uno por página en la **primera escritura** y ninguno al volver a leer. La tabla y la explicación están en [paginación por demanda medida](/final/memoria-virtual/fundamentos/#medición-la-paginación-por-demanda-en-acción).
+
+Otros eventos útiles: `perf stat -e cycles,instructions,cache-misses,dTLB-load-misses ./prog`. Por ejemplo, recorrer una matriz **por columnas** dispara los fallos de caché y de TLB frente a recorrerla por filas (es la pregunta 5 de [ejercicios de memoria virtual](/final/ejercicios/memoria-virtual/#pregunta-5--recorrido-por-columnas)).
+
+<Quiz
+	client:visible
+	id="fin-valgrind"
+	preguntas={[
+		{ q: '¿Por qué compilar con -g antes de usar Valgrind?', opts: ['Para que sea más rápido', 'Para que los reportes muestren archivo:línea', 'Es obligatorio para ejecutar', 'Para activar helgrind'], ok: 1 },
+		{ q: 'mem1.c (100 malloc + 100 free) según memcheck…', opts: ['tiene 100 fugas', 'no tiene errores', 'tiene un doble free', 'usa memoria liberada'], ok: 1 },
+		{ q: 'En mem3.c, ¿en qué línea reporta memcheck el error?', opts: ['en la declaración `int number;`', 'en el `if (number == 0)`', 'en el printf', 'no reporta nada'], ok: 1 },
+		{ q: '`s = malloc(64); s = NULL;` produce…', opts: ['Invalid write', 'definitely lost: 64 bytes', 'Invalid free', 'still reachable'], ok: 1 },
+		{ q: 'Un desborde de un arreglo LOCAL (en el stack)…', opts: ['memcheck lo detecta siempre', 'memcheck normalmente no lo detecta (usa AddressSanitizer)', 'produce siempre segfault', 'es imposible en C'], ok: 1 },
+		{ q: 'helgrind reporta una data race cuando…', opts: ['el resultado fue incorrecto', 'dos hilos acceden a la misma variable (al menos uno escribe) sin un lock común que los ordene', 'hay un deadlock', 'hay una fuga'], ok: 1 },
+		{ q: '¿Qué comando cuenta page faults?', opts: ['valgrind --tool=perf', 'perf stat -e page-faults ./prog', 'getconf PAGESIZE', 'gdb bt'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['sem_9/10-OSL-Valgrind.pdf (actividad de laboratorio)', 'Código del curso sem9/valgrind/: hello.c, mem1.c, mem2.c, mem3.c (ejecuciones de prueba con memcheck)', 'Pruebas propias: errores.c (6 tipos de error), race.c (helgrind)', 'Valgrind User Manual (memcheck, helgrind)']} />

@@ -227,7 +227,7 @@ El hijo hereda la memoria **con el mutex bloqueado**. Aquí lo bloqueó el mismo
 
 Main crea 4 hilos pasando **la dirección de la misma `ConfigThread arg_struct`** local, y la modifica en cada iteración del `for`. Supón que el planificador ejecuta todo el `for` antes de que algún hilo lea sus argumentos.
 
-<Solucion titulo="Ver solución (verificada en WSL)">
+<Solucion titulo="Ver solución (verificada con una ejecución de prueba)">
 
 **1) Espacios [1]–[5]:**
 
@@ -239,7 +239,7 @@ pthread_create(&threads[i], NULL, rutina_hilo, (void *) &arg_struct);  // [4]
 pthread_join(threads[i], NULL);                                        // [5]
 ```
 
-**2) Race estructural:** los 4 hilos reciben **el mismo puntero**. Cuando leen, el `for` ya escribió la iteración `i = 3`, así que todos leen `local_id = 3` y `local_mult = 30`, y `acumulador_global` $= 4 \times 30 = \mathbf{120}$ en vez de 60. El mutex protege la suma, pero no la lectura de los argumentos. Lo verifiqué en WSL con una barrera: `id=3 mult=30` ×4 y un resultado de 120. **Corrección:** usar `ConfigThread args[n]` y pasar `&args[i]`, o un `malloc` por hilo.
+**2) Race estructural:** los 4 hilos reciben **el mismo puntero**. Cuando leen, el `for` ya escribió la iteración `i = 3`, así que todos leen `local_id = 3` y `local_mult = 30`, y `acumulador_global` $= 4 \times 30 = \mathbf{120}$ en vez de 60. El mutex protege la suma, pero no la lectura de los argumentos. Lo verifiqué en una ejecución de prueba con una barrera: `id=3 mult=30` ×4 y un resultado de 120. **Corrección:** usar `ConfigThread args[n]` y pasar `&args[i]`, o un `malloc` por hilo.
 
 </Solucion>
 
@@ -261,4 +261,4 @@ pthread_join(threads[i], NULL);                                        // [5]
 	]}
 />
 
-<Fuente archivos={['Stallings 9e, cap. 4 (§4.1–4.9)', 'lab 1/Resumenes/Stallings/03-Threads-Fundamentos-y-Tipos.md', 'lab 1/Resumenes/Stallings/04-Threads-en-SO-Reales.md', 'lab 1/Resumenes/Threads/01-Threads-Intro.md, 02-Threads.md (04-OSL-Threads)', 'lab2/Resumenes/12-Stallings-Cap4-Threads.md', 'WSL ~/so/threads/*.c', 'for_partial/Evaluaciones_OS_20261 (1).pdf']} />
+<Fuente archivos={['Stallings 9e, cap. 4 (§4.1–4.9)', 'lab 1/Resumenes/Stallings/03-Threads-Fundamentos-y-Tipos.md', 'lab 1/Resumenes/Stallings/04-Threads-en-SO-Reales.md', 'lab 1/Resumenes/Threads/01-Threads-Intro.md, 02-Threads.md (04-OSL-Threads)', 'lab2/Resumenes/12-Stallings-Cap4-Threads.md', 'código del curso so/threads/*.c', 'for_partial/Evaluaciones_OS_20261 (1).pdf']} />

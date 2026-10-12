@@ -51,7 +51,7 @@ const THREAD_PRINT: Prog = {
 		{ k: 'hello', who: 'C', line: 2, txt: 'Thread de C: parent ≠ 0 → imprime' },
 		{ k: 'note', who: 'C2', line: 1, txt: 'Thread de C2: parent == 0 → NO imprime' },
 	],
-	answer: '7 «Hello!» (opción 2). Verificado compilando y ejecutando en WSL.',
+	answer: '7 «Hello!» (opción 2). Verificado con una ejecución de prueba.',
 };
 
 const FORK_EXEC: Prog = {
@@ -88,7 +88,7 @@ const FORK_EXEC: Prog = {
 		{ k: 'hello', who: 'P', line: 14, txt: 'main de P: sem_wait pasa → imprime' },
 		{ k: 'block', who: 'H2', line: 13, txt: 'main de H2: sem_wait con valor 0 → bloqueado para siempre' },
 	],
-	answer: '4 «Hello!» (opción 1). Coincide con el solucionario y con la ejecución en WSL.',
+	answer: '4 «Hello!» (opción 1). Coincide con el solucionario y con una ejecución de prueba.',
 };
 
 function forkLoop(n: number): Prog {

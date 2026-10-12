@@ -1,6 +1,6 @@
 ---
 title: 'Mutex POSIX, futex y semáforos POSIX'
-description: 'Del hardware a pthreads: la syscall futex y por qué evita el lost wake-up, un mutex con futex de 2 y de 3 estados (Drepper) medido en WSL, el lab 07 (transfers.c de tres maneras), pthread_mutex a fondo (tipos, errores, atributos), semáforos POSIX con y sin nombre entre procesos, y condition variables.'
+description: 'Del hardware a pthreads: la syscall futex y por qué evita el lost wake-up, un mutex con futex de 2 y de 3 estados (Drepper) medido en ejecuciones de prueba, el lab 07 (transfers.c de tres maneras), pthread_mutex a fondo (tipos, errores, atributos), semáforos POSIX con y sin nombre entre procesos, y condition variables.'
 ---
 
 import Quiz from '../../../components/Quiz.tsx';
@@ -127,9 +127,9 @@ Porque «¿hay alguien esperando?» **no se puede saber** con un solo bit: el es
 
 </Solucion>
 
-### Mediciones (WSL2, 12 núcleos, glibc 2.39)
+### Mediciones (ejecución de prueba: x86-64, 12 núcleos, glibc 2.39)
 
-`transfers.c` del lab con 5 hilos, 10⁶ transferencias por hilo y 10 cuentas. El lock se toma **en cada transferencia** (5·10⁶ lock/unlock en total). Fuente: `~/so/verif_parcial/futex/locks.c`.
+`transfers.c` del lab con 5 hilos, 10⁶ transferencias por hilo y 10 cuentas. El lock se toma **en cada transferencia** (5·10⁶ lock/unlock en total). Fuente: prueba propia `verif_parcial/futex/locks.c`.
 
 | Lock | Tiempo | Resultado | `futex_wait` | `futex_wake` |
 | --- | --: | --- | --: | --: |
@@ -181,7 +181,7 @@ pthread_mutex_destroy(&m);                        // no destruir un mutex tomado
 
 Las funciones de pthreads **retornan** el código de error (0 = éxito); **no** usan `errno`.
 
-### Tipos de mutex (probado en WSL, `tipos.c`)
+### Tipos de mutex (ejecución de prueba, `tipos.c`)
 
 | Situación | `NORMAL` | `ERRORCHECK` | `RECURSIVE` |
 | --- | --- | --- | --- |
@@ -233,7 +233,7 @@ sem_close(s);              // lo cierra este proceso
 sem_unlink("/cs3015");     // lo borra del sistema (persiste hasta unlink o reinicio)
 ```
 
-Probado en WSL (`semproc.c`: 4 procesos hijos con `fork`, 200 000 incrementos cada uno de un contador en `mmap MAP_SHARED`):
+Ejecución de prueba (`semproc.c`: 4 procesos hijos con `fork`, 200 000 incrementos cada uno de un contador en `mmap MAP_SHARED`):
 
 ```text
 sin semáforo       cont =  609245  (esperado 800000)  RACE
@@ -311,4 +311,4 @@ Con `if`, un consumidor despertado por `signal` compite por el mutex con otros. 
 	]}
 />
 
-<Fuente archivos={['lab2/07-OSL-Mutex_Locks_Semaphores.pdf (actividad: transfers.c con FUTEX, semáforo binario y pthread_mutex)', 'lab2/Resumenes/07-Locks-Semaphores-Pthreads-Futex.md', 'WSL ~/so/sem4/07_locks_semaphores/locks_semaphores/transfers.c', 'WSL ~/so/sem4/08-Producer-consumer/prod-cons-futex.c', 'Verificación propia: WSL ~/so/verif_parcial/futex/{locks,tipos,semproc,pc_cond}.c', 'U. Drepper, «Futexes Are Tricky» (2011)', 'man 2 futex, man 7 sem_overview, man 3 pthread_mutexattr_settype', 'Stallings §5.4 (semáforos)']} />
+<Fuente archivos={['lab2/07-OSL-Mutex_Locks_Semaphores.pdf (actividad: transfers.c con FUTEX, semáforo binario y pthread_mutex)', 'lab2/Resumenes/07-Locks-Semaphores-Pthreads-Futex.md', 'código del curso so/sem4/07_locks_semaphores/locks_semaphores/transfers.c', 'código del curso so/sem4/08-Producer-consumer/prod-cons-futex.c', 'Verificación propia: prueba propia verif_parcial/futex/{locks,tipos,semproc,pc_cond}.c', 'U. Drepper, «Futexes Are Tricky» (2011)', 'man 2 futex, man 7 sem_overview, man 3 pthread_mutexattr_settype', 'Stallings §5.4 (semáforos)']} />

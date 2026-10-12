@@ -1,0 +1,161 @@
+---
+title: 'Conjunto residente, working set, limpieza y control de carga'
+description: 'Stallings §8.2 (segunda parte): cuántos frames dar a cada proceso (fija o variable, local o global), working set con tabla calculada, PFF y VSWS, política de limpieza, thrashing y control de carga (nivel de multiprogramación y qué proceso suspender).'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+La página anterior respondía **a quién** expulsar. Esta responde tres preguntas de **reparto**:
+- **¿Cuánto espacio le doy a cada proceso?** Si le das muy poco a alguien, pasa el día yendo a la estantería (muchos fallos). Si le das mucho, caben menos procesos.
+- **Cuando hay que expulsar, ¿le quito a cualquiera o solo al que pidió?**
+- **¿Cuántos procesos dejo en la sala?** Si entran demasiados, nadie avanza: todos están esperando libros. Eso es el **thrashing**.
+
+El **working set** es la idea que une todo: el conjunto de páginas que un proceso **está usando ahora**. Si cada proceso tiene su working set en RAM, todo va bien.
+</EnSimple>
+
+## Tamaño del conjunto residente
+
+Con menos frames por proceso caben **más procesos** en RAM, así que hay más probabilidad de tener alguno listo. Pero si un proceso tiene **muy pocos** frames, la tasa de fallos se dispara. Pasado cierto punto, darle **más** frames casi no mejora nada, por la localidad.
+
+| Asignación | Idea | Problema |
+| --- | --- | --- |
+| **Fija** | número fijo de frames por proceso, decidido al crearlo (según el tipo de proceso o lo que pida) | si es poco hay muchos fallos; si es mucho, caben pocos procesos |
+| **Variable** | el número de frames cambia durante la vida del proceso | hay que **medir** el comportamiento: overhead del SO |
+
+## Alcance del reemplazo: local o global
+
+- **Local:** la víctima sale del **mismo proceso** que causó el fallo.
+- **Global:** la víctima puede ser **cualquier** página no bloqueada de la memoria.
+
+| | **Reemplazo local** | **Reemplazo global** |
+| --- | --- | --- |
+| **Asignación fija** | el número de frames no cambia y la víctima sale de las páginas del propio proceso | **imposible**: si se le quita una página a otro, el tamaño ya no sería fijo |
+| **Asignación variable** | se reevalúa cada cierto tiempo cuántos frames darle; la víctima sale de los propios | **la más fácil y la más usada** (por ejemplo, en muchos UNIX): el proceso que falla **crece**, otro pierde un frame |
+
+**Variable + global** es simple, pero no tiene forma de saber **a quién** le conviene quitarle un frame: puede quitárselo a un proceso que lo necesitaba. Se compensa con *page buffering*: la página quitada queda un tiempo en una lista y se recupera barato.
+
+**Variable + local** necesita una estrategia para decidir **cuántos** frames dar. Ahí entra el working set.
+
+## Working set
+
+**Definición** (Denning): $W(t, \Delta)$ es el conjunto de páginas referenciadas en las **últimas Δ referencias** (unidades de tiempo virtual), mirando hacia atrás desde el instante t.
+
+**Propiedades:**
+- $W(t, \Delta + 1) \supseteq W(t, \Delta)$: una ventana más grande nunca tiene menos páginas.
+- $1 \le |W(t,\Delta)| \le \min(\Delta, N)$, donde N es el número de páginas del proceso.
+- Su tamaño **sube** durante las transiciones entre fases de localidad (las páginas viejas siguen en la ventana mientras llegan las nuevas) y **baja** cuando el proceso se estabiliza.
+
+**Ejemplo de Stallings (fig. 8.19).** Cadena `24 15 18 23 24 17 18 24 18 17 17 15 24 17 24 18`. Working set después de cada referencia, para cuatro tamaños de ventana (calculado):
+
+| ref | Δ = 2 | Δ = 3 | Δ = 4 | Δ = 5 |
+| :-: | --- | --- | --- | --- |
+| 24 | 24 | 24 | 24 | 24 |
+| 15 | 24 15 | 24 15 | 24 15 | 24 15 |
+| 18 | 15 18 | 24 15 18 | 24 15 18 | 24 15 18 |
+| 23 | 18 23 | 15 18 23 | 24 15 18 23 | 24 15 18 23 |
+| 24 | 23 24 | 18 23 24 | 15 18 23 24 | 24 15 18 23 |
+| 17 | 24 17 | 23 24 17 | 18 23 24 17 | 15 18 23 24 17 |
+| 18 | 17 18 | 24 17 18 | 23 24 17 18 | 18 23 24 17 |
+| 24 | 18 24 | 17 18 24 | 24 17 18 | 23 24 17 18 |
+| 18 | 24 18 | 18 24 | 17 18 24 | 24 17 18 |
+| 17 | 18 17 | 24 18 17 | 18 24 17 | 17 18 24 |
+| 17 | 17 | 18 17 | 24 18 17 | 18 24 17 |
+| 15 | 17 15 | 17 15 | 18 17 15 | 24 18 17 15 |
+| 24 | 15 24 | 17 15 24 | 17 15 24 | 18 17 15 24 |
+| 17 | 24 17 | 15 24 17 | 17 15 24 | 17 15 24 |
+| 24 | 17 24 | 24 17 | 15 24 17 | 17 15 24 |
+| 18 | 24 18 | 17 24 18 | 24 17 18 | 15 24 17 18 |
+
+**Tamaño promedio:** 1.88 · 2.56 · 3.06 · 3.38. Con Δ más grande, el working set crece, pero cada vez menos.
+
+**La estrategia del working set:**
+1. Monitorea el working set de cada proceso.
+2. Quítale periódicamente las páginas que **salieron** del working set (reemplazo tipo LRU).
+3. Un proceso solo se ejecuta si su working set **cabe completo** en RAM.
+
+**Problemas prácticos:** el pasado no siempre predice el futuro, porque cambia la localidad; medir el working set **exacto** es caro (habría que registrar cada referencia), y el **Δ óptimo** es desconocido y varía. Por eso se usan aproximaciones.
+
+### Aproximaciones: PFF y VSWS
+
+- **PFF** (*Page Fault Frequency*): cada página tiene un bit de uso. En cada fallo, el SO mira el tiempo virtual desde el fallo anterior:
+  - si es **menor que un umbral F** (fallos muy seguidos), agrega la página al conjunto residente: el proceso **crece**;
+  - si no, **descarta** todas las páginas con bit de uso 0 y pone los demás bits en 0: el proceso **se encoge**.
+
+  El punto débil: durante una **transición de localidad**, las páginas viejas no alcanzan a salir y el conjunto residente se infla.
+- **VSWS** (*Variable-Interval Sampled Working Set*): evalúa el working set en instantes de muestreo con tres parámetros:
+  - **M**: intervalo mínimo;
+  - **L**: intervalo máximo;
+  - **Q**: número de fallos permitidos entre muestras.
+
+  El intervalo termina al llegar a L, o al llegar a Q fallos si ya pasó M. Así reacciona rápido en las transiciones sin muestrear de más en las fases estables.
+
+## Política de limpieza
+
+¿**Cuándo** se escribe al disco una página **modificada**?
+
+| Política | Cuándo | Problema |
+| --- | --- | --- |
+| **Por demanda** | solo cuando la página es elegida como víctima | el proceso que falló espera **dos** E/S: escribir la víctima y leer la nueva |
+| **Precleaning** | antes de que haga falta, en lotes | se escriben páginas que quizá se vuelvan a modificar antes de ser expulsadas: E/S desperdiciada |
+
+**Mejor solución: page buffering.** Las páginas reemplazadas van a dos listas, **modificadas** y **no modificadas**. Las modificadas se escriben **en lotes** y pasan a la lista de no modificadas. De ahí se pueden **recuperar** si se vuelven a referenciar, o se **reutilizan** sus frames si se pierden.
+
+## Control de carga y thrashing
+
+El **nivel de multiprogramación** es el número de procesos residentes en RAM.
+
+- **Muy pocos:** a menudo todos están bloqueados, así que la CPU queda ociosa.
+- **Demasiados:** cada uno tiene un conjunto residente insuficiente y la tasa de fallos se dispara. Es el **thrashing**, que Stallings muestra en la fig. 8.21:
+  - el uso del procesador **sube** al agregar procesos,
+  - llega a un **máximo**,
+  - y **cae en picada**: la CPU pasa el tiempo esperando al disco de paginación.
+
+**Criterios para elegir el nivel:**
+- **Working set:** solo se ejecuta un proceso si su working set está residente. Eso regula la carga de forma implícita.
+- **Criterio L = S** (Denning): ajustar la carga para que el **tiempo medio entre fallos (L)** sea igual al **tiempo medio de atender un fallo (S)**. Así se maximiza el uso del procesador.
+- **Criterio del 50 %:** mantener la **utilización del dispositivo de paginación** cerca del 50 %.
+- **Adaptar Clock:** si el puntero da vueltas **muy rápido**, hay escasez de memoria; si gira **lento**, sobra memoria y caben más procesos.
+
+**Si hay que bajar la carga, ¿qué proceso se suspende** (se pasa a disco)? Stallings da seis candidatos:
+
+| Candidato | Razón |
+| --- | --- |
+| el de **menor prioridad** | política de planificación |
+| el que **más fallos** está causando | probablemente no tiene su working set residente; suspenderlo libera un dispositivo saturado |
+| el **último activado** | es el que menos probablemente tiene su working set completo |
+| el de **conjunto residente más pequeño** | cuesta poco volverlo a cargar después, aunque perjudica a los procesos de localidad pequeña |
+| el **más grande** | libera más frames de una vez |
+| el que tiene **más tiempo de ejecución restante** | aproxima la política de menor tiempo restante |
+
+<Solucion titulo="Pregunta típica de análisis: «la CPU está al 10 % y el disco de paginación al 98 %. ¿Qué pasa y qué hago?»">
+
+Es **thrashing**. Hay demasiados procesos para la RAM disponible: ninguno tiene su working set residente, así que todos generan fallos continuamente y esperan al disco. Agregar procesos (para «aprovechar la CPU ociosa») lo **empeora**.
+
+**Qué hacer:**
+- **bajar el nivel de multiprogramación**, suspendiendo procesos con alguno de los criterios de la tabla;
+- agregar RAM;
+- o asignar frames según el working set o PFF, para que cada proceso activo tenga lo que necesita.
+
+Lo que **no** sirve: un disco de paginación un poco más rápido o una CPU más rápida. El cuello de botella es la falta de frames.
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="fin-residente"
+	preguntas={[
+		{ q: '¿Qué combinación es imposible?', opts: ['Fija + local', 'Variable + local', 'Fija + global', 'Variable + global'], ok: 2 },
+		{ q: 'W(t, Δ) es…', opts: ['las páginas que el proceso usará en las próximas Δ referencias', 'las páginas referenciadas en las últimas Δ referencias', 'el número de frames fijo', 'las páginas modificadas'], ok: 1 },
+		{ q: 'Si aumenta Δ, el working set…', opts: ['puede achicarse', 'se mantiene o crece', 'siempre se duplica', 'no cambia'], ok: 1 },
+		{ q: 'En PFF, si el tiempo desde el último fallo es menor que F…', opts: ['se descartan las páginas con u = 0', 'se agrega la página: el conjunto residente crece', 'se suspende el proceso', 'nada'], ok: 1 },
+		{ q: 'Limpieza por demanda: el proceso que falla espera…', opts: ['una E/S', 'dos E/S: escribir la víctima modificada y leer la nueva', 'ninguna E/S', 'a que termine el precleaning'], ok: 1 },
+		{ q: 'Criterio L = S:', opts: ['L tamaño de página = S tamaño de segmento', 'tiempo medio entre fallos = tiempo medio de atender un fallo', 'nivel de multiprogramación = número de CPUs', 'uso del disco = 100 %'], ok: 1 },
+		{ q: 'Con thrashing, agregar más procesos…', opts: ['mejora el uso de la CPU', 'lo empeora', 'no cambia nada', 'elimina los fallos'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['Stallings 9e §8.2 (Resident Set Management, Cleaning Policy, Load Control; figs. 8.19–8.21)', 'Working set de la fig. 8.19 calculado con un script propio']} />

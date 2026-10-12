@@ -1,0 +1,203 @@
+---
+title: 'El barbero dormilón (1 y N barberos)'
+description: 'Lab 11 (diap. 32–47) paso a paso: por qué wait(seats) y sem_getvalue fallan, mutex + contador vs sem_trywait, la silla del barbero y la justicia, quién decide terminar, la solución completa de 1 barbero, y la de N barberos con panel: el código de las diapositivas no funciona tal cual (0 clientes atendidos), la versión corregida sí, y la tarea de quitar barber_chair.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+Una barbería con **un barbero**, **una silla de barbero** y **5 sillas de espera**:
+- Si no hay clientes, el barbero **duerme**.
+- Si llega un cliente y el barbero está libre, lo atienden **enseguida**.
+- Si está ocupado y hay una silla de espera libre, el cliente **se sienta a esperar**.
+- Si no hay sillas libres, el cliente **se va** sin corte.
+
+Lo difícil no es el corte: es **«mirar si hay sillas y sentarse» sin que dos clientes se sienten en la misma**, y que cada cliente sepa **cuándo terminó su corte**. Es el mismo problema que una **cola de banco** con varias ventanillas.
+</EnSimple>
+
+## Las sillas de espera: tres intentos (diap. 34–37)
+
+<Solucion titulo="Intento 1: `semaphore seats = 5; wait(seats);` — «Does it work?»">
+
+**No.** `wait` **bloquea** si no hay sillas: el cliente se queda esperando en la puerta **en lugar de irse**, y la regla «si no hay silla, se va» no se cumple. Las colas de espera crecen sin límite.
+
+</Solucion>
+
+<Solucion titulo="Intento 2: `if (sem_getvalue(seats) > 0) wait(seats);` — «And what about this?»">
+
+**Tampoco.** Es un **check-then-act** no atómico, como el lock ingenuo del parcial. Con una sola silla libre:
+
+| # | Cliente A | Cliente B | seats |
+| - | --- | --- | :-: |
+| 1 | `sem_getvalue` → 1 > 0 | | 1 |
+| 2 | | `sem_getvalue` → 1 > 0 | 1 |
+| 3 | `wait(seats)` ✔ | | 0 |
+| 4 | | `wait(seats)` ⛔ **se bloquea** en vez de irse | 0 |
+
+Además, `sem_getvalue` solo da una **foto**: el valor puede cambiar apenas retorna. En Linux, con esperadores devuelve 0, nunca un negativo.
+
+</Solucion>
+
+**Intento 3, correcto:** un **mutex + contador** (diap. 35). La comprobación y el decremento quedan dentro de la misma sección crítica:
+
+```c
+sem_t mutex;  int seats = 5;
+wait(mutex);
+if (seats > 0) { seats--; signal(mutex); enters_barbershop(); }
+else           {          signal(mutex); leaves_barbershop(); }
+```
+
+**Más simple: `sem_trywait`** (diap. 36–37). Decrementa **solo si** el valor es positivo; si no, retorna −1 con `EAGAIN` **sin bloquear**. Comprobar y tomar es una sola operación atómica:
+
+```c
+semaphore seats = 5;
+if (trywait(seats) == 0) enters_barbershop();
+else                     leaves_barbershop();      // sin corte
+```
+
+> «Los clientes **solo esperan** en las sillas.»
+
+## La silla del barbero (diap. 37–39)
+
+<Solucion titulo="«All clients need to wait on the seats?»">
+
+**Con el diseño de las diapositivas, sí:** todo cliente toma primero una silla de espera (`trywait(seats)`) y desde ahí espera la silla del barbero (`wait(barber_chair)`). Si el barbero está libre, el cliente ocupa la silla de espera **solo un instante**: la toma y la suelta de inmediato.
+
+La alternativa sería intentar primero la silla del barbero. Es la pregunta siguiente, y tiene un problema de justicia.
+
+</Solucion>
+
+<Solucion titulo="Diap. 38: «Barber chair dispute… Is it a fair approach?»">
+
+```c
+if (trywait(barber_chair) == 0)        // ¿la silla del barbero está libre? me siento directo
+    ...
+else if (trywait(seats) == 0)          // si no, busco silla de espera
+    wait(barber_chair);
+```
+
+**No es justo.** Un cliente que **acaba de llegar** puede encontrar la silla del barbero libre justo cuando se desocupa y **adelantarse** a los que llevan rato esperando (*barging*). Peor aún, los que esperan en `wait(barber_chair)` no tienen orden garantizado: los semáforos POSIX **no** son FIFO. Un cliente puede quedarse esperando indefinidamente mientras otros pasan: **starvation**.
+
+Para ser justo, hace falta una **cola FIFO explícita**: números de turno como en Bakery, o un semáforo fuerte.
+
+</Solucion>
+
+<Solucion titulo="Diap. 39: `wait(barber_chair); signal(barber_chair);` — «And the other clients?»">
+
+Si el cliente libera la silla **apenas la toma**, la silla no queda reservada durante el corte: **otro cliente** puede tomarla y «sentarse» mientras el primero se está cortando el pelo. La silla debe retenerse hasta que el corte **termina**. ¿Y quién sabe cuándo termina? El barbero (siguiente punto).
+
+</Solucion>
+
+## ¿Quién decide terminar? (diap. 40–41)
+
+**El barbero.** El cliente no puede saber cuándo terminó su corte, así que hace falta un semáforo más, `hair_cut`, que el barbero señala al terminar.
+
+**Solución completa con 1 barbero:**
+
+```c
+semaphore seats = 5, barber_chair = 1;
+semaphore client_seat = 0, hair_cut = 0;
+
+/* Cliente */                               /* Barbero */
+if (trywait(seats) == 0) {                  while (true) {
+    wait(barber_chair);  // espero silla        wait(client_seat);   // duerme si no hay nadie
+    signal(seats);       // libero espera        cut_shave();
+    signal(client_seat); // «ya me senté»        signal(hair_cut);    // «terminé»
+    wait(hair_cut);      // espero el corte  }
+    signal(barber_chair);
+} else leaves_barbershop();
+```
+
+| Semáforo | Valor inicial | Para qué |
+| --- | :-: | --- |
+| `seats` | 5 | sillas de espera |
+| `barber_chair` | 1 | exclusión mutua sobre la silla del barbero |
+| `client_seat` | 0 | señal «hay un cliente sentado»: el barbero **duerme** aquí |
+| `hair_cut` | 0 | señal «corte terminado»: el cliente espera aquí |
+
+**Ejecución de prueba** (lo pide la diap. 41, «implement a solution `barber.c`»). 300 clientes llegando cada 0–120 µs, cortes de 0–300 µs, con un `assert` de que el barbero nunca corta a dos a la vez:
+
+```text
+barberos=1: atendidos=237, se fueron=63 (total 300), máx esperando en sillas=5 (<= 5)
+```
+
+Nunca hubo más de 5 esperando, el assert no falló, y los 63 que no encontraron silla **se fueron** en lugar de bloquearse.
+
+## N barberos (diap. 42–47)
+
+Ahora hay **n barberos** (n sillas de barbero) y **m sillas de espera**. El cliente necesita saber **qué barbero** lo atiende: es el problema de la **cola del banco** («pase a la ventanilla 3»). Idea de las diapositivas: un **panel** donde un barbero libre publica su id.
+- **Los barberos escriben** el panel, uno a la vez, y solo cuando el id anterior ya fue leído.
+- **Los clientes leen** el panel, uno por cada id publicado.
+
+```c
+semaphore write_panel = 1, read_panel = 0;
+int panel;
+```
+
+:::danger[El código de las diapositivas 45–46 no funciona tal cual]
+Lo ejecuté transcrito tal cual (2 barberos, 6 clientes): **0 clientes atendidos en 3 s**. Tiene cuatro errores:
+
+1. **El barbero hace `wait(read_panel)`**, que empieza en 0, así que ningún barbero publica nunca y todos quedan bloqueados. Debería ser **`wait(write_panel)`**.
+2. **`my_seat == panel;`** es una **comparación**, no una asignación. Debería ser `my_seat = panel;`.
+3. **`barber_chair[N_BARBERS] = {0, …, 0}`** y nadie hace `signal` sobre él: el cliente que llega a `wait(barber_chair[my_seat])` queda bloqueado para siempre. Con el panel, además, es **innecesario** (ver la tarea).
+4. **`signal(seats)` justo después del `trywait`** libera la silla de espera **antes** de tener barbero. Así las sillas no limitan nada. Debe liberarse cuando el cliente ya obtuvo su barbero.
+
+Son pseudocódigo de clase, pero si el LC3 los muestra, las preguntas serán justamente «¿funciona?» y «¿qué cambiarías?».
+:::
+
+**Versión corregida (propia):**
+
+```c
+semaphore seats = M, write_panel = 1, read_panel = 0;
+semaphore client_seat[N] = {0…}, hair_cut[N] = {0…};
+int panel;
+
+/* Barbero id */                              /* Cliente */
+while (true) {                                if (trywait(seats) == 0) {
+    wait(write_panel);   // ¿panel libre?          wait(read_panel);      // espero un id
+    panel = id;          // «estoy libre»          int my = panel;        // lo leo
+    signal(read_panel);  // que un cliente lo lea  signal(write_panel);   // panel libre otra vez
+    wait(client_seat[id]);                         signal(seats);         // dejo la silla de espera
+    cut_shave();                                   signal(client_seat[my]);
+    signal(hair_cut[id]);                          wait(hair_cut[my]);
+}                                             } else leaves_barbershop();
+```
+
+**Ejecución de prueba** (300 clientes, 5 sillas de espera, `assert` de que ningún barbero corta a dos a la vez):
+
+```text
+barberos=2: atendidos=299, se fueron=1   (total 300), máx esperando en sillas=5 (<= 5)
+barberos=3: atendidos=300, se fueron=0   (total 300), máx esperando en sillas=2 (<= 5)
+barberos=4: atendidos=300, se fueron=0   (total 300), máx esperando en sillas=1 (<= 5)
+```
+
+Con más barberos se van menos clientes y la sala de espera se usa menos, como era de esperar.
+
+<Solucion titulo="Tarea (diap. 47): «Discuss and evaluate if we can remove the barber_chair»">
+
+**Sí, se puede quitar.** La versión corregida de arriba **no tiene** `barber_chair` y la prueba con 2, 3 y 4 barberos no violó nunca «un cliente por barbero».
+
+**Por qué:** la exclusión sobre la silla ya la garantiza el **panel**. Un barbero solo publica su id **cuando está libre**: lo hace al inicio de cada vuelta del `while`, después de terminar el corte anterior. Cada publicación la consume **exactamente un** cliente, porque `read_panel` vale 1 por cada id publicado y `write_panel` impide publicar otro antes de que se lea. Por lo tanto, nunca hay dos clientes con el mismo `my` al mismo tiempo, y `barber_chair[my]` sería un semáforo que siempre se toma sin esperar.
+
+**Con 1 barbero, en cambio, `barber_chair` sí hace falta.** Sin él, dos clientes podrían hacer `signal(client_seat)` y quedar los dos en `wait(hair_cut)`. Cuando el barbero termina el primer corte, `signal(hair_cut)` puede despertar **al cliente equivocado**, porque el semáforo no es FIFO: alguien se iría sin terminar su corte. En la versión de N barberos ese papel lo cumple el panel.
+
+</Solucion>
+
+**El mismo problema, con monitores:** el [ejercicio 8 · Barbería](/examen/ejercicios/) (2 barberos, 5 sillas) se resolvió con mutex + condition variables, y su `assert` detectó un bug en la primera versión.
+
+<Quiz
+	client:visible
+	id="fin-barbero"
+	preguntas={[
+		{ q: '¿Por qué `wait(seats)` no cumple «si no hay silla, el cliente se va»?', opts: ['Porque no es atómico', 'Porque bloquea en vez de irse', 'Porque seats empieza en 0', 'Sí lo cumple'], ok: 1 },
+		{ q: '`if (sem_getvalue(seats) > 0) wait(seats);` falla porque…', opts: ['sem_getvalue no existe', 'comprobar y tomar no es atómico: dos clientes ven 1', 'bloquea siempre', 'no libera la silla'], ok: 1 },
+		{ q: 'sem_trywait con el semáforo en 0…', opts: ['bloquea', 'retorna −1 (EAGAIN) sin bloquear', 'lo pone en −1', 'despierta a alguien'], ok: 1 },
+		{ q: '¿Quién señala `hair_cut`?', opts: ['El cliente', 'El barbero, al terminar el corte', 'El siguiente cliente', 'Nadie'], ok: 1 },
+		{ q: 'Con N barberos y panel, ¿se puede quitar barber_chair?', opts: ['No, habría dos clientes por barbero', 'Sí: un barbero solo publica su id estando libre y cada id lo lee un único cliente', 'Solo con un barbero', 'Solo con monitores'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['sem_9/11-OSL-Deadlock.pdf (diap. 32–47)', 'man sem_trywait(3)', 'Pruebas propias: barber.c (1–4 barberos) y barber_slides.c (código de las diapositivas transcrito), ejecuciones de prueba']} />

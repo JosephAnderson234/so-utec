@@ -1,0 +1,184 @@
+---
+title: 'Ejercicios resueltos: Page Replacement'
+description: 'Las 4 preguntas de la hoja de repaso de reemplazo de páginas resueltas y verificadas con un simulador: FIFO, OPT, LRU y Clock con 3 frames; la anomalía de Belady; tamaño de la tabla con 6 GB y PTE de 6 B; formato de PTE para Clock en 10-10-12 y la simulación con 4 frames.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import PageReplacement from '../../../../components/sim/PageReplacement.tsx';
+
+<EnSimple>
+Para este tipo de pregunta, dibuja una tabla: **una columna por referencia** y **una fila por frame**. En cada columna escribe qué hay en memoria después de ese acceso y marca con **F** los fallos. La regla de cada algoritmo solo importa cuando la memoria está **llena** y hay que elegir a quién sacar. Practica en el simulador y después compara tu tabla con la solución.
+</EnSimple>
+
+:::note[Convenciones usadas (decláralas en el examen)]
+- Los frames empiezan **vacíos**, y los primeros fallos (que solo **llenan** frames) **sí se cuentan**.
+- **Clock** (como Stallings): al cargar una página su bit de uso queda en **1** y el puntero avanza al **siguiente** frame. Un acierto pone el bit en 1 sin mover el puntero.
+- **OPT:** si hay empate (varias páginas que no se vuelven a usar), se saca la del frame de menor número. El empate **no cambia** la cantidad de fallos.
+:::
+
+## Pregunta 1 · FIFO, OPT, LRU y Clock con 3 frames
+
+Referencias: `A B D C B E D B D B A C B C A C`.
+
+<PageReplacement client:visible preset="p1" />
+
+<Solucion titulo="Solución: FIFO = 10, OPT = 7, LRU = 8, Clock = 9 fallos">
+
+**FIFO (10 fallos)**
+
+```text
+ref    A  B  D  C  B  E  D  B  D  B  A  C  B  C  A  C
+f0     A  A  A  C  C  C  C  C  D  D  D  D  B  B  B  B
+f1     ·  B  B  B  B  E  E  E  E  E  A  A  A  A  A  A
+f2     ·  ·  D  D  D  D  D  B  B  B  B  C  C  C  C  C
+fallo  F  F  F  F  ·  F  ·  F  F  ·  F  F  F  ·  ·  ·
+```
+
+**OPT (7 fallos)**
+
+```text
+ref    A  B  D  C  B  E  D  B  D  B  A  C  B  C  A  C
+f0     A  A  A  C  C  E  E  E  E  E  A  A  A  A  A  A
+f1     ·  B  B  B  B  B  B  B  B  B  B  B  B  B  B  B
+f2     ·  ·  D  D  D  D  D  D  D  D  D  C  C  C  C  C
+fallo  F  F  F  F  ·  F  ·  ·  ·  ·  F  F  ·  ·  ·  ·
+```
+
+Por ejemplo, en la cuarta referencia (C), el futuro es `B E D B D B A…`: A es la que se usa **más tarde**, así que sale A.
+
+**LRU (8 fallos)**
+
+```text
+ref    A  B  D  C  B  E  D  B  D  B  A  C  B  C  A  C
+f0     A  A  A  C  C  C  D  D  D  D  D  C  C  C  C  C
+f1     ·  B  B  B  B  B  B  B  B  B  B  B  B  B  B  B
+f2     ·  ·  D  D  D  E  E  E  E  E  A  A  A  A  A  A
+fallo  F  F  F  F  ·  F  F  ·  ·  ·  F  F  ·  ·  ·  ·
+```
+
+**Clock (9 fallos).** El `*` es el bit de uso en 1.
+
+```text
+ref    A   B   D   C   B   E   D   B   D   B   A   C   B   C   A   C
+f0     A*  A*  A*  C*  C*  C*  C   B*  B*  B*  B*  B   B*  B*  B*  B*
+f1     ·   B*  B*  B   B*  B   D*  D*  D*  D*  D   C*  C*  C*  C*  C*
+f2     ·   ·   D*  D   D   E*  E*  E   E   E   A*  A*  A*  A*  A*  A*
+fallo  F   F   F   F   ·   F   F   F   ·   ·   F   F   ·   ·   ·   ·
+```
+
+Por ejemplo, en la cuarta referencia (C) los tres tienen u = 1. El puntero da una vuelta completa poniéndolos en 0, vuelve al frame 0 y reemplaza a A. Es el caso en que Clock se comporta como FIFO.
+
+**Comparación:** OPT (7) < LRU (8) < Clock (9) < FIFO (10). Es el orden esperable: Clock aproxima a LRU con un solo bit.
+
+</Solucion>
+
+## Pregunta 2 · FIFO con 3 y 4 frames
+
+Referencias: `A B C D A B E A B C D E`.
+
+<Solucion titulo="Solución: 9 fallos con 3 frames y 10 con 4 (anomalía de Belady)">
+
+**3 frames: 9 fallos**
+
+```text
+ref    A  B  C  D  A  B  E  A  B  C  D  E
+f0     A  A  A  D  D  D  E  E  E  E  E  E
+f1     ·  B  B  B  A  A  A  A  A  C  C  C
+f2     ·  ·  C  C  C  B  B  B  B  B  D  D
+fallo  F  F  F  F  F  F  F  ·  ·  F  F  ·
+```
+
+**4 frames: 10 fallos**
+
+```text
+ref    A  B  C  D  A  B  E  A  B  C  D  E
+f0     A  A  A  A  A  A  E  E  E  E  D  D
+f1     ·  B  B  B  B  B  B  A  A  A  A  E
+f2     ·  ·  C  C  C  C  C  C  B  B  B  B
+f3     ·  ·  ·  D  D  D  D  D  D  C  C  C
+fallo  F  F  F  F  ·  ·  F  F  F  F  F  F
+```
+
+**Comparación:** con **más memoria hay más fallos**. Es la **anomalía de Belady** (es la cadena clásica de su artículo de 1969).
+
+Con 4 frames, FIFO mantiene A y B «viejas» hasta que justo se necesitan. Con 3, el orden de expulsión coincide mejor con el uso. FIFO **no** es un algoritmo de pila: el contenido con 3 frames no está incluido en el de 4.
+
+Con la misma cadena: **LRU** 10 → 8 y **OPT** 7 → 6 (no tienen la anomalía); **Clock** 9 → 10 (también la tiene). Compruébalo en el simulador con «Belady (P2)»: la tabla inferior marca en rojo los saltos.
+
+</Solucion>
+
+## Pregunta 3 · Memoria virtual de 6 GB, páginas de 8 kB y PTE de 6 B
+
+<Solucion titulo="Solución: 786 432 páginas; tabla de 4.5 MiB">
+
+- **Páginas virtuales:**
+$$
+\frac{6\ \text{GB}}{8\ \text{kB}} = \frac{6 \cdot 2^{30}}{2^{13}} = 6 \cdot 2^{17} = 3 \cdot 2^{18} = \mathbf{786\,432}
+$$
+- **Tamaño de la tabla:** una PTE por página virtual.
+$$
+786\,432 \times 6\ \text{B} = 4\,718\,592\ \text{B} = \mathbf{4.5\ MiB}
+$$
+  Es decir, $4\,718\,592 / 8192 = 576$ páginas de 8 kB solo para la tabla de un proceso.
+
+**Ojo:** 6 GB no es potencia de 2. Se necesitan $\lceil \log_2(6 \cdot 2^{30}) \rceil = 33$ bits de dirección virtual, que direccionan 8 GB. Si el enunciado tomara la tabla «completa» para 33 bits, serían $2^{20}$ entradas × 6 B = 6 MiB. Declara cuál usas. La pregunta dice «memoria virtual de 6 GB», así que lo natural es 786 432 páginas.
+
+</Solucion>
+
+## Pregunta 4 · PTE para Clock (10-10-12) y simulación con 4 frames
+
+<Solucion titulo="Formato de la PTE">
+
+- **Dirección virtual:** `10 | 10 | 12`. Offset de 12 bits, así que la página es de **4 KB**. 10 bits por nivel dan 1024 entradas por tabla, y con **PTE de 4 B** cada tabla ocupa **4 KB**: una página.
+- **Dirección física de 32 bits:** el número de frame tiene **32 − 12 = 20 bits**.
+- La PTE de 32 bits tiene 20 bits de frame más **12 bits de control**:
+
+```text
+ 31                         12 11      5  4   3   2   1   0
+┌─────────────────────────────┬─────────┬───┬───┬───┬───┬───┐
+│   nº de frame (20 bits)     │ libres  │ M │ U │ W │ X │ V │
+└─────────────────────────────┴─────────┴───┴───┴───┴───┴───┘
+```
+
+  - **V** (válido/presente): la página está en RAM.
+  - **U** (uso/referenciado): **imprescindible para Clock**. Lo pone en 1 el hardware al acceder y lo apaga el puntero del reloj.
+  - **M** (modificado/dirty): no es necesario para Clock básico, pero sí para Clock mejorado y para saber si hay que escribir la víctima.
+  - **W/X** (o R/W/X): protección.
+  - Los bits libres pueden usarse para usuario/supervisor, caché deshabilitada, etc.
+
+</Solucion>
+
+<Solucion titulo="Simulación Clock con 4 frames: A B C A C D B D A E B F">
+
+```text
+ref    A   B   C   A   C   D   B   D   A   E   B   F
+f0     A*  A*  A*  A*  A*  A*  A*  A*  A*  E*  E*  E*
+f1     ·   B*  B*  B*  B*  B*  B*  B*  B*  B   B*  B
+f2     ·   ·   C*  C*  C*  C*  C*  C*  C*  C   C   F*
+f3     ·   ·   ·   ·   ·   D*  D*  D*  D*  D   D   D
+fallo  F   F   F   ·   ·   F   ·   ·   ·   F   ·   F
+```
+
+**Los dos momentos clave:**
+- **E (10.ª referencia):** los 4 frames tienen u = 1 y el puntero está en f0. Da una vuelta poniendo todo en 0 y reemplaza **A** por E en f0. El puntero queda en f1.
+- **B (11.ª):** acierto, así que u(B) = 1.
+- **F (12.ª):** el puntero está en f1. B tiene u = 1: se pone en 0 y avanza. C tiene u = 0: se **reemplaza C por F**. El puntero queda en f3.
+
+**Respuesta:**
+
+| Frame | Página | Bit de uso |
+| :-: | :-: | :-: |
+| f0 | **E** | 1 |
+| f1 | **B** | 0 |
+| f2 | **F** | 1 |
+| f3 | **D** | 0 |
+
+El puntero queda en el frame 3 (D) y hubo **6 fallos**. Se puede comprobar con el preset «Ejercicio P4» del simulador.
+
+**Si tu profesor usa otra convención** (por ejemplo, u = 0 al cargar), el contenido final puede cambiar. Escribe la convención en tu respuesta.
+
+</Solucion>
+
+<Fuente archivos={['sem_9/11-OSL-Ejercicios_Page_Replacement.pdf', 'Soluciones propias verificadas con dos simuladores independientes (el de esta web y un script en Python)']} />

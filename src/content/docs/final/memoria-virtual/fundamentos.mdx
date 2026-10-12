@@ -1,0 +1,169 @@
+---
+title: 'Memoria virtual: hardware y fallo de página'
+description: 'Stallings §8.1 y el cierre de la clase 09: localidad, por qué funciona la memoria virtual, la PTE con bits P/M/R, tablas multinivel e invertidas, TLB, tamaño de página, segmentación + paginación, y el page fault paso a paso con una medición real de paginación por demanda.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import TlbEat from '../../../../components/sim/TlbEat.tsx';
+
+<EnSimple>
+Piensa en una **biblioteca enorme** (el disco) y un **escritorio pequeño** (la RAM). No traes todos los libros al escritorio: solo los que estás usando ahora. Si necesitas uno que no está, te levantas a buscarlo (**fallo de página**), y si el escritorio está lleno devuelves otro (**reemplazo**). Funciona porque casi siempre trabajas con los mismos pocos libros por un rato: eso es la **localidad**. La memoria virtual es exactamente eso: cada programa cree que tiene toda la memoria para él, pero en la RAM solo están los pedazos que está usando.
+</EnSimple>
+
+Esta página cubre la parte de **hardware y estructuras** (Stallings §8.1). Lo básico de paginación, segmentación y la calculadora de tablas ya está en [Paginación](/memoria/paginacion/) y [Segmentación](/memoria/segmentacion/); aquí está lo que cambia cuando la memoria es **virtual**.
+
+## Las dos ideas que lo hacen posible
+
+Stallings parte de dos características de la paginación y la segmentación:
+
+1. **Todas las referencias se traducen en tiempo de ejecución.** Un proceso puede moverse de lugar en la RAM (o salir a disco y volver a otro sitio) sin que el programa lo note.
+2. **El proceso no necesita estar contiguo**: se parte en páginas o segmentos repartidos por la memoria.
+
+Juntas permiten algo que antes no se podía: **ejecutar un proceso sin tener todas sus páginas en RAM**. La parte que sí está cargada se llama el **conjunto residente** (*resident set*).
+
+**Lo que se gana:**
+- **Más procesos en memoria a la vez**: cada uno ocupa solo lo que usa, así que es más probable que siempre haya alguno listo para ejecutar.
+- **Un proceso puede ser más grande que toda la RAM.** El programador ya no se preocupa por los *overlays*.
+
+Por eso se habla de **memoria real** (la RAM) y **memoria virtual** (lo que ve cada proceso, respaldado en disco).
+
+## Localidad: por qué no colapsa
+
+Si cada referencia cayera en una página distinta, el sistema pasaría todo el tiempo trayendo páginas del disco. Eso se llama **thrashing** (hiperpaginación): el procesador está ocupado intercambiando páginas en vez de ejecutar instrucciones.
+
+No pasa gracias al **principio de localidad**: las referencias de un proceso se **agrupan**. Durante un intervalo, el programa usa unas pocas páginas: un bucle, una función, un arreglo. Así el SO puede **adivinar** qué páginas van a hacer falta pronto.
+
+| Requisito | Por qué |
+| --- | --- |
+| **Soporte de hardware** para la paginación o segmentación | traducir cada dirección en software sería impracticable |
+| **Software del SO** para mover páginas entre disco y RAM | las políticas de la [página siguiente](/final/memoria-virtual/reemplazo/) |
+
+## La PTE cuando la memoria es virtual
+
+Con paginación simple, la tabla solo decía «la página k está en el frame f». Con memoria virtual, la entrada necesita **bits de control**:
+
+| Bit | Nombre | Para qué |
+| --- | --- | --- |
+| **P** | presente / válido | ¿la página está en RAM? Si es 0, el acceso provoca un **page fault** |
+| **M** | modificado (*dirty*) | ¿se escribió desde que se cargó? Si sí, hay que **escribirla al disco** antes de reemplazarla; si no, se descarta sin costo |
+| **R / U** | referenciado / uso | ¿se accedió hace poco? Lo usa el algoritmo **Clock** y sus variantes |
+| — | protección, compartición, bloqueo | lectura/escritura/ejecución, páginas compartidas, frames bloqueados (*frame locking*) |
+| **PFN** | número de frame | dónde está, si P = 1 |
+
+```text
+ Dirección virtual            Entrada de la tabla (PTE)
+┌──────────────┬────────┐     ┌───┬───┬───┬─────────────┬──────────────┐
+│ nº de página │ offset │     │ P │ M │ R │ protección… │ nº de frame  │
+└──────────────┴────────┘     └───┴───┴───┴─────────────┴──────────────┘
+```
+
+**Las tablas son enormes.** Por ejemplo, Stallings toma la arquitectura VAX: 2 GB de espacio virtual con páginas de 512 B dan $2^{22}$ entradas **por proceso**. Por eso la tabla también vive en memoria virtual y aparecen dos estructuras:
+- **Tabla de dos (o más) niveles:** un directorio raíz que siempre está en RAM y tablas de usuario que pueden estar en disco. Ejemplo típico: 32 bits con páginas de 4 KB y PTE de 4 B dan `10 | 10 | 12`.
+- **Tabla invertida:** **una entrada por frame** físico (no por página virtual). Se busca con un **hash** de (nº de página, PID), y las colisiones se encadenan. Su tamaño depende de la RAM, no del espacio virtual. La usan PowerPC, UltraSPARC e IA-64.
+
+Las fórmulas y la calculadora están en [Paginación § multinivel](/memoria/paginacion/#tablas-grandes-multinivel-e-invertidas).
+
+## TLB: la caché de traducciones
+
+Cada referencia a memoria virtual podría costar **dos accesos**: uno para leer la PTE y otro para el dato. Con tablas de k niveles, son k + 1. La **TLB** (*Translation Lookaside Buffer*) es una caché pequeña y **asociativa** con las PTE usadas hace poco.
+
+**Flujo completo** (Stallings fig. 8.8):
+1. La CPU genera la dirección virtual y busca la página en la TLB.
+2. **Acierto en la TLB:** se arma la dirección física. Si el bloque está en la caché de datos, se lee de ahí; si no, de RAM.
+3. **Fallo en la TLB:** se lee la PTE de la tabla en memoria.
+   - **Si P = 1**, se actualiza la TLB y se reintenta.
+   - **Si P = 0, hay page fault.** El SO toma el control, lee la página del disco, actualiza la tabla y el proceso vuelve a intentar la instrucción.
+
+**Asociativa** quiere decir que el hardware compara el número de página con **todas** las entradas a la vez, porque la TLB no está indexada por página como la tabla.
+
+Si la tabla de páginas cambia (cambio de proceso), la TLB se vacía, o cada entrada lleva un identificador de espacio de direcciones (ASID).
+
+<TlbEat client:visible />
+
+## Tamaño de página: un compromiso
+
+| Página más **pequeña** | Página más **grande** |
+| --- | --- |
+| ✅ menos fragmentación interna | ✅ la tabla es más chica (menos entradas) |
+| ✅ más páginas en RAM: se aprovecha mejor la localidad | ✅ transferir un bloque grande del disco es más eficiente |
+| ❌ tablas más grandes, que pueden caer en disco | ❌ más fragmentación interna; con páginas muy grandes, la página trae mucho que no se usa |
+
+La curva de fallos según el tamaño de página **no es monótona** (Stallings fig. 8.11):
+- Con páginas **muy chicas**, caben muchas en RAM y hay pocos fallos.
+- Al **crecer**, cada página trae datos lejanos a lo que se usa y los fallos suben.
+- Cuando la página se acerca al **tamaño del proceso**, los fallos vuelven a bajar.
+
+Los tamaños típicos son 4 KB (x86), 8 KB (UltraSPARC) y las **páginas grandes** (2 MB o 1 GB en x86-64), que se usan para bases de datos y para reducir los fallos de TLB.
+
+## Segmentación con memoria virtual, y combinada
+
+- **Segmentación sola:** cada entrada de la tabla de segmentos también lleva un bit **P** y un bit **M**. Sirve para estructuras que crecen, para compilar módulos por separado, para compartir y para proteger.
+- **Segmentación + paginación** (Stallings §8.1, «Combined Paging and Segmentation»):
+  - El programador ve **segmentos**.
+  - Cada segmento se divide en **páginas** del tamaño de un frame.
+  - La dirección es `(segmento, página, offset)`: la tabla de segmentos apunta a la **tabla de páginas** de ese segmento, y esa tabla da el frame.
+  - Se ganan las ventajas de ambos: segmentos lógicos protegibles y compartibles, y **sin fragmentación externa**.
+  - Lo usaba x86 en modo protegido. Linux de 64 bits deja la segmentación casi apagada (ver [Segmentación § procesadores modernos](/memoria/segmentacion/#segmentación-en-procesadores-modernos)).
+
+## Paginación por demanda y el page fault paso a paso
+
+**Paginación por demanda** (*demand paging*): una página se trae a RAM **solo cuando se referencia por primera vez**. El proceso arranca con casi nada cargado y acumula fallos al inicio; después la localidad los vuelve raros.
+
+**Qué hace el SO en un page fault** (clase 09, diap. 76):
+
+1. **Trap.** La referencia encuentra P = 0 y el hardware genera una interrupción hacia el SO. El proceso queda **bloqueado**.
+2. **¿Es válida?** El SO mira otra tabla (la del espacio de direcciones del proceso). Si la dirección es **inválida**, aborta el proceso (*segmentation fault*). Si es válida pero la página no está en memoria, sigue.
+3. **Busca un frame libre.** Si no hay ninguno, la **política de reemplazo** elige una víctima. Si la víctima tiene **M = 1**, primero se escribe al disco.
+4. **Lee la página** del disco al frame. Es una operación de E/S que tarda milisegundos, así que mientras tanto el SO ejecuta **otro** proceso.
+5. **Actualiza la tabla:** P = 1 y el número de frame.
+6. **Reinicia la instrucción** que falló. El proceso vuelve a Listo; cuando se ejecuta, la referencia ahora sí encuentra la página.
+
+:::tip[Fallo menor vs mayor]
+Linux distingue dos tipos:
+- **Fallo menor** (*minor fault*): la página ya está en RAM (por ejemplo, la primera escritura sobre memoria recién pedida, que el kernel resuelve asignando un frame en ceros) o se puede reutilizar sin leer del disco.
+- **Fallo mayor** (*major fault*): hay que leer del disco. Es el que cuesta milisegundos.
+:::
+
+### Medición: la paginación por demanda en acción
+
+Basado en la actividad «Paging y TLB» de la guía de Valgrind. El programa reserva `PAGESIZE × N` bytes, los escribe y luego los lee, contando los fallos con `getrusage` (es lo mismo que mide `perf stat -e page-faults`). Página de 4096 B; resultado de la ejecución de prueba:
+
+```text
+N=     1  malloc:+3  escribir:+0      leer:+0
+N=     8  malloc:+3  escribir:+7      leer:+0
+N=    32  malloc:+3  escribir:+31     leer:+0
+N=    64  malloc:+3  escribir:+64     leer:+0
+N=  1024  malloc:+3  escribir:+1024   leer:+0
+N= 16384  malloc:+3  escribir:+16384  leer:+0
+```
+
+**Cómo se lee:**
+- `malloc` **no** provoca fallos proporcionales a N: reservar memoria virtual no trae páginas a la RAM. Los 3 fallos fijos son de la propia biblioteca.
+- **La primera escritura** sobre cada página provoca **un fallo por página**. Esa es la paginación por demanda: los frames se asignan recién cuando se tocan.
+- **Leer** después no provoca ningún fallo, porque las páginas ya están residentes.
+- Con N pequeño sale **N − 1**: la primera página ya estaba en RAM porque el heap se había inicializado antes. Desde unos 128 KB (N ≥ 32), `malloc` usa `mmap` (ver [memoria de un proceso](/final/linux/espacio-direcciones/)) y los fallos son exactamente **N**.
+
+<Solucion titulo="Pregunta de análisis: ¿por qué la segunda pasada no falla nunca?">
+
+Porque después de la primera pasada **todas** las páginas del arreglo están en el conjunto residente, y la máquina tiene RAM de sobra (no hay presión para reemplazarlas). Si el arreglo fuera más grande que la RAM disponible, la segunda pasada **sí** fallaría. Con un recorrido secuencial y reemplazo LRU, de hecho fallaría **en cada página**: es el peor caso de LRU con un patrón cíclico más grande que la memoria.
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="fin-vm-fund"
+	preguntas={[
+		{ q: '¿Qué permite ejecutar un proceso sin cargar todas sus páginas?', opts: ['Que las direcciones se traduzcan en ejecución y el proceso no necesite estar contiguo', 'El buddy system', 'La compactación', 'Los overlays'], ok: 0 },
+		{ q: 'El bit M (dirty) de una página víctima vale 0. Al reemplazarla…', opts: ['hay que escribirla al disco', 'se puede descartar sin escribirla', 'se bloquea el frame', 'se produce un page fault'], ok: 1 },
+		{ q: 'Una tabla de páginas invertida tiene una entrada por…', opts: ['página virtual de cada proceso', 'frame de memoria física', 'segmento', 'entrada de TLB'], ok: 1 },
+		{ q: 'En un page fault, ¿qué hace el proceso mientras se lee la página del disco?', opts: ['Sigue ejecutando', 'Queda bloqueado; el SO ejecuta otro proceso', 'Hace busy waiting', 'Se aborta'], ok: 1 },
+		{ q: 'Thrashing es…', opts: ['tener muchas páginas compartidas', 'pasar más tiempo intercambiando páginas que ejecutando', 'un fallo de TLB', 'fragmentación externa'], ok: 1 },
+		{ q: '¿Por qué funciona la memoria virtual pese a que el disco es miles de veces más lento?', opts: ['Porque la TLB es grande', 'Por el principio de localidad: las referencias se agrupan', 'Porque el disco es SSD', 'Porque no hay page faults'], ok: 1 },
+		{ q: 'Páginas más grandes implican…', opts: ['tablas más grandes', 'más fragmentación interna y tablas más chicas', 'menos fragmentación interna', 'más entradas en la TLB'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['Stallings 9e §8.1 (Hardware and Control Structures)', 'sem_9/Sem9_09-OST-Memory.pdf (diap. 9–14, 48–76)', 'sem_9/10-OSL-Valgrind.pdf («Paging y TLB»)', 'Prueba propia: pagefaults.c (getrusage, ejecución de prueba)']} />

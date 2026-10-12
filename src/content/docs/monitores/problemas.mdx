@@ -10,7 +10,7 @@ import Fuente from '../../../components/Fuente.astro';
 
 Requisitos: (1) **exclusión mutua entre sexos**, es decir, nunca hombres y mujeres a la vez (varios del mismo sexo sí pueden estar juntos); (2) **weak starvation-freedom**: si hay hombres y mujeres esperando, todos acaban entrando.
 
-<Solucion titulo="Monitor con mutex y condition variables (3 pts) — probado en WSL">
+<Solucion titulo="Monitor con mutex y condition variables (3 pts) — probado en una ejecución de prueba">
 
 ```c
 #include <pthread.h>
@@ -69,7 +69,7 @@ Es **Mesa**: pthreads no transfiere el lock en `signal` y usamos `broadcast`. El
 
 </Solucion>
 
-<Solucion titulo="¿Solo con semáforos? (3 pts) — sí, probado en WSL">
+<Solucion titulo="¿Solo con semáforos? (3 pts) — sí, probado en una ejecución de prueba">
 
 Sí: monitores y semáforos tienen el mismo poder expresivo. Se usan los patrones **lightswitch** (el primero de un grupo toma `empty` y el último lo suelta) y **turnstile** (evita que un sexo acapare el baño).
 
@@ -149,4 +149,4 @@ void leaveTheater(monitor *m, int movie) {
 
 </Solucion>
 
-<Fuente archivos={['for_partial/E1_OS_20252.pdf (P3)', 'for_partial/E1_OS_2024_II__Solucionario_.pdf (P2)', 'WSL ~/so/verif_parcial/bath.c, bathsem.c', 'The Little Book of Semaphores (Downey) §6.2 Unisex bathroom']} />
+<Fuente archivos={['for_partial/E1_OS_20252.pdf (P3)', 'for_partial/E1_OS_2024_II__Solucionario_.pdf (P2)', 'prueba propia verif_parcial/bath.c, bathsem.c', 'The Little Book of Semaphores (Downey) §6.2 Unisex bathroom']} />

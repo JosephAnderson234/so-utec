@@ -8,7 +8,7 @@ import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
 
 :::caution[Soluciones propias]
-Este examen no tiene solucionario oficial. El código de la P4 se verificó en WSL. Intenta resolverlo en **~100 minutos** antes de abrir las soluciones.
+Este examen no tiene solucionario oficial. El código de la P4 se verificó con una ejecución de prueba. Intenta resolverlo en **~100 minutos** antes de abrir las soluciones.
 :::
 
 ## Pregunta 1 · Alternativas (cada 2 errores restan 1 pto)
@@ -72,7 +72,7 @@ pthread_create(&threads[i], NULL, rutina_hilo, (void *) &arg_struct); // [4]
 pthread_join(threads[i], NULL);                                       // [5]
 ```
 
-Si el `for` termina antes de que algún hilo lea: todos leen **`local_id = 3`, `local_mult = 30`** y el acumulador final es **4 × 30 = 120**. Verificado en WSL. Detalle en [threads](/procesos/threads/#ejercicio-e1-2026-1--pregunta-4-6-pts).
+Si el `for` termina antes de que algún hilo lea: todos leen **`local_id = 3`, `local_mult = 30`** y el acumulador final es **4 × 30 = 120**. Verificado con una ejecución de prueba. Detalle en [threads](/procesos/threads/#ejercicio-e1-2026-1--pregunta-4-6-pts).
 
 </Solucion>
 

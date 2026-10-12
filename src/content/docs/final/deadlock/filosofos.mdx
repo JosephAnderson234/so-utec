@@ -1,0 +1,288 @@
+---
+title: 'Filósofos comensales: las 8 versiones del curso'
+description: 'Lab 11 (diap. 15–31) con el código del curso ejecutado: la versión con deadlock y su espera circular, semáforo central, sillas limitadas, solución asimétrica, Tanenbaum y su starvation (tanen-5-1, tanen-4-2), cómo leer la salida, las preguntas de las diapositivas respondidas y una variante propia sin starvation, medida.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import SemaphoreSim from '../../../../components/sim/SemaphoreSim.tsx';
+
+<EnSimple>
+Cinco filósofos en una mesa redonda, un tenedor **entre cada par**, y cada uno necesita **los dos tenedores** que tiene al lado para comer. Si todos toman el de su derecha al mismo tiempo, **todos se quedan con uno y esperan el otro para siempre**: eso es el deadlock.
+
+Cada «solución» del laboratorio ataca el problema de una forma distinta: dejar comer a uno a la vez, sacar una silla, hacer que algunos empiecen por la izquierda, o tomar los dos tenedores «de golpe». Además, cada una tiene un costo: algunas comen **de a uno** (poco paralelismo) y otras pueden dejar a alguien **sin comer nunca** (starvation).
+</EnSimple>
+
+## El problema (Dijkstra, 1971)
+
+Cinco filósofos piensan y comen espagueti; cada uno necesita **dos tenedores** para comer.
+
+**Requisitos:**
+1. **Exclusión mutua:** dos filósofos no usan el mismo tenedor a la vez.
+2. **Sin deadlock** y **sin starvation:** ningún filósofo «muere de hambre».
+3. **Alto paralelismo:** con N filósofos pueden comer como máximo $\lfloor N/2 \rfloor$ a la vez (2 de 5, 5 de 10). Las diapositivas dicen que esto es «ahora no tan importante», pero es lo que distingue a las soluciones.
+
+Notación de las diapositivas: **T** piensa (*think*), **H** hambriento (*hungry*), **E** come (*eat*). F0…F4 son los filósofos y G0…G4 los tenedores. El filósofo i usa `fork[i]` y `fork[(i+1) % N]`.
+
+:::note[Cómo leer la salida de los programas]
+Cada línea es la mesa completa. Cada filósofo ocupa 4 caracteres: `␣ - ␣ T`.
+- **`-`**: tenedor sobre la mesa.
+- **`|`**: tenedor en la mano de un filósofo, pegado a él.
+- **letra**: estado del filósofo (T, H o E).
+
+Por ejemplo, `|E|` es un filósofo comiendo con **los dos** tenedores, y `H|` es uno hambriento con un solo tenedor. Los programas de Tanenbaum imprimen solo los estados (`T H E …`).
+:::
+
+## 1 · La versión con deadlock (`deadlock-bug.c`)
+
+```c
+void* f_phil(void *v) {
+  int phil_id = *(int *) v;
+  for (i = 0; i < N_CYCLES; i++) {
+    stay_starve(phil_id);         // H
+    take_fork_right(phil_id);     // sem_wait(&sem_fork[(phil_id+1) % N]); … sleep(1)
+    take_fork_left(phil_id);      // sem_wait(&sem_fork[phil_id])
+    eat(phil_id);
+    release_fork_think(phil_id);  // sem_post de ambos
+  }
+}
+```
+
+**Ejecución de prueba** (N = 5; extracto de la salida. A los 40 s se cortó y el programa no había terminado):
+
+```text
+- H - T - T - T - T -
+- H - H - H - H - T -
+- H - H - H - H - H -
+- H|  H|- H|- H|- H|-
+- H|  H|  H|- H|- H|-
+- H|  H|  H|  H|  H|-
+  H|  H|  H|  H|  H|        ← los 5 con un tenedor, esperando el otro: DEADLOCK
+```
+
+**Por qué** (diap. 21): aparece la **espera circular**.
+
+| Hilo 0 | Hilo 1 | Hilo 2 | Hilo 3 | Hilo 4 |
+| --- | --- | --- | --- | --- |
+| `sem_wait(1)` ✔ | `sem_wait(2)` ✔ | `sem_wait(3)` ✔ | `sem_wait(4)` ✔ | `sem_wait(0)` ✔ |
+| `sem_wait(0)` ⛔ | `sem_wait(1)` ⛔ | `sem_wait(2)` ⛔ | `sem_wait(3)` ⛔ | `sem_wait(4)` ⛔ |
+
+Se cumplen las **cuatro condiciones de Coffman**:
+1. **Exclusión mutua:** cada tenedor es un semáforo en 1.
+2. **Hold and wait:** cada filósofo retiene un tenedor mientras espera el otro.
+3. **Sin expropiación:** nadie le quita el tenedor a otro.
+4. **Espera circular:** 0 espera a 4, 4 espera a 3, …, 1 espera a 0.
+
+**Detalle del código:** `take_fork_right` hace `sleep(1)` **justo después** de tomar el primer tenedor. Así da tiempo a que los cinco tomen el suyo antes de que alguno pida el segundo, y el deadlock es casi seguro. Sin ese `sleep`, el programa a veces termina: el deadlock es **posible**, no obligatorio. Pruébalo en el simulador con «Filósofos ingenuos»:
+
+<SemaphoreSim client:visible scenario="filo" choices={['filo', 'filo-room']} />
+
+## 2 · Semáforo central (`sem_central.c`)
+
+```c
+semaphore lock = 1;
+while (true) {
+    think();
+    wait(lock);                 // solo uno intenta tomar tenedores
+      wait(fork[i]);  wait(fork[(i+1) % N]);
+      eat();
+      signal(fork[(i+1) % N]);  signal(fork[i]);
+    signal(lock);
+}
+```
+
+Sin deadlock, porque nunca hay dos filósofos compitiendo por tenedores. Pero el costo es **paralelismo bajo**: come **uno a la vez**. En la ejecución de prueba (N = 10, `sem_central` = 1), el **máximo** de filósofos comiendo a la vez fue **1**, en promedio 0.17 por línea.
+
+<Solucion titulo="Diapositiva 24: «What about if lock == 2? Modify and test»">
+
+Lo verifiqué recorriendo **todos** los estados posibles (5 filósofos, el semáforo central con valor k):
+
+| k | ¿Deadlock? | Máximo comiendo a la vez |
+| :-: | :-: | :-: |
+| 1 | no | 1 |
+| **2** | **no** | **2** |
+| 3 | no | 2 |
+| 4 | no | 2 |
+| **5** | **sí** | 2 |
+
+**Respuesta:** con `lock = 2` **no hay deadlock**: dos filósofos no alcanzan a cerrar un ciclo de 5. Y el paralelismo **sube a 2**, que ya es el máximo posible para N = 5. El deadlock solo aparece cuando **todos** pueden entrar, es decir con k = N. En general, cualquier k ≤ N − 1 evita el deadlock. Ojo: con k = N − 1 el semáforo central **es exactamente** la solución de las sillas limitadas.
+
+</Solucion>
+
+## 3 · Menos sillas que filósofos (`limit_seats.c`, `table.c`)
+
+```c
+semaphore seat_table = N - 1;      // «echar» a un filósofo de la mesa
+while (true) {
+    think();
+    wait(seat_table);
+      wait(fork[i]);  wait(fork[(i+1) % N]);
+      eat();
+      signal(fork[(i+1) % N]);  signal(fork[i]);
+    signal(seat_table);
+}
+```
+
+**¿Por qué no hay deadlock?** Por palomar. Con N − 1 filósofos en la mesa y N tenedores, aunque cada uno tome un tenedor **sobra uno**. Ese tenedor es vecino de algún filósofo sentado, que entonces puede tomar el segundo, comer y liberar.
+
+Rompe la **espera circular**: el ciclo necesitaría a los N filósofos.
+
+:::caution[Lo que mostró la ejecución]
+En la ejecución de prueba de `limit_seats.c` (N = 5, 4 sillas), el máximo de filósofos comiendo a la vez fue **1**, aunque en teoría pueden comer 2.
+
+La causa es el `sleep(1)` después de cada tenedor. Los 4 sentados toman su primer tenedor casi al mismo tiempo y forman una **cadena** donde cada uno espera al de al lado. Solo el del extremo come; al terminar, libera al siguiente, y así sucesivamente: **la cadena se recorre de a uno**.
+
+`table.c` (N = 5, semáforo «central» inicializado en 4) es **la misma solución** con otro nombre. Su comentario dice «central lock», pero con valor 4 limita sillas: dio el mismo resultado.
+:::
+
+## 4 · Solución asimétrica (`assymetric.c`)
+
+```c
+while (true) {
+    think();
+    if (i % 2 == 0) { wait(fork[i]);            wait(fork[(i+1) % N]); }   // pares: izquierda primero
+    else            { wait(fork[(i+1) % N]);    wait(fork[i]); }           // impares: derecha primero
+    eat();
+    signal(fork[(i+1) % N]);  signal(fork[i]);
+}
+```
+
+El código del curso lo escribe como `if (phil_id % 2)`: los impares toman primero el derecho y los pares el izquierdo. Es lo mismo.
+
+**¿Por qué no hay deadlock?** Para que haya ciclo, cada filósofo tendría que tener **su primer** tenedor y esperar el segundo, y todos «en la misma dirección». Dos vecinos con distinta paridad **compiten por el mismo primer tenedor**: uno de los dos ni siquiera toma su primer tenedor, así que el ciclo no se cierra.
+
+Lo verifiqué recorriendo todos los estados con N = 5 (donde 0 y 4 son ambos pares y quedan vecinos) y con N = 10: **sin deadlock** en ambos casos.
+
+<Solucion titulo="Diapositiva 26: «Does it exhibit lower parallelism? Why?»">
+
+**No.** En la ejecución de prueba (N = 10), el máximo de filósofos comiendo a la vez fue **5**, que es justo $\lfloor 10/2 \rfloor$, el máximo posible, con 1.35 en promedio por línea. En el recorrido de estados, el máximo alcanzable también es 5 de 10 y 2 de 5.
+
+**Por qué:** no hay ningún semáforo global que serialice. Cada filósofo solo compite con sus **dos vecinos**, igual que en la versión ingenua; solo cambia el **orden** en que algunos toman los tenedores, lo justo para que no se forme el ciclo.
+
+Comparado con las soluciones 2 y 3, la asimétrica **no limita** cuántos pueden intentar comer.
+
+</Solucion>
+
+## 5 · La solución de Tanenbaum (`tanen-sem.c`)
+
+Ya no se piensa en tenedores. Cada filósofo tiene un **estado** (T, H o E) y un **semáforo propio** (inicializado en 0) donde espera. Un filósofo hambriento solo pasa a E si **ninguno de sus vecinos está comiendo**, y lo decide **dentro de una sección crítica** (`sem`):
+
+```c
+#define LEFT  (phil_id + 1) % N
+#define RIGHT (phil_id + N - 1) % N
+sem_t sem;                 // = 1: protege state[]
+sem_t philosopher[N];      // = 0: aquí espera cada uno
+
+void test_forks(int k) {   // se llama con sem tomado
+  if (state[k] == H && state[left(k)] != E && state[right(k)] != E) {
+    state[k] = E;
+    sem_post(&philosopher[k]);          // lo «despierta» (o lo deja pasar)
+  }
+}
+void take_forks(int i) {
+  sem_wait(&sem);
+  state[i] = H;
+  test_forks(i);                        // ¿puedo comer ya?
+  sem_post(&sem);
+  sem_wait(&philosopher[i]);            // si no, espero a que un vecino me deje
+}
+void release_forks(int i) {
+  sem_wait(&sem);
+  state[i] = T;
+  test_forks(LEFT);                     // ¿mi vecino izquierdo puede comer ahora?
+  test_forks(RIGHT);
+  sem_post(&sem);
+}
+```
+
+- **Sin deadlock:** un filósofo nunca retiene un tenedor mientras espera, porque toma los dos «de golpe» al pasar a E. Se rompe *hold and wait*.
+- **Alto paralelismo:** pueden comer todos los que no tengan un vecino comiendo.
+- **El truco del `sem_post` adelantado:** si `test_forks(i)` lo deja comer, hace `sem_post(&philosopher[i])` y el `sem_wait` posterior **no bloquea**. Si no puede, se bloquea hasta que un vecino, al terminar, haga `test_forks(i)` por él.
+
+**Ejecución de prueba** con N = 11, hasta 100 porciones: cada filósofo comió **9 o 10** porciones. Con tiempos iguales, el reparto es justo.
+
+Las diapositivas 28–29 muestran una versión **«simple»** donde `take_forks` hace `wait(philosopher[i])` solo en la rama `else`. La versión «original» (diap. 30), que es la del código, hace siempre `test_forks(i)` seguido de `wait(phil[i])`, y es más limpia.
+
+## 6 · Starvation con alto paralelismo
+
+> *Diap. 31: «How to starve the philosophers? Need to control the time.»*
+
+Tanenbaum no tiene deadlock, pero **no garantiza** que todos coman. Si los dos vecinos de un filósofo **se turnan** para comer de forma que siempre hay al menos uno de los dos comiendo, `test_forks` nunca lo deja pasar. Los programas del curso fuerzan esos tiempos:
+
+| Programa | Tiempos | Porciones (ejecución de prueba) |
+| --- | --- | --- |
+| `tanen-5-1.c` (N = 5) | 0, 1 y 4 piensan 1 s y comen 3 s; 2 y 3 piensan 3 s y comen 1 s | F0: **0** · F1: 10 · F2: 10 · F3: 10 · F4: 10 |
+| `tanen-4-2.c` (N = 4) | todos comen 3 s; los impares arrancan desfasados | F0: 20 · F1: **0** · F2: 20 · F3: **0** |
+
+En `tanen-4-2` la salida se ve así: 0 y 2 comen alternándose con un desfase, de modo que **en todo instante** 1 y 3 tienen un vecino comiendo:
+
+```text
+E H T H
+E H E H      ← F1 y F3 hambrientos para siempre
+T H E H
+E H E H
+…
+```
+
+<Solucion titulo="Diapositiva 31: «Is it possible to have high parallelism and do not starve at the same time?» — sí (solución propia, medida)">
+
+**Idea:** respetar el **orden de llegada al hambre** entre vecinos. Cada vez que un filósofo pasa a H recibe un **turno** creciente. Un filósofo hambriento no empieza a comer si un **vecino hambriento llegó antes** que él, aunque los tenedores estén libres:
+
+```c
+long ticket[N], next_ticket = 0;
+
+void test_forks(int k) {
+  if (state[k] == H && state[LEFT] != E && state[RIGHT] != E
+      && !(state[LEFT]  == H && ticket[LEFT]  < ticket[k])
+      && !(state[RIGHT] == H && ticket[RIGHT] < ticket[k])) {
+    state[k] = E;
+    sem_post(&philosopher[k]);
+  }
+}
+/* en take_forks, después de state[i] = H: */  ticket[i] = next_ticket++;
+```
+
+**Por qué no hay starvation:** el filósofo hambriento con el **turno más antiguo** de todos no puede ser bloqueado por un vecino «más nuevo». Solo espera a que sus vecinos terminen de comer, cosa que ocurre en tiempo finito, y como ninguno de ellos puede volver a adelantarlo, termina comiendo. Después, el siguiente más antiguo pasa a ser el primero.
+
+**Ejecución de prueba** con **los mismos tiempos** que provocan la starvation:
+
+| Programa | Original | Con turnos |
+| --- | --- | --- |
+| tiempos de `tanen-5-1` | 0 · 10 · 10 · 10 · 10 (39 s) | **8 · 9 · 8 · 8 · 7** (48 s) |
+| tiempos de `tanen-4-2` | 20 · 0 · 20 · 0 (77 s) | **11 · 10 · 9 · 10** (60 s) |
+
+El paralelismo máximo sigue siendo **2 comiendo a la vez** en los cuatro casos.
+
+**El costo:** un filósofo puede esperar con los tenedores libres porque un vecino más antiguo tiene hambre. Eso baja un poco el paralelismo en algunos momentos; por eso la versión con turnos tardó más con los tiempos de `tanen-5-1`. Con `tanen-4-2` incluso **terminó antes**, porque los filósofos que antes no comían nunca ahora aportan porciones.
+
+Otras soluciones conocidas: Chandy/Misra (tenedores «sucios» y «limpios»), o un monitor con cola FIFO de hambrientos.
+
+</Solucion>
+
+## Resumen
+
+| Versión | Deadlock | Starvation | Comiendo a la vez (máx.) | Qué condición rompe |
+| --- | :-: | :-: | :-: | --- |
+| `deadlock-bug.c` | **sí** | sí | 2 (si no se bloquea) | ninguna |
+| semáforo central = 1 | no | depende de la cola del semáforo | **1** | hold and wait (solo uno compite) |
+| central = k ≤ N − 1 / sillas N − 1 | no | depende de la cola | 2 de 5 (en la ejecución: 1) | espera circular |
+| asimétrica | no | posible | **⌊N/2⌋** | espera circular |
+| Tanenbaum | no | **sí** (tanen-5-1, tanen-4-2) | **⌊N/2⌋** | hold and wait (toma ambos de golpe) |
+| Tanenbaum + turnos (propia) | no | **no** | ⌊N/2⌋ | hold and wait + orden de llegada |
+
+<Quiz
+	client:visible
+	id="fin-filosofos"
+	preguntas={[
+		{ q: 'En deadlock-bug.c, ¿qué condición de Coffman aparece «durante la ejecución»?', opts: ['Exclusión mutua', 'Espera circular', 'No expropiación', 'Ninguna'], ok: 1 },
+		{ q: 'Con un semáforo central de valor 2 y 5 filósofos…', opts: ['hay deadlock', 'no hay deadlock y pueden comer 2 a la vez', 'come uno a la vez', 'hay livelock'], ok: 1 },
+		{ q: 'Limitar a N − 1 las sillas evita el deadlock porque…', opts: ['los filósofos comen por turnos', 'siempre sobra un tenedor que deja comer a alguien', 'usa trylock', 'hay más tenedores'], ok: 1 },
+		{ q: 'La solución asimétrica, ¿reduce el paralelismo?', opts: ['Sí, come uno a la vez', 'No: puede llegar a ⌊N/2⌋', 'Sí, a la mitad', 'No hay paralelismo'], ok: 1 },
+		{ q: 'En Tanenbaum, un filósofo hambriento pasa a E si…', opts: ['tiene el tenedor izquierdo', 'ninguno de sus vecinos está comiendo', 'es el de menor id', 'el semáforo central lo permite'], ok: 1 },
+		{ q: 'tanen-4-2.c demuestra que Tanenbaum…', opts: ['tiene deadlock', 'puede tener starvation con ciertos tiempos', 'come de a uno', 'es injusto siempre'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['sem_9/11-OSL-Deadlock.pdf (diap. 15–31)', 'Código del curso sem9/deadlock/: deadlock-bug.c, sem_central.c, table.c, limit_seats.c, assymetric.c, tanen-sem.c, tanen-5-1.c, tanen-4-2.c (ejecuciones de prueba)', 'Recorrido exhaustivo de estados propio (semáforo central k = 1…5, asimétrica N = 5 y 10)', 'Variante propia con turnos: fair.c y fair42.c (ejecución de prueba)', 'Stallings §6.6, Tanenbaum «Modern Operating Systems» §2.5']} />

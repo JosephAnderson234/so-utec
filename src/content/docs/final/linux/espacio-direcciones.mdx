@@ -1,0 +1,223 @@
+---
+title: 'La memoria de un proceso en Linux'
+description: 'Lab 10 con el código del curso ejecutado: segmentos del espacio de direcciones virtual, /proc/PID/maps real, el stack con stack.c y gdb (bt), los bugs de memcpy (desborde que nadie detecta y escritura en dirección de kernel), malloc y size_t, malloc_limits, heap con brk vs mmap y overcommit.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+Cada proceso cree que tiene **toda la memoria para él**: un espacio de direcciones enorme y ordenado, con el código abajo, los datos encima, el **heap** que crece hacia arriba y el **stack** que crece hacia abajo desde el tope. Es una ilusión: el SO solo pone en la RAM real las páginas que el proceso **toca**. En este laboratorio miramos esa ilusión desde dentro: imprimimos direcciones, vemos el mapa del proceso, rompemos cosas con `memcpy` y vemos cómo pide memoria `malloc`.
+</EnSimple>
+
+## El espacio de direcciones virtual (VAS)
+
+Así se suele representar un programa en memoria (lab 10, diap. 12):
+
+```text
+ direcciones altas
+┌──────────────────────┐
+│ kernel               │ ← inaccesible desde modo usuario
+├──────────────────────┤
+│ stack           ↓    │ variables locales, direcciones de retorno (LIFO)
+│        …             │
+│ librerías (mmap)     │ libc, ld.so, y los malloc grandes
+│        …             │
+│ heap            ↑    │ malloc / free (crece con brk)
+├──────────────────────┤
+│ data / bss           │ globales y static (inicializadas / en cero)
+├──────────────────────┤
+│ text (código)        │ instrucciones, solo lectura + ejecución
+└──────────────────────┘
+ direcciones bajas
+```
+
+Cada segmento es un **mapeo** (*mapping*) de páginas con sus permisos. Se ven en `/proc/PID/maps` o, desde GDB, con `info proc mappings`. Este es el mapa real de `stack.c` mientras está detenido en `pause()` (ejecución de prueba):
+
+```text
+5fd878169000-5fd87816a000 r--p  /tmp/fin/stack     ← cabecera ELF
+5fd87816a000-5fd87816b000 r-xp  /tmp/fin/stack     ← text: lectura + ejecución
+5fd87816b000-5fd87816c000 r--p  /tmp/fin/stack     ← constantes (rodata)
+5fd87816d000-5fd87816e000 rw-p  /tmp/fin/stack     ← data/bss: lectura + escritura
+5fd8a932b000-5fd8a934c000 rw-p  [heap]
+705ecde28000-705ecdfb1000 r-xp  /usr/lib/x86_64-linux-gnu/libc.so.6
+705ece17d000-705ece1a8000 r-xp  /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+7ffea5870000-7ffea5891000 rw-p  [stack]
+7ffea58ae000-7ffea58b2000 r--p  [vvar]
+7ffea58b2000-7ffea58b4000 r-xp  [vdso]
+```
+
+**Cómo se lee:**
+- Las columnas son el **rango virtual**, los **permisos** (`r`, `w`, `x`, y `p` = privado) y el archivo de respaldo. Cada rango es un múltiplo de **4 KB** (una página).
+- **text** no tiene `w` (escribir en él da `SIGSEGV`), y **data** no tiene `x`: protección por página.
+- Las direcciones son **virtuales** y cambian en cada ejecución por **ASLR** (aleatorización del espacio de direcciones).
+- **`[vdso]`** es código del kernel mapeado en el proceso para hacer syscalls rápidas (`gettimeofday`) sin cambiar a modo kernel.
+
+## El stack en acción (`stack.c`)
+
+`main` llama a `foo`, que llama a `bar`, que llama a `bar_is_now_closed`, que se detiene en `pause()`. Cada función imprime la dirección de su variable local:
+
+```text
+In function                 main; &localvar = 0x7ffdb32528d4
+In function                  foo; &localvar = 0x7ffdb32528a4
+In function                  bar; &localvar = 0x7ffdb3252884
+In function    bar_is_now_closed; &localvar = 0x7ffdb3252864
+```
+
+- Las direcciones **bajan** (…8d4 → …8a4 → …884 → …864): el stack **crece hacia direcciones menores**, y cada llamada apila un **marco** (*frame*) nuevo.
+- La diferencia entre marcos (0x30, 0x20, 0x20 bytes) es la variable local más la dirección de retorno, el puntero de marco guardado y la alineación.
+
+El laboratorio pide conectarse con `gdb attach PID` y ejecutar `bt`. En sistemas con `ptrace_scope = 1` (el valor por defecto de Ubuntu), adjuntarse a un proceso que no es hijo requiere `sudo`. La alternativa es lanzarlo desde GDB y detenerlo en `pause`:
+
+```text
+$ gdb -q ./stack
+(gdb) break pause
+(gdb) run
+(gdb) bt
+#0  __libc_pause () at ../sysdeps/unix/sysv/linux/pause.c:27
+#1  0x0000555555555224 in bar_is_now_closed () at stack.c:17
+#2  0x0000555555555287 in bar () at stack.c:24
+#3  0x00005555555552ea in foo () at stack.c:31
+#4  0x0000555555555354 in main (argc=1, argv=0x7fffffffe108) at stack.c:39
+(gdb) frame 2
+(gdb) p localvar
+$1 = 2
+```
+
+`bt` (*backtrace*) recorre los marcos del stack de arriba hacia abajo. Con `frame k` te paras en uno y puedes ver sus variables locales. Dentro de GDB las direcciones son «bonitas» (0x5555…, 0x7fff…) porque GDB **desactiva ASLR**.
+
+## `memcpy` y sus bugs
+
+```c
+void *memcpy(void *dest, const void *src, size_t n);   // copia n bytes; las zonas no deben solaparse
+```
+
+La idea de la diapositiva 9: «App1 empieza en el offset físico 0x0; copiar de 300 KB a 400 KB». Pero un programa **no** trabaja con direcciones físicas: en `main.c`, `src = 0x300 * 1024` es solo un número, no un puntero válido del proceso.
+
+<Solucion titulo="`memcpy1.c`: copiar 1024 bytes a un buffer de 20">
+
+```c
+char src[20] = "oslabcs2s01";
+char dest[20] = "holahola";
+memcpy(dest, src, 1024);      // ← 1024 >> 20
+```
+
+**Bug:**
+- **lee** 1004 bytes de más después de `src`;
+- **escribe** 1004 bytes de más después de `dest`, **pisando el stack**: otras variables, la dirección de retorno de `main`…
+
+Es un **desborde de buffer** (*buffer overflow*). GCC lo advierte al compilar: `writing 1024 bytes into a region of size 20 overflows the destination`.
+
+**Ejecución de prueba, y lo sorprendente:**
+- Compilado con `-O0`, **termina con código 0** e imprime `After memcpy dst = oslabcs2s01`. El programa sale con `exit(0)` **antes** de retornar de `main`, así que nunca usa la dirección de retorno que pisó. Ni el *stack protector* llega a revisarla.
+- **Valgrind (memcheck) tampoco lo detecta: 0 errores.** Memcheck vigila el **heap** con precisión, pero no sabe dónde termina cada arreglo del **stack**.
+- Compilado con `-O2 -D_FORTIFY_SOURCE=2`, glibc comprueba el tamaño en tiempo de ejecución: `*** buffer overflow detected ***: terminated` (abort, código 134).
+
+**Moraleja:** un desborde puede **no fallar** y aun así ser un bug grave (es la base de muchos ataques). Corrección: `memcpy(dest, src, sizeof dest)`, o mejor, copiar `strlen(src) + 1` bytes después de comprobar que caben.
+
+</Solucion>
+
+<Solucion titulo="`memcpy2.c`: escribir en una dirección de kernel">
+
+```c
+void *arbit_addr = (void *)0xfffffffff601000;
+dest = (argc == 1) ? ptr /* malloc(256 KB) */ : arbit_addr;
+memcpy(dest, src, strlen(src));
+```
+
+- **Sin argumentos:** copia al bloque de `malloc`. Funciona (código 0).
+- **Con un argumento:** intenta escribir en una dirección **fuera del espacio de usuario**. En la diapositiva 11 es `0xffffffffff601000`, una dirección **virtual del kernel** en x86-64 (la zona `vsyscall`). Ejecución de prueba: **`Segmentation fault`** (código 139 = 128 + 11, `SIGSEGV`). Valgrind lo reporta como `Invalid write of size 2` dentro de `memmove`, y luego `Process terminating with default action of signal 11 (SIGSEGV)`.
+
+**¿Por qué segfault y no «escribe en la RAM física»?** Porque la dirección es **virtual**. La MMU busca su página y, como esa página no está mapeada para el proceso con permiso de escritura en modo usuario, genera una **excepción de protección**. El kernel la convierte en `SIGSEGV`. Esa es la **protección** que da la memoria virtual: un proceso no puede tocar ni el kernel ni a otros procesos.
+
+</Solucion>
+
+## `malloc`, `size_t` y sus límites
+
+```c
+void *malloc(size_t size);      // size_t = unsigned long en x86-64: 8 bytes
+```
+
+`malloc_limits.c` prueba casos extremos. Ejecución de prueba (x86-64):
+
+```text
+sizeof size_t = 8; max value of the param to malloc = 18446744073709551616
+ld_num2alloc  = -288225969623711744
+szt_num2alloc = 18158518104085839872
+1. long int used:  malloc(-288225969623711744) returns (nil)
+2. size_t used:    malloc(18158518104085839872) returns (nil)
+3. short int used: malloc(6144) returns 0x625e5b4d22b0
+4. short int used: malloc(-4096) returns (nil)
+5. size_t used:    malloc(18446744073709547520) returns (nil)
+6.                 malloc(18446744073709551615) returns (nil)
+7.                 malloc(0) returns 0x625e5b4d22b0
+```
+
+**Lo que hay que entender de cada línea:**
+- **1 y 2:** `28 000 000 × 1 PB` **desborda** el entero: como `long`, da un número **negativo**; como `size_t`, uno gigantesco. `malloc` recibe siempre un `size_t`, así que el negativo se convierte en un número enorme. Ninguno se puede satisfacer: **NULL**.
+- **3 y 4:** `short` tiene 16 bits con signo, máximo 32 767. `6·1024 = 6144` cabe. `60·1024 = 61 440` **no cabe** y se convierte en **−4096**; pasado a `size_t` es casi $2^{64}$: NULL.
+- **5 y 6:** `-1UL` es el `size_t` máximo. Imposible: NULL.
+- **7: `malloc(0)`** devuelve un puntero **válido** (no NULL) que no se debe usar, pero sí se puede pasar a `free`. Fíjate que es **la misma dirección** que el caso 3: después del `free`, el bloque se reutilizó.
+- **Siempre** hay que revisar si `malloc` devolvió NULL.
+
+<Solucion titulo="`malloc.c`: pedir 2 000 000 000 bytes en una máquina con 3 GB">
+
+**Ejecución de prueba:** `got 0x71b5a6ca6010`. El `malloc` de unos 1.86 GiB **funcionó** y el `memset` lo recorrió completo.
+
+Linux usa **overcommit** (`/proc/sys/vm/overcommit_memory = 0`, heurístico): `malloc` reserva **espacio virtual**, no RAM. Los frames se asignan recién **al escribir** cada página (paginación por demanda; ver la [medición de page faults](/final/memoria-virtual/fundamentos/#medición-la-paginación-por-demanda-en-acción)).
+
+Si se pide más de lo que la heurística acepta, `malloc` devuelve NULL. Y si muchos procesos tocan más memoria de la que existe, actúa el **OOM killer**.
+
+</Solucion>
+
+### `realloc`
+
+```c
+void *realloc(void *ptr, size_t new_size);
+```
+
+Agranda o achica un bloque. **Puede moverlo** a otra dirección (copiando el contenido) si no hay espacio contiguo. Por eso:
+
+```c
+p = realloc(p, n);          // ✘ si falla devuelve NULL, se pierde p y hay una fuga
+q = realloc(p, n);          // ✔
+if (q) p = q; else { /* p sigue siendo válido */ }
+```
+
+### ¿De dónde saca `malloc` la memoria? (diap. 23)
+
+> «El consenso general es que malloc obtiene su memoria del heap. **No siempre es así**.»
+
+glibc usa dos mecanismos:
+- **Bloques chicos:** el **heap**, que se agranda moviendo el «break» con `brk`/`sbrk`.
+- **Bloques ≥ 128 KB** (`M_MMAP_THRESHOLD` por defecto): un **mapeo anónimo** propio con `mmap`, que `free` devuelve al sistema con `munmap`.
+
+Ejecución de prueba (`mallocmap.c`):
+
+```text
+fin del heap antes   : 0x5d8f3f3e1000
+malloc(1000)         : 0x5d8f3f3e12a0    ← heap
+malloc(100 KB)       : 0x5d8f3f3e1690    ← heap
+malloc(200 KB)       : 0x7ca57ffcd010    ← zona de mmap (cerca de las librerías)
+malloc(64 MB)        : 0x7ca57bfcc010    ← zona de mmap
+fin del heap después : 0x5d8f3f402000
+```
+
+Los dos bloques chicos quedan **dentro** del `[heap]`. Los de 200 KB y 64 MB aparecen en la zona alta, junto a `libc.so.6`, en un mapeo anónimo `rw-p` nuevo. Lo mismo explica por qué en la medición de page faults el comportamiento cambia desde N ≥ 32 páginas (128 KB).
+
+<Quiz
+	client:visible
+	id="fin-vas"
+	preguntas={[
+		{ q: 'En stack.c, las direcciones de localvar…', opts: ['suben con cada llamada', 'bajan: el stack crece hacia direcciones menores', 'son iguales', 'son físicas'], ok: 1 },
+		{ q: 'memcpy1.c copia 1024 bytes a un buffer de 20 con -O0. ¿Qué pasó en la ejecución de prueba?', opts: ['Segfault', 'Terminó con código 0 y Valgrind no reportó errores', 'Valgrind reportó Invalid write', 'No compila'], ok: 1 },
+		{ q: 'memcpy2.c con un argumento escribe en 0xffff…601000 y…', opts: ['escribe en la RAM física', 'recibe SIGSEGV: la página no está mapeada para el usuario', 'escribe en el heap', 'el kernel lo permite'], ok: 1 },
+		{ q: 'malloc(60*1024) pasando el tamaño en un short…', opts: ['reserva 60 KB', 'el short desborda a −4096 → size_t enorme → NULL', 'reserva 0', 'segfault'], ok: 1 },
+		{ q: 'Un malloc de 200 KB en glibc…', opts: ['sale del heap con brk', 'usa un mapeo anónimo con mmap', 'falla', 'usa el stack'], ok: 1 },
+		{ q: '¿Por qué un malloc de 2 GB funciona en una máquina con 3 GB aunque haya otros procesos?', opts: ['Porque reserva espacio virtual; los frames se asignan al tocar las páginas (overcommit)', 'Porque usa swap siempre', 'Porque comprime', 'No funciona'], ok: 0 },
+	]}
+/>
+
+<Fuente archivos={['sem_9/10-OSL-Memory.pdf (26 diap.)', 'Código del curso sem9/: stack.c, memcpy1.c, memcpy2.c, main.c, malloc.c, malloc_limits.c (ejecuciones de prueba)', 'Prueba propia: mallocmap.c', 'man 3 malloc, man 3 memcpy, proc(5)']} />

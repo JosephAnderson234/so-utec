@@ -1,0 +1,231 @@
+---
+title: 'Repaso final: chuleta, flashcards y simulacro del LC3'
+description: 'Todo el final en una página: fórmulas y reglas de memoria virtual y deadlock, 40 flashcards y un simulacro del LC3 con su formato (4 teóricas, 3 de análisis, 2 de código), con respuestas verificadas y pauta.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Quiz from '../../../components/Quiz.tsx';
+import Flashcards from '../../../components/Flashcards.tsx';
+
+<EnSimple>
+Usa esta página **al final**, después de las páginas de cada tema:
+1. Lee la chuleta y pregúntate «¿sabría explicar esto?».
+2. Pasa las flashcards (tu progreso se guarda en el navegador).
+3. Haz el simulacro con un cronómetro, **en el mismo orden que el LC3**: primero el código y después el quiz.
+</EnSimple>
+
+## Chuleta
+
+### Memoria virtual
+
+- **Partes de una dirección:** offset = $\log_2(\text{página})$; VPN = bits virtuales − offset; PFN = bits físicos − offset.
+- **Tabla:** entradas = $2^{VPN}$ (o memoria virtual / página); tamaño = entradas × bytes por PTE.
+- **Multinivel con tablas de una página:** bits por nivel = $\log_2(\text{página}/\text{PTE})$; niveles = ⌈VPN / bits por nivel⌉.
+- **Accesos por referencia:** sin TLB, k niveles + 1. Con TLB: 1 si acierta, k + 1 si falla.
+- **Tiempo efectivo de acceso:** $\text{EAT} = t_{TLB} + t_m + (1-h)\,k\,t_m$ si siempre se consulta la TLB. Despejar h: $(1-h) = (\text{EAT} - t_{TLB} - t_m)/(k\,t_m)$.
+- **PTE:** P/V (presente), M (dirty), R/U (uso), protección, frame. **Invertida:** una entrada por **frame**, con hash de (página, PID).
+- **Page fault:** trap → validar → frame libre o víctima (escribirla si M = 1) → leer del disco (el proceso se bloquea) → actualizar la PTE → reiniciar la instrucción.
+- **Reemplazo:**
+  - **OPT**: la que se usa más tarde;
+  - **LRU**: la usada hace más tiempo;
+  - **FIFO**: la más vieja en memoria;
+  - **Clock**: pone u = 0 al pasar y saca la primera con u = 0;
+  - **Clock mejorado**: prefiere (u, m) = (0, 0) > (0, 1) > (1, 0) > (1, 1).
+  - **Belady:** FIFO y Clock pueden tener más fallos con más frames; LRU y OPT (algoritmos de pila) no.
+- **Conjunto residente:**
+  - fija + local, variable + local o variable + global; **fija + global es imposible**;
+  - **working set** $W(t,\Delta)$ = las páginas de las últimas Δ referencias;
+  - **PFF**: crecer si los fallos están muy seguidos, encogerse si no.
+- **Limpieza:** por demanda (2 E/S) vs precleaning (E/S desperdiciada) → **page buffering**.
+- **Thrashing:** la CPU cae y el disco se satura. Hay que **bajar** el nivel de multiprogramación (criterio L = S o 50 %).
+- **UNIX/Linux:** reloj de **dos manecillas** (scanrate, handspread), **lazy buddy**, COW; en Linux, **split LRU** (activa/inactiva, kswapd), buddy de frames y **slab/SLUB/SLOB**.
+
+### Deadlock y sincronización
+
+- **Coffman:** exclusión mutua + hold and wait + no expropiación + espera circular.
+- **Filósofos:**
+  - semáforo central (1) → sin deadlock, come uno a la vez;
+  - k ≤ N − 1 sillas → sin deadlock;
+  - asimétrica → sin deadlock, con paralelismo ⌊N/2⌋;
+  - Tanenbaum → sin deadlock, pero puede haber **starvation** (tanen-5-1, tanen-4-2).
+- **trylock:** rompe hold and wait, pero puede haber **livelock**. La solución robusta es el **orden global** de los locks.
+- **Barbero:**
+  - `sem_trywait(seats)` (no bloquea);
+  - `barber_chair`, `client_seat` y `hair_cut` (el **barbero** decide cuándo termina);
+  - con N barberos, un **panel** (`write_panel` = 1, `read_panel` = 0), y `barber_chair` sobra.
+- **Valgrind:**
+  - `Invalid write/read` (fuera del bloque o ya liberado), `Invalid free` (doble o no-heap), `definitely lost` (fuga), `Conditional jump … uninitialised` (en el **if**, no en la declaración);
+  - **no** ve desbordes del stack;
+  - helgrind encuentra races aunque el resultado haya salido bien.
+
+## Flashcards
+
+<Flashcards
+	client:visible
+	cards={[
+		{ t: 'Memoria virtual', f: '¿Qué dos características permiten la memoria virtual?', b: 'Las referencias se traducen **en ejecución** y el proceso **no necesita estar contiguo**. Juntas permiten ejecutarlo sin todas sus páginas en RAM.' },
+		{ t: 'Memoria virtual', f: 'Principio de localidad', b: 'Las referencias se **agrupan** en pocas páginas durante un intervalo. Por eso la memoria virtual no colapsa en thrashing.' },
+		{ t: 'Memoria virtual', f: 'Bit M (dirty) en el reemplazo', b: 'Si M = 1, la víctima se **escribe al disco** antes de reutilizar su frame; si M = 0, se descarta gratis.' },
+		{ t: 'Memoria virtual', f: 'Tabla invertida', b: 'Una entrada por **frame** físico, con búsqueda por **hash** de (página, PID). Su tamaño depende de la RAM, no del espacio virtual.' },
+		{ t: 'Memoria virtual', f: 'Pasos de un page fault', b: 'Trap → validar la dirección (o segfault) → frame libre o víctima (escribirla si M = 1) → leer del disco (proceso bloqueado) → PTE: P = 1 y frame → reiniciar la instrucción.' },
+		{ t: 'Memoria virtual', f: 'Página pequeña vs grande', b: 'Pequeña: menos fragmentación interna, pero tablas más grandes. Grande: tablas chicas y E/S eficiente, pero más fragmentación interna.' },
+		{ t: 'Memoria virtual', f: 'Segmentación + paginación', b: 'Dirección (segmento, página, offset): la tabla de segmentos apunta a la tabla de páginas de cada segmento. Segmentos lógicos protegibles y **sin fragmentación externa**.' },
+		{ t: 'Memoria virtual', f: 'Prepaging vs demanda', b: 'Demanda: traer la página solo cuando se referencia. Prepaging: traer varias contiguas de una vez, que conviene si se terminan usando.' },
+		{ t: 'Memoria virtual', f: 'Frame locking', b: 'Frames que **no** pueden ser víctima: el kernel, los buffers de E/S en uso (DMA) y las áreas críticas en tiempo.' },
+		{ t: 'Reemplazo', f: 'OPT', b: 'Expulsa la página cuya próxima referencia está **más lejos**. Da el mínimo de fallos, pero es irrealizable: sirve de referencia.' },
+		{ t: 'Reemplazo', f: 'Clock', b: 'Puntero circular + bit u. En un fallo: si u = 1, ponerlo en 0 y avanzar; si u = 0, expulsar. Al cargar: u = 1 y el puntero pasa al siguiente frame.' },
+		{ t: 'Reemplazo', f: 'Clock mejorado (con M)', b: 'Busca primero (u=0, m=0); si no hay, (u=0, m=1) apagando los u; si no, repite. Prefiere víctimas que no hay que escribir.' },
+		{ t: 'Reemplazo', f: 'Anomalía de Belady', b: 'Más frames → **más** fallos. La sufren FIFO (y Clock). Cadena A B C D A B E A B C D E: FIFO da 9 con 3 frames y 10 con 4.' },
+		{ t: 'Reemplazo', f: '¿Por qué LRU no tiene la anomalía de Belady?', b: 'Es un algoritmo de pila: las n páginas más recientes están siempre incluidas en las n + 1 más recientes.' },
+		{ t: 'Reemplazo', f: 'Page buffering', b: 'La víctima pasa a la lista **libre** (o **modificada**) sin borrarse. Si se vuelve a usar, se recupera sin E/S, y las modificadas se escriben en lotes.' },
+		{ t: 'Reemplazo', f: 'P1 de la hoja (3 frames)', b: 'FIFO 10 · OPT 7 · LRU 8 · Clock 9.' },
+		{ t: 'Conjunto residente', f: '¿Qué combinación es imposible?', b: '**Fija + global**: quitarle un frame a otro proceso cambiaría su tamaño fijo.' },
+		{ t: 'Conjunto residente', f: 'W(t, Δ)', b: 'Las páginas referenciadas en las últimas Δ referencias (tiempo virtual). Crece con Δ, pero cada vez menos.' },
+		{ t: 'Conjunto residente', f: 'PFF', b: 'Si el tiempo desde el último fallo es < F, se agrega la página (crece). Si no, se descartan las de u = 0 (se encoge).' },
+		{ t: 'Conjunto residente', f: 'Thrashing: síntoma y remedio', b: 'CPU baja y disco de paginación saturado. **Bajar** el nivel de multiprogramación (suspender procesos), no agregar más.' },
+		{ t: 'Conjunto residente', f: 'Criterio L = S', b: 'Tiempo medio entre fallos = tiempo medio de atender un fallo. Maximiza el uso del procesador.' },
+		{ t: 'UNIX/Linux', f: 'Reloj de dos manecillas (SVR4)', b: 'La delantera pone el bit de referencia en 0; la trasera expulsa las que siguen en 0. **scanrate** sube con poca memoria libre; **handspread** = distancia entre manecillas.' },
+		{ t: 'UNIX/Linux', f: 'Lazy buddy', b: 'Demora la fusión de bloques del kernel: guarda libres locales mientras L_i ≤ A_i (variable D_i = A_i − L_i).' },
+		{ t: 'UNIX/Linux', f: 'Split LRU de Linux', b: 'Listas **activa** e **inactiva** por zona; PG_referenced y PG_active; dos accesos en barridos distintos para ser activa. kswapd reclama de la inactiva.' },
+		{ t: 'UNIX/Linux', f: 'slab', b: 'Asignador de objetos pequeños del kernel dentro de páginas del buddy. Variantes: SLAB (caché), SLUB (simple) y SLOB (compacto).' },
+		{ t: 'Deadlock', f: 'Filósofos con semáforo central = 2 (N = 5)', b: 'Sin deadlock y pueden comer **2** a la vez. Solo hay deadlock si el central vale N (verificado recorriendo todos los estados).' },
+		{ t: 'Deadlock', f: '¿La solución asimétrica baja el paralelismo?', b: 'No: llega a ⌊N/2⌋ (5 de 10 en la ejecución de prueba). Solo cambia el orden en que se toman los tenedores.' },
+		{ t: 'Deadlock', f: 'Tanenbaum: ¿deadlock? ¿starvation?', b: 'Sin deadlock (toma los dos tenedores de golpe). **Starvation posible**: en tanen-5-1 el filósofo 0 comió 0 porciones.' },
+		{ t: 'Deadlock', f: 'Livelock', b: 'Los procesos ejecutan (trylock, soltar, reintentar sincronizados) pero nadie progresa. Se evita con orden global de los locks o espera aleatoria.' },
+		{ t: 'Deadlock', f: 'pthread_mutex_trylock', b: 'Retorna de inmediato con **EBUSY** si el mutex está tomado (también si lo tiene el mismo hilo). Rompe hold and wait.' },
+		{ t: 'Barbero', f: '¿Por qué falla `if (sem_getvalue(seats) > 0) wait(seats)`?', b: 'Check-then-act no atómico: dos clientes ven 1 y uno termina **bloqueado** en vez de irse.' },
+		{ t: 'Barbero', f: '¿Quién decide que el corte terminó?', b: 'El **barbero**, con `signal(hair_cut)`; el cliente espera en `wait(hair_cut)` antes de liberar la silla.' },
+		{ t: 'Barbero', f: 'N barberos: ¿se puede quitar barber_chair?', b: 'Sí: el barbero solo publica su id en el panel estando libre, y cada id lo lee un único cliente.' },
+		{ t: 'UNIX', f: 'Mecanismos de comunicación de UNIX', b: 'Para datos: pipes, mensajes y memoria compartida. Para acciones: semáforos y señales. La memoria compartida es la más rápida, sin exclusión mutua propia.' },
+		{ t: 'Linux', f: 'spin_lock_irqsave', b: 'Spinlock que guarda y deshabilita las interrupciones locales. Úsalo cuando no sabes si están habilitadas.' },
+		{ t: 'Linux', f: 'RCU', b: 'Los lectores no toman locks. El escritor copia, modifica y publica el puntero nuevo; la versión vieja se libera tras synchronize_rcu/call_rcu.' },
+		{ t: 'Valgrind', f: 'mem3.c', b: '`Conditional jump or move depends on uninitialised value(s)` en la línea 6 (el `if`). Se corrige con `int number = 0;`.' },
+		{ t: 'Valgrind', f: '¿mem1.c y mem2.c tienen errores?', b: 'No. 100 malloc con 100 free y un puntero a una global: 0 errores, sin fugas.' },
+		{ t: 'Valgrind', f: '¿Memcheck detecta un desborde de un arreglo local?', b: 'No (memcpy1.c dio 0 errores). Usa AddressSanitizer o -D_FORTIFY_SOURCE=2.' },
+		{ t: 'Linux', f: '¿De dónde saca malloc la memoria?', b: 'Bloques chicos: el heap (brk). Desde 128 KB: un mapeo anónimo con **mmap**.' },
+	]}
+/>
+
+## Simulacro del LC3
+
+:::note[Instrucciones (como el LC3 real)]
+- **Primero el código** (2 preguntas, 6 pts, máximo 60 min), resuelto en papel o en tu editor y probado.
+- **Después el quiz:** 4 teóricas (5 pts) y 3 de análisis (9 pts).
+- Abre las soluciones solo al terminar.
+:::
+
+### Código 1 (3 pts) · Barbero con `sem_trywait`
+
+Completa los huecos para 1 barbero y 5 sillas de espera. Un cliente que no encuentra silla **se va sin bloquearse**, el barbero **duerme** si no hay clientes, y el cliente **no se levanta** hasta que el barbero termina.
+
+```c
+sem_t seats, barber_chair, client_seat, hair_cut;
+
+void *cliente(void *a) {                     void *barbero(void *a) {
+    if (/* [1] */) {                              while (1) {
+        /* [2] */;                                    /* [5] */;
+        sem_post(&seats);                             cut_shave();
+        /* [3] */;                                    /* [6] */;
+        /* [4] */;                                }
+        sem_post(&barber_chair);              }
+    } else leaves();
+}
+/* main: sem_init(&seats,0,[7]); sem_init(&barber_chair,0,[8]);
+         sem_init(&client_seat,0,[9]); sem_init(&hair_cut,0,[10]); */
+```
+
+<Solucion titulo="Solución y pauta (probada en una ejecución de prueba)">
+
+| Hueco | Código |
+| --- | --- |
+| [1] | `sem_trywait(&seats) == 0` |
+| [2] | `sem_wait(&barber_chair)` |
+| [3] | `sem_post(&client_seat)` |
+| [4] | `sem_wait(&hair_cut)` |
+| [5] | `sem_wait(&client_seat)` |
+| [6] | `sem_post(&hair_cut)` |
+| [7]–[10] | 5, 1, 0, 0 |
+
+Es la solución de la diap. 41, probada con 300 clientes: 237 atendidos y 63 que se fueron, nunca más de 5 esperando ([barbero](/final/deadlock/barbero/)).
+
+**Pauta:** 0.3 por hueco. [1] con `sem_wait` en lugar de `sem_trywait` vale 0, porque el cliente se bloquearía en vez de irse.
+
+</Solucion>
+
+### Código 2 (3 pts) · Errores de memoria
+
+```c
+ 4  char *duplicar(const char *s) {
+ 5      char *d = malloc(strlen(s));
+ 6      strcpy(d, s);
+ 7      return d;
+ 8  }
+ 9
+10  int main(void) {
+11      int *v = malloc(5 * sizeof(int));
+12
+13      for (int i = 0; i <= 5; i++)
+14          v[i] = i * i;
+15      char *nombre = duplicar("utec");
+16      printf("%s %d\n", nombre, v[2]);
+17      free(v);
+18      printf("%d\n", v[0]);
+19      return 0;
+20  }
+```
+
+Indica cada error que reportaría memcheck (tipo y línea) y corrige el programa.
+
+<Solucion titulo="Solución (salida real de memcheck)">
+
+```text
+Invalid write of size 4     at main (lc3_mem.c:14)   0 bytes after a block of size 20 alloc'd
+Invalid write of size 1     (strcpy, línea 6)          0 bytes after a block of size 4 alloc'd
+Invalid read of size 1      (printf, línea 16)         0 bytes after a block of size 4 alloc'd
+Invalid read of size 4      at main (lc3_mem.c:18)   0 bytes inside a block of size 20 free'd
+4 bytes in 1 blocks are definitely lost
+ERROR SUMMARY: 5 errors from 5 contexts
+```
+
+| # | Línea | Error | Corrección |
+| - | :-: | --- | --- |
+| 1 | 14 | `i <= 5` escribe `v[5]`, fuera de un bloque de 5 enteros | `i < 5` |
+| 2 | 6 (por la 5) | `malloc(strlen(s))` no deja espacio para el `'\0'`: strcpy escribe 1 byte de más | `malloc(strlen(s) + 1)` |
+| 3 | 16 | `printf("%s")` lee ese mismo byte fuera del bloque (consecuencia del error 2) | se arregla con el error 2 |
+| 4 | 18 | lee `v[0]` **después** del `free(v)` (uso tras liberar) | mover `free(v)` al final |
+| 5 | — | `nombre` nunca se libera: 4 bytes **definitely lost** | `free(nombre)` antes de `return` |
+
+La versión corregida da **0 errores**. Ojo: el programa original **imprimió bien** (`utec 4`, `0`). Por eso hay que usar Valgrind: los bugs de memoria muchas veces no se notan.
+
+**Pauta:** 0.5 por error bien ubicado y 0.5 por un programa corregido que compile.
+
+</Solucion>
+
+### Quiz: teóricas (5 pts) y análisis (9 pts)
+
+<Quiz
+	client:visible
+	id="fin-lc3-teoricas"
+	titulo="Teóricas (1.25 c/u)"
+	preguntas={[
+		{ q: '¿Cuál de las condiciones de Coffman normalmente NO se puede eliminar?', opts: ['Hold and wait', 'No expropiación', 'Exclusión mutua: hay recursos que por naturaleza no se comparten', 'Espera circular'], ok: 2 },
+		{ q: 'La paginación sufre fragmentación…', opts: ['externa', 'interna (la última página del proceso queda a medias)', 'ninguna', 'ambas'], ok: 1 },
+		{ q: 'Si el nivel de multiprogramación sube demasiado…', opts: ['la CPU llega al 100 %', 'aparece el thrashing: los procesos no tienen su working set y el uso de la CPU cae', 'baja la tasa de fallos', 'se activa el buddy'], ok: 1 },
+		{ q: 'En una tabla de páginas invertida, la búsqueda se hace…', opts: ['indexando por número de página', 'con un hash de (página, PID) sobre una tabla de una entrada por frame', 'secuencialmente en disco', 'en la TLB solamente'], ok: 1 },
+	]}
+/>
+
+<Quiz
+	client:visible
+	id="fin-lc3-analisis"
+	titulo="Análisis (3 c/u)"
+	preguntas={[
+		{ q: 'Cadena 7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1 con 3 frames vacíos. Fallos de FIFO, OPT y LRU:', opts: ['15, 9, 12', '12, 9, 15', '15, 12, 9', '10, 7, 8'], ok: 0, why: 'Verificado con el simulador. Con 4 frames: FIFO 10, OPT 8, LRU 8.' },
+		{ q: 'Paginación de 2 niveles 10|10|12 y PTE de 4 B. La dirección virtual 0x00C03A7C y la PTE final dice frame 0x1F2. ¿Índices y dirección física?', opts: ['directorio 3, tabla 3, física 0x1F2A7C', 'directorio 0xC0, tabla 0x3A, física 0x1F27C', 'directorio 3, tabla 0x3A7, física 0x1F2C', 'directorio 12, tabla 3, física 0x1F2000'], ok: 0, why: '0x00C03A7C >> 22 = 3; (>> 12) & 0x3FF = 3; offset = 0xA7C; física = 0x1F2 << 12 | 0xA7C.' },
+		{ q: 'Filósofos (N = 5) donde cada uno toma primero el tenedor de MENOR número y luego el de mayor. ¿Qué pasa?', opts: ['Deadlock como la versión ingenua', 'Sin deadlock (orden global de los recursos rompe la espera circular) y pueden comer hasta 2', 'Sin deadlock pero come de a uno', 'Livelock'], ok: 1, why: 'Solo el filósofo 4 cambia de orden (toma 0 antes que 4): es una solución asimétrica. Verificado recorriendo todos los estados: sin deadlock, máximo 2 comiendo.' },
+	]}
+/>
+
+<Fuente archivos={['Todo el material de sem_9 y las páginas de esta sección', 'Simulacro propio; respuestas verificadas con el simulador de reemplazo, un recorrido exhaustivo de estados y ejecuciones de prueba (barber.c, lc3_mem.c)']} />

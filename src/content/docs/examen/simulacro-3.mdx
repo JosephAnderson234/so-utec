@@ -198,7 +198,7 @@ a) (2 pts) Muestra con una traza (por ejemplo, con 2 oxígenos y 4 hidrógenos) 
 b) (3 pts) Escribe una solución correcta con semáforos (puedes usar `pthread_barrier_t`).
 c) (1 pt) En tu solución, ¿qué hilo hace `wait` del mutex y cuál el `post`? ¿Podrías usar un `pthread_mutex_t` en su lugar?
 
-<Solucion titulo="Solución (probada en WSL: la propuesta mezcla moléculas; la corrección da 300/300 sin violaciones)">
+<Solucion titulo="Solución (ejecución de prueba: la propuesta mezcla moléculas; la corrección da 300/300 sin violaciones)">
 
 **a)** Nada impide que **dos oxígenos** trabajen a la vez:
 
@@ -209,7 +209,7 @@ c) (1 pt) En tu solución, ¿qué hilo hace `wait` del mutex y cuál el `post`? 
 | 3 | O2 hace `wait(hidro)` ×2, `post(oxi)` ×2 y **`bond()`** | 0 | 4 |
 | 4 | H1–H4 despiertan y hacen `bond()` | | |
 
-⇒ **Dos oxígenos hicieron `bond()` antes de que terminara la primera molécula.** Además, los `post(oxi)` de O1 pueden despertar a H3 y H4 (y no a H1 y H2): los hidrógenos no quedan asociados a «su» oxígeno. En WSL, con 300 moléculas, la propuesta tuvo **2 y 3 violaciones** en dos corridas.
+⇒ **Dos oxígenos hicieron `bond()` antes de que terminara la primera molécula.** Además, los `post(oxi)` de O1 pueden despertar a H3 y H4 (y no a H1 y H2): los hidrógenos no quedan asociados a «su» oxígeno. En la ejecución de prueba, con 300 moléculas, la propuesta tuvo **2 y 3 violaciones** en dos corridas.
 
 **b)** La solución de *The Little Book of Semaphores*: el que completa la molécula la «arma» y un mutex no deja que otra empiece hasta que la barrera confirme los 3 `bond()`.
 
@@ -241,7 +241,7 @@ void *oxigeno(void *a) {                    void *hidrogeno(void *a) {
 - La **barrera** de 3 asegura que los tres hicieron `bond()`.
 - Después, el **oxígeno** de la molécula (hay exactamente uno) reabre el mutex.
 
-Resultado en WSL: *«versión 1: 300 moléculas completas, 0 violaciones»* en dos corridas.
+Resultado de la ejecución de prueba: *«versión 1: 300 moléculas completas, 0 violaciones»* en dos corridas.
 
 **c)** `sem_wait(&mutex)` lo hace **el tercer átomo en llegar**, que puede ser un H o un O. `sem_post(&mutex)` lo hace **siempre el oxígeno** de la molécula. Con frecuencia son **hilos distintos**, así que **no** se puede usar `pthread_mutex_t`: el mutex tiene dueño (el unlock desde otro hilo es indefinido, o EPERM con ERRORCHECK). El semáforo, sin dueño, sí lo permite.
 
@@ -254,4 +254,4 @@ Repaso: [montaña rusa](/semaforos/clasicos/#montaña-rusa-utec-e1-2022--p2a) (e
 
 </Solucion>
 
-<Fuente archivos={['Simulacro propio basado en for_partial/pending_themes (registros, lectores–escritores) y el estilo del PC1 2021 / E1 2022', 'WSL ~/so/verif_parcial/simulacros/s3_h2o.c', 'Verificación: scratchpad rw.py (Stallings 5.25 sin x) y el intercalador (Dekker con salida invertida, Peterson con if)', 'A. Downey, The Little Book of Semaphores (H2O)']} />
+<Fuente archivos={['Simulacro propio basado en for_partial/pending_themes (registros, lectores–escritores) y el estilo del PC1 2021 / E1 2022', 'prueba propia verif_parcial/simulacros/s3_h2o.c', 'Verificación: scratchpad rw.py (Stallings 5.25 sin x) y el intercalador (Dekker con salida invertida, Peterson con if)', 'A. Downey, The Little Book of Semaphores (H2O)']} />

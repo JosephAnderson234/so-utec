@@ -21,7 +21,7 @@ import Fuente from '../../../components/Fuente.astro';
 	preguntas={[
 		{ q: 'Un proceso tiene 4 hilos. El hilo 2 llama a `fork()`. ¿Cuántos hilos tiene el proceso hijo?', opts: ['4, uno por cada hilo del padre', '1: solo una copia del hilo que llamó a fork', '0 hasta que llame a pthread_create', 'Depende del planificador'], ok: 1, why: 'POSIX: el hijo tiene un solo hilo, réplica del que llamó. Por eso los mutex que otros hilos tenían tomados quedan tomados para siempre en el hijo.' },
 		{ q: 'La variable `x` vale 1 y un hilo ejecuta `futex_wait(&x, 0)`. ¿Qué pasa?', opts: ['Duerme hasta un futex_wake', 'Retorna de inmediato (EAGAIN), porque x ≠ 0', 'Pone x en 0 y duerme', 'Queda en espera activa'], ok: 1, why: 'El kernel duerme al hilo solo si *addr == val, comprobado atómicamente. Así se evita el lost wake-up.' },
-		{ q: 'Un hilo toma un `pthread_mutex_t` de tipo ERRORCHECK y lo vuelve a pedir con `pthread_mutex_lock`. Resultado:', opts: ['Deadlock', 'Retorna EDEADLK', 'Retorna 0 y cuenta 2', 'Comportamiento indefinido'], ok: 1, why: 'NORMAL: deadlock. ERRORCHECK: EDEADLK. RECURSIVE: 0 (cuenta +1). Probado en WSL.' },
+		{ q: 'Un hilo toma un `pthread_mutex_t` de tipo ERRORCHECK y lo vuelve a pedir con `pthread_mutex_lock`. Resultado:', opts: ['Deadlock', 'Retorna EDEADLK', 'Retorna 0 y cuenta 2', 'Comportamiento indefinido'], ok: 1, why: 'NORMAL: deadlock. ERRORCHECK: EDEADLK. RECURSIVE: 0 (cuenta +1). Probado en una ejecución de prueba.' },
 		{ q: '`sem_t s;` es global; `main` hace `sem_init(&s, 0, 1)` y luego `fork()`. Padre e hijo usan `sem_wait(&s)`/`sem_post(&s)` para proteger un archivo. ¿Funciona?', opts: ['Sí: fork comparte las variables globales', 'No: cada proceso tiene su propia copia del semáforo; se necesita memoria compartida (o sem_open) y pshared ≠ 0', 'Sí, si pshared = 0', 'Solo si el semáforo es binario'], ok: 1 },
 		{ q: 'Un registro con valor inicial 0. Mientras dura `write(1)`, la lectura A (solapada) devuelve 1. Después de que A termina, empieza la lectura B (también solapada con la escritura) y devuelve 0. El registro es:', opts: ['Atómico', 'Regular, pero no atómico', 'Ni siquiera safe', 'Safe, pero no regular'], ok: 1, why: 'Cada lectura por separado devuelve el viejo o el nuevo (regular), pero hay inversión nuevo→viejo: no es linealizable.' },
 		{ q: 'En un monitor con semántica de **Hoare**, ¿basta `if (cond) wait(c);`?', opts: ['No, siempre se necesita while', 'Sí: signal le entrega el monitor de inmediato al señalado, así que la condición sigue siendo cierta cuando despierta', 'Solo con broadcast', 'Solo si hay un único hilo esperando'], ok: 1, why: 'En Mesa (pthreads, Java) sí hace falta while.' },
@@ -101,7 +101,7 @@ b) (2 pts) Propón una corrección que elimine el deadlock sin serializar todo e
 c) (1 pt) Si hubiera solo **2** grupos A (y cualquier número de grupos B), ¿podría haber deadlock con el código original? Justifica.
 d) (1 pt) Con tu corrección y semáforos **débiles**, ¿puede algún grupo sufrir starvation? ¿Y con semáforos fuertes?
 
-<Solucion titulo="Solución (probada en WSL: ~/so/verif_parcial/simulacros/s1_lab.c)">
+<Solucion titulo="Solución (probada en una ejecución de prueba: s1_lab.c)">
 
 **a) Sí.** Un estado de deadlock:
 
@@ -119,7 +119,7 @@ Condiciones de Coffman:
 3. **Sin expropiación:** nadie le quita el kit a un grupo.
 4. **Espera circular:** los A esperan osciloscopios que tienen los B, y los B esperan kits que tienen los A.
 
-En WSL, con 4 A y 3 B, el programa **se bloquea al instante** («DEADLOCK tras 0 usos, kits libres = 0, osc libres = 0»).
+En la ejecución de prueba, con 4 A y 3 B, el programa **se bloquea al instante** («DEADLOCK tras 0 usos, kits libres = 0, osc libres = 0»).
 
 **b) Orden global de adquisición:** que **todos** pidan primero el kit y después el osciloscopio. El grupo B quedaría `sem_wait(&kits); sem_wait(&osc); calibrar(); programar(); …`. Rompe la **espera circular**: nadie puede tener un osciloscopio y esperar un kit. Probado con 4 A + 3 B y con 6 A + 6 B: **sin deadlock en 10 s** (unos 55 000 usos).
 
@@ -180,7 +180,7 @@ b) (1 pt) ¿Por qué en [7] conviene `broadcast` y en [4] basta `signal`?
 c) (1 pt) ¿Pueden sufrir starvation los alumnos? ¿Y los profesores?
 d) (0.5 pts) Si en `empezar_lectura` se usara `if` en vez de `while`, ¿qué invariante se puede romper? Da un escenario.
 
-<Solucion titulo="Solución (probada en WSL: 30 alumnos + 3 profesores, 3 s, con asserts)">
+<Solucion titulo="Solución (ejecución de prueba: 30 alumnos + 3 profesores, 3 s, con asserts)">
 
 **a)**
 
@@ -194,7 +194,7 @@ d) (0.5 pts) Si en `empezar_lectura` se usara `if` en vez de `while`, ¿qué inv
 | [6] | `esperan_escribir > 0` | prioridad: si hay otro profesor, pasa él |
 | [7] | `pthread_cond_broadcast(&puede_leer)` | si no hay profesores, pueden entrar **muchos** alumnos (hasta 10) |
 
-Resultado en WSL: *«21 689 lecturas, 2 758 escrituras, máximo de lectores simultáneos = 10 (nunca lector + escritor)»*. Los asserts no se dispararon.
+Resultado de la ejecución de prueba: *«21 689 lecturas, 2 758 escrituras, máximo de lectores simultáneos = 10 (nunca lector + escritor)»*. Los asserts no se dispararon.
 
 **b)** Al terminar una escritura pueden entrar **hasta 10** alumnos: con `signal` entraría uno solo y los demás seguirían dormidos aunque la condición ya sea verdadera. Al terminar una lectura se libera **un solo** cupo, así que basta despertar a uno. Con `broadcast` también funcionaría (por el `while`), solo que despierta de más.
 
@@ -216,4 +216,4 @@ Repaso: [lectores–escritores](/monitores/lectores-escritores/), [condition var
 
 </Solucion>
 
-<Fuente archivos={['Simulacro propio basado en for_partial/Evaluaciones_OS_20261 (1).pdf (formato)', 'WSL ~/so/verif_parcial/simulacros/{s1_lab,s1_notas}.c', 'Intercalador: «Simulacro 1 · Algoritmo B»']} />
+<Fuente archivos={['Simulacro propio basado en for_partial/Evaluaciones_OS_20261 (1).pdf (formato)', 'prueba propia verif_parcial/simulacros/{s1_lab,s1_notas}.c', 'Intercalador: «Simulacro 1 · Algoritmo B»']} />

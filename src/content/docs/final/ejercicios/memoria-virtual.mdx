@@ -1,0 +1,227 @@
+---
+title: 'Ejercicios resueltos: Virtual Memory'
+description: 'Las 6 preguntas de la hoja de repaso de memoria virtual resueltas y verificadas: bits de una paginación simple, segmentación con segfault, traducción binaria por paginación y segmentación, tabla con bits V/R/M, recorrido por columnas de A[64][64] y sus page faults, y un esquema de 3 niveles con TLB y EAT de 61 ns.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import SegmentTranslator from '../../../../components/sim/SegmentTranslator.tsx';
+import TlbEat from '../../../../components/sim/TlbEat.tsx';
+
+<EnSimple>
+Casi todas estas preguntas se resuelven con **tres ideas**:
+1. **La dirección se parte en dos:** «qué página» (los bits altos) y «dónde dentro de la página» (el offset, los bits bajos). El offset **no cambia** al traducir.
+2. **Contar bits es sacar logaritmos en base 2:** 1 KB = $2^{10}$, así que el offset tiene 10 bits.
+3. **Una tabla tiene una entrada por página**, y su tamaño es entradas × bytes por entrada.
+</EnSimple>
+
+## Pregunta 1 · Paginación simple
+
+$2^{32}$ bytes de memoria física, páginas de $2^{10}$ bytes y $2^{16}$ páginas virtuales.
+
+<Solucion titulo="Solución">
+
+| Pregunta | Cálculo | Respuesta |
+| --- | --- | --- |
+| Bits de la dirección virtual | 16 bits de página + 10 de offset | **26 bits** |
+| Bytes de un frame | igual que la página | **$2^{10}$ = 1024 B** |
+| Bits de frame en la dirección física | 32 − 10 | **22 bits** |
+| Entradas de la tabla | una por página virtual | **$2^{16}$ = 65 536** |
+| Bits por PTE (con bit de validez) | 22 de frame + 1 V | **23 bits** (en la práctica se redondea a 3 B o 4 B) |
+
+</Solucion>
+
+## Pregunta 2 · Segmentación
+
+| Segmento | Base | Longitud |
+| :-: | :-: | :-: |
+| 0 | 660 | 248 |
+| 1 | 1752 | 422 |
+| 2 | 222 | 198 |
+| 3 | 996 | 604 |
+
+**Regla:** si `offset < longitud`, la dirección física es `base + offset`; si no, **segmentation fault**.
+
+<Solucion titulo="Solución">
+
+| Dirección (seg, offset) | ¿offset < longitud? | Física |
+| --- | --- | :-: |
+| 1. (0, 198) | 198 < 248 ✔ | **858** |
+| 2. (2, 156) | 156 < 198 ✔ | **378** |
+| 3. (1, 530) | 530 ≥ 422 ✘ | **segfault** |
+| 4. (3, 444) | 444 < 604 ✔ | **1440** |
+| 5. (0, 222) | 222 < 248 ✔ | **882** |
+
+**Ojo con el borde:** el offset válido va de 0 a **longitud − 1**. Con (0, 248) ya sería segfault.
+
+</Solucion>
+
+Prueba otras direcciones en el traductor (carga tu propia tabla):
+
+<SegmentTranslator client:visible />
+
+## Pregunta 3 · Traducción binaria de `0001010010111010`
+
+La dirección tiene 16 bits y vale **5306** en decimal.
+
+<Solucion titulo="(1) Paginación con páginas de 256 B y frame = página / 4">
+
+- 256 B = $2^8$, así que el offset tiene **8 bits** y la página los 8 bits altos.
+
+```text
+0001 0100 | 1011 1010
+ página        offset
+ = 20          = 186
+```
+
+- Frame = 20 / 4 = **5** = `00000101`.
+- Dirección física = frame ‖ offset = **`00000101 10111010`**, que vale 5 · 256 + 186 = **1466**.
+
+</Solucion>
+
+<Solucion titulo="(2) Segmentación con segmentos de hasta 1 kB y base = 22 + 4096·n">
+
+- 1 kB = $2^{10}$, así que el offset tiene **10 bits** y el segmento los 6 bits altos.
+
+```text
+000101 | 0010111010
+ seg       offset
+ = 5       = 186
+```
+
+- Base del segmento 5 = 22 + 4096 · 5 = **20 502**.
+- Dirección física = 20 502 + 186 = **20 688** = **`0101000011010000`**.
+- Como la base no es múltiplo de una potencia de 2, aquí **sí** hay que **sumar**, no concatenar. Es la diferencia clave con la paginación.
+
+</Solucion>
+
+## Pregunta 4 · Tabla de páginas con V/R/M
+
+Páginas de 1024 bytes.
+
+| Página | Valid | Ref | Modify | Frame |
+| :-: | :-: | :-: | :-: | :-: |
+| 0 | 1 | 1 | 0 | 4 |
+| 1 | 1 | 1 | 1 | 7 |
+| 2 | 0 | 0 | 0 | — |
+| 3 | 1 | 0 | 0 | 2 |
+| 4 | 0 | 0 | 0 | — |
+| 5 | 1 | 0 | 1 | 0 |
+
+<Solucion titulo="Cómo se traduce (descripción detallada)">
+
+1. La CPU genera la dirección virtual v. La **MMU** la divide en página `p = v / 1024` (los bits altos) y offset `d = v mod 1024` (los 10 bits bajos).
+2. Busca `p` en la **TLB**. Si no está, lee la PTE `p` de la tabla, que está en memoria y se ubica con el registro base de la tabla del proceso.
+3. Si **Valid = 0** → **page fault**. El SO verifica que la dirección sea legal, busca un frame (reemplazando si hace falta, y escribiendo la víctima si tiene M = 1), trae la página del disco, actualiza la PTE y reinicia la instrucción.
+4. Si **Valid = 1** → dirección física = `frame × 1024 + d`. El hardware pone **Ref = 1**, y **Modify = 1** si es una escritura.
+
+</Solucion>
+
+<Solucion titulo="Solución: 1052 → 7196 · 2221 → page fault · 5499 → 379">
+
+| Virtual | Página = v / 1024 | Offset | PTE | Física |
+| :-: | :-: | :-: | --- | :-: |
+| 1052 | 1 | 28 | V = 1, frame 7 | 7 · 1024 + 28 = **7196** |
+| 2221 | 2 | 173 | **V = 0** | **page fault** (no hay dirección física hasta traer la página) |
+| 5499 | 5 | 379 | V = 1, frame 0 | 0 · 1024 + 379 = **379** |
+
+</Solucion>
+
+## Pregunta 5 · Recorrido por columnas
+
+```c
+#define Size 64
+int A[Size][Size], B[Size][Size], C[Size][Size];
+for (j = 0; j < Size; ++j)
+    for (i = 0; i < Size; ++i)
+        C[i][j] = A[i][j] + B[i][j];
+```
+
+**Datos:**
+- Páginas de 1 KB = 256 enteros = **4 filas** de la matriz, que se guarda por filas: la página k contiene las filas 4k a 4k + 3.
+- Cada matriz ocupa 16 páginas.
+- Hay 4 frames: uno para el código y **3 para los datos**.
+
+<Solucion titulo="1. ¿Con qué frecuencia hay page faults?">
+
+Con `j` afuera e `i` adentro, el bucle interno **baja por una columna**: cambia de fila en cada iteración y de **página cada 4 iteraciones**. Con solo 3 frames de datos, cada vez que `i` entra a una página nueva de A, de B y de C, las 3 páginas anteriores ya no sirven y hay que traer las 3 nuevas:
+
+- **3 fallos cada 4 iteraciones.**
+- Por columna: 16 grupos de filas × 3 = **48 fallos**.
+- En total: 64 columnas × 48 = **3072 fallos** en 64 × 64 = 4096 iteraciones, es decir 12 288 referencias. **Un fallo cada 4 referencias.**
+
+Al pasar a la columna siguiente se vuelve a la fila 0, cuya página ya fue expulsada, así que **nunca** se reaprovecha nada entre columnas.
+
+Lo verifiqué simulando las 12 288 referencias con 3 frames: **3072 fallos**, tanto con LRU como con FIFO.
+
+</Solucion>
+
+<Solucion titulo="2 y 3. Modificación y nueva frecuencia">
+
+**Intercambiar los bucles** para recorrer por **filas**:
+
+```c
+for (i = 0; i < Size; ++i)
+    for (j = 0; j < Size; ++j)
+        C[i][j] = A[i][j] + B[i][j];
+```
+
+Ahora se recorren las 256 posiciones de cada página **seguidas** (4 filas × 64 columnas) antes de pasar a la siguiente:
+
+- 3 fallos cada **256** iteraciones;
+- 16 páginas × 3 matrices = **48 fallos en total**, uno cada 256 referencias.
+
+La simulación confirma **48**. Es una mejora de **64×**: la misma localidad espacial que hace rápida a la caché.
+
+</Solucion>
+
+## Pregunta 6 · 8 GB de RAM, páginas de 8 kB, PTE de 4 B y direcciones de 46 bits
+
+<Solucion titulo="1 y 2. Niveles y esquema de la tabla">
+
+- **Offset:** 8 kB = $2^{13}$, así que **13 bits**.
+- **VPN:** 46 − 13 = **33 bits**.
+- **Entradas por tabla** (cada tabla ocupa una página): 8 kB / 4 B = $2^{11}$, así que **11 bits por nivel**.
+- **Niveles:** ⌈33 / 11⌉ = **3 niveles**.
+
+```text
+ 45        35 34        24 23        13 12          0
+┌────────────┬────────────┬────────────┬─────────────┐
+│ nivel 1 (11)│ nivel 2 (11)│ nivel 3 (11)│ offset (13) │
+└────────────┴────────────┴────────────┴─────────────┘
+```
+
+- **Frames:** 8 GB / 8 kB = $2^{33}/2^{13}$ = $2^{20}$, así que el número de frame tiene **20 bits**.
+- **Campos de la PTE** (32 bits): **20 bits de frame** + valid/presente + referenciado (uso) + modificado (dirty) + protección (R/W/X) + usuario/supervisor + caché deshabilitada + global… Quedan bits libres para el SO.
+
+</Solucion>
+
+<Solucion titulo="3 y 4. Accesos a memoria por cada lectura o escritura de una palabra">
+
+- **Sin TLB:** 3 accesos a las tablas (un nivel cada uno) + 1 al dato = **4 accesos**.
+- **Con TLB:**
+  - **mejor caso**, acierto en la TLB: **1 acceso** (solo el dato);
+  - **peor caso**, fallo en la TLB: **4 accesos**;
+  - si además la página no está en RAM, hay un **page fault** con E/S de disco, de un orden de magnitud distinto.
+
+</Solucion>
+
+<Solucion titulo="5. TLB de 10 ns, memoria de 50 ns: ¿qué hit ratio da 61 ns?">
+
+Según el enunciado, **todo** acceso consulta la TLB (10 ns) y accede al dato (50 ns). Un fallo de TLB agrega la caminata por la tabla:
+
+$$
+\text{EAT} = 10 + 50 + (1-h)\cdot(3 \cdot 50) = 60 + 150\,(1-h)
+$$
+
+- **Para 61 ns:** $150(1-h) = 1$, así que $h = 1 - \tfrac{1}{150} \approx$ **0.9933** (99.3 %).
+- **Con h = 0.5:** EAT = 60 + 75 = **135 ns**, frente a **200 ns sin TLB** (4 × 50). Aun con la mitad de aciertos, la TLB ahorra un **32.5 %**.
+
+**Nota:** si se modela la tabla como **un solo acceso** en el fallo de TLB (lo que suele hacer el material de clase), EAT = 60 + 50(1 − h). Entonces h = **0.98** para 61 ns, y con h = 0.5 da 85 ns frente a 100 ns sin TLB. Con los 3 niveles del inciso 1, la respuesta coherente es 0.9933. Declara el modelo.
+
+</Solucion>
+
+<TlbEat client:visible />
+
+<Fuente archivos={['sem_9/11-OSL-Ejercicios_Virtual_Memory.pdf', 'Soluciones propias; P3, P4 y P5 verificadas con un script (simulación de las 12 288 referencias de P5 con LRU y FIFO)']} />

@@ -1,0 +1,180 @@
+---
+title: 'Mecanismos de concurrencia de UNIX y del kernel Linux'
+description: 'Stallings §6.7–6.8: pipes, mensajes, memoria compartida, semáforos System V (semop) y señales; en Linux: operaciones atómicas (atomic_t y bitmaps), spinlocks y sus variantes _irq/_irqsave/_bh, spinlocks de lectores–escritores, semáforos del kernel (down, down_interruptible, down_trylock, rwsem), barreras de memoria y RCU.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+Todo lo que vimos en el parcial (semáforos, mensajes, spinlocks, barreras de memoria) existe **de verdad** dentro de UNIX y Linux. Esta página es el «catálogo» de lo que trae cada sistema y **cuándo** se usa cada herramienta:
+- para **pasar datos** entre procesos: pipes, mensajes y memoria compartida;
+- para **avisar o sincronizar**: semáforos y señales;
+- **dentro del kernel**: atómicas, spinlocks, semáforos del kernel, barreras y RCU.
+</EnSimple>
+
+## UNIX (§6.7)
+
+**Pipes, mensajes y memoria compartida** sirven para **comunicar datos**. **Semáforos y señales** sirven para **disparar acciones** en otros procesos.
+
+| Mecanismo | Cómo funciona | Bloqueo / exclusión mutua |
+| --- | --- | --- |
+| **Pipe** | buffer **circular FIFO** de tamaño fijo: productor–consumidor entre dos procesos. **Sin nombre**: solo entre procesos emparentados (`fork`). **Con nombre** (FIFO): cualquier proceso | escribir con el buffer lleno **bloquea**; leer más de lo que hay **bloquea**. El SO garantiza la exclusión mutua |
+| **Mensajes** | bloques de bytes **con tipo**, enviados con `msgsnd` y recibidos con `msgrcv`. Cada proceso tiene una cola, como un buzón | enviar a una cola llena bloquea; leer de una vacía bloquea. Si se pide un **tipo** que no está, **no** bloquea. Se puede recibir en orden FIFO o **por tipo** |
+| **Memoria compartida** | un bloque de memoria virtual común; se lee y escribe con las instrucciones normales. Es **lo más rápido** | permisos de solo lectura o lectura/escritura, **pero la exclusión mutua la ponen los procesos** (con semáforos, por ejemplo) |
+| **Semáforos (System V)** | generalizan semWait/semSignal: vienen en **conjuntos**, `semop` aplica una **lista de operaciones** de forma **atómica**, y los incrementos pueden ser mayores que 1 | se ve abajo |
+| **Señales** | aviso de un evento asíncrono, como una interrupción por software **sin prioridades**. Cada señal es **un bit** en la tabla de procesos, así que **no se encolan**: dos SIGINT seguidas cuentan como una | se procesan al despertar el proceso o al volver de una syscall: acción por defecto, *handler* o ignorar |
+
+**Las operaciones de `semop`**, según el valor de `sem_op`:
+
+| `sem_op` | Qué hace el kernel |
+| --- | --- |
+| **> 0** | suma ese valor y despierta a **todos** los que esperan que el semáforo aumente |
+| **= 0** | si el valor es 0, sigue con la siguiente operación; si no, el proceso **espera a que valga 0** |
+| **< 0** y \|sem_op\| ≤ valor | resta; si queda en 0, despierta a los que esperaban el 0 |
+| **< 0** y \|sem_op\| > valor | el proceso **se suspende** hasta que el valor aumente |
+
+Cada semáforo guarda:
+- su valor;
+- el PID del último proceso que lo operó;
+- cuántos procesos esperan que **aumente**;
+- cuántos esperan que **valga 0**.
+
+**Señales de SVR4 que conviene conocer** (tabla 6.1):
+
+| Señal | Significado |
+| --- | --- |
+| `SIGHUP` (1) | se cortó la terminal |
+| `SIGINT` (2) | interrupción (Ctrl+C) |
+| `SIGQUIT` (3) | salir con *core dump* |
+| `SIGILL` (4) | instrucción ilegal |
+| `SIGFPE` (8) | error de punto flotante |
+| `SIGKILL` (9) | matar: **no se puede atrapar** |
+| `SIGSEGV` (11) | acceso fuera del espacio de direcciones: lo que vimos en [memcpy2](/final/linux/espacio-direcciones/#memcpy-y-sus-bugs) |
+| `SIGPIPE` (13) | escribir en un pipe sin lectores |
+| `SIGALRM` (14) | alarma |
+| `SIGTERM` (15) | terminar |
+| `SIGCHLD` (18) | un hijo terminó |
+
+Más detalle en [syscalls y señales](/procesos/syscalls-senales/).
+
+## Kernel de Linux (§6.8)
+
+### Operaciones atómicas
+
+**Enteras**, sobre un tipo especial `atomic_t`:
+
+| Función | Qué hace |
+| --- | --- |
+| `ATOMIC_INIT(i)` | inicializa a i al declarar |
+| `atomic_read`, `atomic_set` | leer y asignar |
+| `atomic_add`, `atomic_sub`, `atomic_inc`, `atomic_dec` | sumar y restar |
+| `atomic_sub_and_test`, `atomic_dec_and_test`, `atomic_inc_and_test` | operar y devolver 1 **si el resultado es 0** (sirve para contadores de referencias: «¿fui el último en soltarlo?») |
+| `atomic_add_negative` | sumar y devolver 1 si queda negativo (se usa para implementar semáforos) |
+
+**¿Por qué un tipo aparte?** Según Love:
+1. Las operaciones atómicas nunca se usan, por error, sobre variables desprotegidas.
+2. Esas variables no se pueden tocar con operaciones **no** atómicas.
+3. El compilador no optimiza mal los accesos.
+4. Esconde las diferencias entre arquitecturas.
+
+**De bits** (sobre cualquier dirección): `set_bit`, `clear_bit`, `change_bit`, `test_and_set_bit`, `test_and_clear_bit`, `test_and_change_bit` y `test_bit`. `test_and_set_bit` es el **TAS** del parcial ([atómicas](/hardware/atomicas/)).
+
+### Spinlocks
+
+Es la técnica **más común** del kernel. Quien no consigue el lock **gira** (busy waiting), así que conviene cuando la espera es **muy corta**, del orden de menos de **dos cambios de contexto**.
+
+| Variante | Úsala cuando… |
+| --- | --- |
+| `spin_lock` (plain) | la sección crítica **no** la ejecutan handlers de interrupción, o las interrupciones ya están deshabilitadas |
+| `spin_lock_irq` | las interrupciones están **siempre habilitadas**: las deshabilita en la CPU local |
+| `spin_lock_irqsave` | **no sabes** si están habilitadas: **guarda** el estado y lo restaura al soltar |
+| `spin_lock_bh` | la sección comparte datos con una **bottom half** (la parte diferida de una interrupción): la deshabilita |
+| `spin_trylock`, `spin_is_locked` | intentar sin girar, o consultar |
+
+**En un uniprocesador** el spinlock casi desaparece:
+- sin expropiación en el kernel, se **elimina al compilar**;
+- con expropiación, queda solo como «deshabilitar/habilitar interrupciones».
+
+En un **multiprocesador** sí se compila el giro sobre la variable. El mismo código sirve para los dos casos.
+
+**Spinlock de lectores–escritores:** un contador de lectores de **24 bits** más un flag de desbloqueo.
+
+| Contador | Flag | Significado |
+| :-: | :-: | --- |
+| 0 | 1 | libre |
+| 0 | 0 | tomado por **un escritor** |
+| n > 0 | 0 | tomado por **n lectores** |
+| n > 0 | 1 | no válido |
+
+**Favorece a los lectores:** mientras haya uno, un escritor no puede entrar, y **entran lectores nuevos aunque haya un escritor esperando**. Es la «solución 1» de [lectores–escritores](/monitores/lectores-escritores/), con riesgo de starvation del escritor.
+
+### Semáforos del kernel
+
+Son internos al kernel: los programas de usuario **no** los pueden llamar, y son más eficientes que los de usuario. Hay tres tipos:
+- **Binarios**, que Linux llama **MUTEX**: `init_MUTEX` (valor 1) e `init_MUTEX_LOCKED` (valor 0).
+- **De conteo:** `sema_init(sem, count)`.
+- **De lectores–escritores:** `init_rwsem`, `down_read`/`up_read`, `down_write`/`up_write`. Funcionan como semáforo de conteo para los lectores y como mutex para los escritores, y siempre duermen sin poder ser interrumpidos.
+
+Las operaciones son `down` (= semWait) y `up` (= semSignal), con **tres versiones de `down`**:
+
+| Función | Comportamiento |
+| --- | --- |
+| `down` | bloquea en sueño **no interrumpible** (estado D, como la E/S de disco) |
+| `down_interruptible` | sueño **interrumpible**: si llega una señal, **abandona** y retorna `-EINTR` (útil en drivers) |
+| `down_trylock` | no bloquea: si no está disponible, retorna distinto de 0 (el `sem_trywait` del [barbero](/final/deadlock/barbero/)) |
+
+### Barreras de memoria
+
+El compilador **y** el procesador pueden **reordenar** lecturas y escrituras independientes. Por ejemplo, `a = 1; b = 1;` puede escribir b antes que a; en cambio, `a = 1; b = a;` no se reordena, porque hay una dependencia. Es justo lo que rompía [Peterson en x86](/hardware/atomicas/#peterson-y-dekker-funcionan-en-hardware-real-probado).
+
+| Barrera | Impide reordenar… |
+| --- | --- |
+| `rmb()` | lecturas a través de la barrera |
+| `wmb()` | escrituras a través de la barrera |
+| `mb()` | ambas |
+| `barrier()` | solo al **compilador** (el procesador sí puede reordenar). En x86, las escrituras no se reordenan entre sí |
+| `smp_rmb()`, `smp_wmb()`, `smp_mb()` | en multiprocesador equivalen a la barrera completa; en uniprocesador, solo a `barrier()` |
+
+Las barreras actúan sobre **instrucciones de máquina**: `a = b` es una lectura de b **y** una escritura de a.
+
+### RCU (*Read-Copy-Update*)
+
+Se integró al kernel en 2002 y se usa en redes, memoria y VFS. **Los lectores no toman ningún lock.**
+
+1. El recurso compartido se accede **a través de un puntero**.
+2. **Lectores:** `rcu_read_lock()`, luego `p = rcu_dereference(ptr)`, usar p, y `rcu_read_unlock()`.
+3. **Escritor:** **copia** el recurso, modifica la copia y publica el puntero nuevo con `rcu_assign_pointer`. Actualizar un puntero es **atómico**, así que cada lector ve la versión vieja o la nueva, nunca una mezcla.
+4. La versión vieja solo se libera cuando **ningún lector** la puede estar usando. Se espera con `synchronize_rcu()` (bloqueante) o se registra un callback con `call_rcu()`.
+
+RCU es ideal cuando **hay muchas lecturas y pocas escrituras**. Su API central son 6 funciones: `rcu_read_lock`, `rcu_read_unlock`, `call_rcu`, `synchronize_rcu`, `rcu_assign_pointer` y `rcu_dereference`.
+
+<Solucion titulo="Pregunta de análisis: ¿spinlock o semáforo en el kernel?">
+
+- **Spinlock:** la sección crítica es **muy corta**, el código **no puede dormir** (handlers de interrupción, *bottom halves*), y hay varios procesadores. Usa `spin_lock_irqsave` si también lo toca un handler.
+- **Semáforo / mutex del kernel:** la espera puede ser **larga** (E/S, copiar desde el espacio de usuario) y el código corre en contexto de proceso, así que puede dormir. Usa `down_interruptible` si conviene poder cancelar con una señal.
+- **RCU:** estructuras que se leen todo el tiempo y casi nunca se modifican (tablas de rutas, listas de módulos).
+- **Atómicas:** contadores simples y flags.
+
+**Nunca** se duerme con un spinlock tomado: los demás procesadores girarían todo ese tiempo, y en un uniprocesador sería un deadlock.
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="fin-mecanismos"
+	preguntas={[
+		{ q: '¿Qué mecanismo de UNIX es el más rápido para compartir datos?', opts: ['Pipes', 'Mensajes', 'Memoria compartida', 'Señales'], ok: 2 },
+		{ q: '¿Quién garantiza la exclusión mutua en la memoria compartida de UNIX?', opts: ['El kernel', 'Los propios procesos (por ejemplo, con semáforos)', 'El hardware', 'Nadie: no hace falta'], ok: 1 },
+		{ q: 'Dos señales SIGUSR1 seguidas, antes de que el proceso las atienda…', opts: ['se encolan', 'cuentan como una: son un bit', 'matan al proceso', 'se pierden las dos'], ok: 1 },
+		{ q: 'En semop, sem_op = 0 significa…', opts: ['no hacer nada', 'esperar a que el semáforo valga 0', 'ponerlo en 0', 'error'], ok: 1 },
+		{ q: '¿Qué spinlock usas si no sabes si las interrupciones están habilitadas?', opts: ['spin_lock', 'spin_lock_irq', 'spin_lock_irqsave', 'spin_lock_bh'], ok: 2 },
+		{ q: 'down_interruptible, si llega una señal…', opts: ['ignora la señal', 'abandona y retorna -EINTR', 'deadlock', 'toma el semáforo igual'], ok: 1 },
+		{ q: 'En RCU, los lectores…', opts: ['toman un spinlock', 'no toman locks; el escritor copia y publica un puntero nuevo', 'esperan a los escritores', 'usan down_read'], ok: 1 },
+		{ q: 'barrier() impide reordenar…', opts: ['al procesador y al compilador', 'solo al compilador', 'solo lecturas', 'solo escrituras'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['Stallings 9e §6.7 (UNIX Concurrency Mechanisms, tabla 6.1)', 'Stallings 9e §6.8 (Linux Kernel Concurrency Mechanisms, tablas 6.2–6.5, RCU)']} />

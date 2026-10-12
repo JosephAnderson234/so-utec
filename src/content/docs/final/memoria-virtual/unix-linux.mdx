@@ -1,0 +1,140 @@
+---
+title: 'Memoria en UNIX, Solaris y Linux'
+description: 'Stallings §8.3–8.4: estructuras de paginación de SVR4 (PTE, descriptor de bloque, tabla de frames, swap-use), reloj de dos manecillas, lazy buddy para el kernel; Linux con tablas de varios niveles, buddy para frames, split LRU (listas activa/inactiva, kswapd) y slab/SLUB/SLOB.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+Hasta ahora vimos las ideas en abstracto (Clock, buddy, tablas multinivel). Aquí está **cómo las usan dos sistemas reales**:
+- **UNIX SVR4 / Solaris** reemplaza páginas con un **reloj de dos manecillas**: una «marca» las páginas y otra, un rato después, se lleva las que nadie volvió a tocar.
+- **Linux** mantiene dos listas: páginas **activas** (usadas a menudo) y **inactivas** (candidatas a salir). Una página tiene que demostrar dos veces que es útil para subir a «activa».
+- Para el **propio kernel**, que pide trocitos pequeños todo el tiempo, ambos usan variantes del **buddy** y de cachés de objetos (**slab**).
+</EnSimple>
+
+## UNIX SVR4 y Solaris (§8.3)
+
+SVR4 tiene **dos esquemas** separados:
+- el **sistema de paginación**, para la memoria virtual de los procesos y para la caché de bloques de disco;
+- el **asignador de memoria del kernel**, para los objetos del kernel.
+
+### Estructuras del sistema de paginación (tabla 8.6)
+
+| Estructura | Una por… | Campos importantes |
+| --- | --- | --- |
+| **Tabla de páginas** | proceso (una entrada por página virtual) | nº de frame · **age** (cuánto tiempo sin referenciar; depende del procesador) · **copy on write** · **modify** · **reference** · **valid** · **protect** |
+| **Descriptor de bloque de disco** | página virtual | dispositivo de swap · nº de bloque · **tipo de almacenamiento** (área de swap o el ejecutable; si hay que poner el frame en ceros antes de cargarlo) |
+| **Tabla de datos de frames** (*pfdata*) | frame físico (indexada por nº de frame) | estado de la página (en swap, en el ejecutable o con DMA en curso) · **contador de referencias** (procesos que la usan) · dispositivo y bloque de la copia · punteros a la lista libre y a la cola hash |
+| **Tabla de uso de swap** | dispositivo de swap (una entrada por página del dispositivo) | contador de PTE que apuntan a esa página en disco · identificador |
+
+**Copy on write** (COW) es lo que hace barato a `fork()`:
+1. Padre e hijo **comparten** los frames, marcados como de solo lectura y con el bit COW.
+2. Cuando uno de los dos **escribe**, se produce un fallo de protección y el kernel **recién entonces** copia esa página.
+
+Si el hijo hace `exec` enseguida, casi no se copia nada (ver [fork](/procesos/fork/)).
+
+### El reloj de dos manecillas (fig. 8.21)
+
+El reemplazo usa la **tabla de frames**. Los frames libres están en una lista; cuando bajan de un umbral, el kernel «roba» frames. El algoritmo es un Clock refinado con **dos manecillas** que recorren la lista de páginas elegibles (no bloqueadas):
+
+1. La **manecilla delantera** (*fronthand*) pone el bit de **referencia en 0** en cada página que pasa.
+2. Un rato después pasa la **manecilla trasera** (*backhand*) por la misma página:
+   - si el bit está en **1**, la página se usó en ese intervalo: **se deja**;
+   - si sigue en **0**, nadie la tocó: va a la **lista para expulsar**.
+
+| Parámetro | Qué controla |
+| --- | --- |
+| **scanrate** | páginas por segundo que recorren las manecillas. Varía linealmente entre *slowscan* y *fastscan* a medida que la memoria libre baja de *lotsfree* a *minfree*: **con menos memoria libre, las manecillas giran más rápido** |
+| **handspread** | distancia entre las dos manecillas |
+
+**Juntos** determinan la **ventana de oportunidad**: cuánto tiempo tiene una página para ser usada antes de que la expulsen.
+
+<Solucion titulo="¿Por qué dos manecillas y no una (el Clock normal)?">
+
+Con **un** puntero, el tiempo entre apagar el bit y volver a revisarlo es **una vuelta completa**. Con memorias enormes, eso puede tardar muchísimo, y casi todas las páginas tendrían el bit en 1 (todo parece «usado»). Con **dos** manecillas, el intervalo de observación queda fijado por el **handspread** y el **scanrate**, y no por el tamaño de la memoria. Además se puede ajustar en caliente según la presión de memoria.
+
+</Solucion>
+
+### Asignador del kernel: *lazy buddy*
+
+El kernel crea y destruye **objetos pequeños** todo el tiempo: buffers de rutas, buffers de STREAMS, estructuras `proc`, vnodes, zombies. Paginar para eso sería ineficiente.
+
+SVR4 usa un **buddy** (ver [buddy system](/memoria/particiones/#buddy-system)), pero el buddy pierde tiempo en **partir y fusionar**: si liberas un bloque de $2^i$ y se fusiona enseguida, quizá la próxima petición sea otra vez de $2^i$ y haya que partirlo de nuevo.
+
+El **lazy buddy** (Barkley y Lee) **demora la fusión** hasta que parece necesaria. Para cada tamaño $2^i$ lleva estas cuentas:
+
+- $N_i = A_i + G_i + L_i$:
+  - $A_i$: bloques **asignados**;
+  - $G_i$: bloques libres **globalmente**, que sí se pueden fusionar;
+  - $L_i$: bloques libres **localmente**, que se guardan sin fusionar porque se espera volver a pedirlos.
+- **Criterio:** que los libres locales no superen a los asignados, $L_i \le A_i$. Se usa la variable de demora $D_i = A_i - L_i$:
+  - si $D_i \ge 2$, el bloque liberado queda **libre local** (sin fusionar);
+  - si $D_i = 1$, se libera **globalmente** y se fusiona si se puede;
+  - si $D_i = 0$, se libera globalmente **y además** se libera globalmente un bloque libre local.
+
+## Linux (§8.4)
+
+La unidad básica es la **página física** (`struct page`), normalmente de 4 KB. Linux también soporta **HugePages** (por ejemplo, 2 MB), que reducen los fallos de TLB. DPDK las usa para los buffers de red.
+
+### Direccionamiento virtual: tablas de varios niveles
+
+En el modelo que describe Stallings, la dirección virtual tiene **cuatro campos**:
+
+```text
+┌──────────────────┬──────────────────────┬────────────────┬────────┐
+│ page directory   │ page middle directory│  page table    │ offset │
+└──────────────────┴──────────────────────┴────────────────┴────────┘
+```
+
+- **Page directory:** uno por proceso activo, del tamaño de una página y **siempre en RAM**.
+- **Page middle directory:** puede ocupar varias páginas.
+- **Page table:** cada entrada apunta a una página virtual.
+
+Se diseñó para el **Alpha** de 64 bits (tres niveles en hardware). En x86 de 32 bits, que tiene dos niveles, el *middle directory* se define de tamaño 1 y el compilador elimina ese nivel: **no hay costo en tiempo de ejecución**. El x86-64 actual usa **4 niveles** (PGD → PUD → PMD → PTE), y 5 con *LA57*. La idea es la misma: [tabla multinivel](/memoria/paginacion/#tablas-grandes-multinivel-e-invertidas).
+
+### Asignación de páginas: buddy
+
+Para leer y escribir bloques contiguos eficientemente, Linux mantiene grupos de **1, 2, 4, 8, 16 o 32 frames contiguos** y los parte o fusiona con el **algoritmo buddy**.
+
+### Reemplazo: de «age» al split LRU
+
+| Versión | Algoritmo |
+| --- | --- |
+| **Antes de 2.6.28** | Clock con una variable **age** de 8 bits en lugar del bit de uso. Cada acceso la **incrementa** y un barrido periódico la **decrementa**. Una página con age = 0 es la mejor víctima. Es una forma de **LFU** (menos frecuentemente usada). Problema: los barridos cuestan cada vez más CPU con memorias grandes |
+| **Desde 2.6.28: split LRU** | dos listas por **zona** de memoria, **activa** e **inactiva**, y dos flags por página, **PG_active** y **PG_referenced**. El demonio **kswapd** recorre periódicamente las PTE y limpia los bits de acceso |
+
+**Ciclo de vida de una página** (fig. 8.24):
+1. Primer acceso a una página **inactiva**: se pone **PG_referenced**.
+2. **Segundo acceso** (en otro barrido): la página pasa a la lista **activa**. Hacen falta **dos accesos en barridos distintos** para ser activa.
+3. Si el segundo acceso no llega a tiempo, **PG_referenced** se borra.
+4. Igual al revés: hacen falta **dos «timeouts»** para bajar de activa a inactiva.
+5. Las víctimas salen de la lista **inactiva**, con un criterio tipo **LRU**.
+
+### Memoria del kernel: slab
+
+La base es el asignador de páginas (buddy), pero su unidad mínima es **una página**. Para trozos pequeños y de tamaños raros, Linux usa **slab** dentro de páginas ya asignadas. En x86 los trozos son de 32, 64, 128, 252, 508, 2040 o 4080 bytes, con **una lista por tamaño**.
+
+| Asignador | Objetivo |
+| --- | --- |
+| **SLAB** | lo más amigable posible con la caché (menos fallos de caché); el más usado |
+| **SLUB** (*unqueued slab*) | simple, con menos instrucciones (el predeterminado en los kernels actuales) |
+| **SLOB** (*simple list of blocks*) | lo más compacto posible, para sistemas con poca memoria |
+
+<Quiz
+	client:visible
+	id="fin-unix-linux"
+	preguntas={[
+		{ q: 'En el reloj de dos manecillas de SVR4, la manecilla trasera expulsa las páginas con…', opts: ['bit de referencia en 1', 'bit de referencia en 0: nadie las usó desde que pasó la delantera', 'bit modify en 1', 'age máximo'], ok: 1 },
+		{ q: 'Si la memoria libre baja, el scanrate…', opts: ['baja', 'sube: las manecillas giran más rápido', 'no cambia', 'se pone en 0'], ok: 1 },
+		{ q: 'Copy on write sirve para…', opts: ['bloquear frames', 'que fork no copie páginas hasta que alguien escriba', 'el swap', 'la TLB'], ok: 1 },
+		{ q: 'El lazy buddy…', opts: ['fusiona siempre de inmediato', 'demora la fusión manteniendo bloques libres locales', 'no usa potencias de 2', 'es para memoria de usuario'], ok: 1 },
+		{ q: 'En el split LRU de Linux, una página pasa a la lista activa…', opts: ['al primer acceso', 'tras dos accesos en barridos distintos', 'cuando age = 0', 'nunca'], ok: 1 },
+		{ q: 'slab sirve para…', opts: ['páginas de usuario', 'objetos pequeños del kernel dentro de páginas ya asignadas', 'el TLB', 'el swap'], ok: 1 },
+		{ q: '¿Qué asignador de Linux busca ser lo más compacto posible?', opts: ['SLAB', 'SLUB', 'SLOB', 'buddy'], ok: 2 },
+	]}
+/>
+
+<Fuente archivos={['Stallings 9e §8.3 (UNIX and Solaris Memory Management: tabla 8.6, fig. 8.21, lazy buddy fig. 8.22)', 'Stallings 9e §8.4 (Linux Memory Management: fig. 8.23, 8.24, slab)']} />

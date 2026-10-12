@@ -1,6 +1,6 @@
 ---
-title: Sistemas Operativos · E1
-description: Web de estudio interactiva para el E1 de CS3015 Sistemas Operativos (UTEC 2026-II).
+title: Sistemas Operativos · CS3015
+description: 'Web de estudio interactiva de CS3015 Sistemas Operativos (UTEC 2026-II): parcial E1 y etapa final.'
 template: splash
 tableOfContents: false
 ---
@@ -9,46 +9,49 @@ import Terminal from '../../components/Terminal.astro';
 
 <div class="so-hero not-content">
 	<div>
-		<p data-anim style="color: var(--sl-color-accent); font-family: var(--__sl-font-mono); font-size: .85rem; margin:0"><code style="background:none;padding:0;color:inherit;font-size:inherit">{'$ ./repasar --examen E1 --curso CS3015'}</code></p>
+		<p data-anim style="color: var(--sl-color-accent); font-family: var(--__sl-font-mono); font-size: .85rem; margin:0"><code style="background:none;padding:0;color:inherit;font-size:inherit">{'$ ./repasar --curso CS3015 --etapa final'}</code></p>
 		<h1 data-anim>Procesos, sincronización <span class="grad">y memoria</span>, a golpe de clic.</h1>
-		<p class="tag" data-anim>Teoría completa de Stallings (caps. 1–8) y de las clases, simuladores, los 6 exámenes previos resueltos y los 32 ejercicios oficiales, con el código verificado en WSL. Incluye los temas nuevos: <b>monitores y lectores–escritores</b>, <b>registros</b> y <b>memoria</b>.</p>
+		<p class="tag" data-anim>Teoría completa de Stallings (caps. 1–8) y de las clases, simuladores, los 6 exámenes previos resueltos y los 32 ejercicios oficiales, con el código probado en ejecuciones de prueba. Ahora con la <b>etapa final</b>: deadlock en la práctica, memoria virtual, memoria de un proceso y Valgrind.</p>
 		<div class="actions" data-anim>
-			<a class="so-btn primary" href="/mapa/">Ver el mapa del examen →</a>
-			<a class="so-btn" href="/examen/e1-2026-1/">Examen más reciente</a>
+			<a class="so-btn primary" href="/final/">Mapa del final →</a>
+			<a class="so-btn" href="/mapa/">Mapa del parcial</a>
 			<a class="so-btn" href="/formulario/">Formulario</a>
 		</div>
 	</div>
 	<div class="term" data-anim>
-		<div class="bar"><i></i><i></i><i></i><span style="margin-left:.5rem">yiuseppe@wsl: ~/so</span></div>
+		<div class="bar"><i></i><i></i><i></i><span style="margin-left:.5rem">cs3015: so/</span></div>
 		<Terminal />
 	</div>
 </div>
 
 <div class="so-stats not-content">
-	<div><b data-count="15">0</b><span>simuladores interactivos</span></div>
-	<div><b data-count="6">0</b><span>exámenes previos + 3 simulacros</span></div>
-	<div><b data-count="27">0</b><span>páginas de teoría</span></div>
-	<div><b data-count="284">0</b><span>flashcards y preguntas</span></div>
+	<div><b data-count="16">0</b><span>simuladores interactivos</span></div>
+	<div><b data-count="4">0</b><span>simulacros (3 del E1 + 1 del LC3)</span></div>
+	<div><b data-count="40">0</b><span>páginas de teoría</span></div>
+	<div><b data-count="396">0</b><span>flashcards y preguntas</span></div>
 </div>
 
 <div class="so-cards not-content">
+	<a class="so-card" href="/final/"><span class="n">F</span><span class="tagnew">nuevo</span><h3>Etapa final · mapa</h3><p>13 páginas nuevas: filósofos y barbero ejecutados, memoria virtual con simulador de reemplazo, Valgrind, los 10 ejercicios resueltos y un simulacro del LC3.</p></a>
 	<a class="so-card" href="/fundamentos/hardware/"><span class="n">00</span><h3>Fundamentos</h3><p>Interrupciones anidadas, jerarquía de memoria, DMA, evolución del SO, monolítico vs microkernel.</p></a>
 	<a class="so-card" href="/procesos/estados/"><span class="n">01</span><h3>Procesos y threads</h3><p>PCB, modelos de 5, 7 y 9 estados, mode switch vs process switch, señales, fork, ULT/KLT, Selfie.</p></a>
 	<a class="so-card" href="/mutex/algoritmos/"><span class="n">02</span><h3>Exclusión mutua</h3><p>14 algoritmos en un intercalador que verifica exclusión mutua, deadlock, progreso y starvation, y demostraciones formales paso a paso.</p></a>
 	<a class="so-card" href="/hardware/futex/"><span class="n">03</span><span class="tagnew">nuevo</span><h3>Atómicas, futex y registros</h3><p>TAS, CAS, spinlocks, Peterson fallando en x86, mutex con futex medido, pthread_mutex, semáforos POSIX y registros safe, regular y atómicos.</p></a>
 	<a class="so-card" href="/semaforos/deadlock/"><span class="n">04</span><h3>Semáforos y deadlock</h3><p>Productor–consumidor, Morris, filósofos y el algoritmo del banquero paso a paso.</p></a>
 	<a class="so-card" href="/monitores/lectores-escritores/"><span class="n">05</span><span class="tagnew">nuevo</span><h3>Monitores y mensajes</h3><p>Hoare vs Mesa, AR/WR/AW/WW, baño unisex, cine y send/receive.</p></a>
-	<a class="so-card" href="/memoria/paginacion/"><span class="n">06</span><span class="tagnew">nuevo</span><h3>Memoria</h3><p>Buddy, placement, segmentación, TLB, tablas multinivel e invertidas, memoria virtual.</p></a>
+	<a class="so-card" href="/memoria/paginacion/"><span class="n">06</span><h3>Memoria (final)</h3><p>Buddy, placement, segmentación, TLB, tablas multinivel e invertidas, memoria virtual.</p></a>
 	<a class="so-card" href="/examen/ejercicios/"><span class="n">07</span><h3>Exámenes y ejercicios</h3><p>6 exámenes previos resueltos + los 32 ejercicios oficiales de sincronización.</p></a>
 </div>
 
 ## Cómo usar esta web
 
-1. **Mira el [mapa del examen](/mapa/)**: qué preguntas se repiten año tras año y cuántos puntos valen.
+La barra lateral tiene dos etapas: **Final** (arriba, abierta) y **Parcial · E1** (plegada). El final se apoya en el parcial, así que las páginas del final enlazan a las del parcial cuando hace falta.
+
+1. **Mira el mapa de la etapa que estudias:** [mapa del final](/final/) o [mapa del parcial](/mapa/): qué preguntas se repiten año tras año y cuántos puntos valen.
 2. **Repasa por unidad** con la barra lateral. Cada página sigue el mismo orden: teoría → avisos «en el examen» → simulador → ejercicio con solución desplegable → quiz.
 3. **Resuelve un examen previo cronometrado** antes de abrir las soluciones. Después, haz los **[3 simulacros del E1 2026-2](/examen/prediccion/)**: preguntas nuevas en el estilo del examen, con pauta de corrección.
 4. **Cierra con las [flashcards](/examen/flashcards/)**. Tu progreso se guarda en este navegador.
 
 :::caution[Sobre las soluciones]
-Los exámenes 2024-I y 2024-II traen solucionario oficial. Para 2026-1, 2025-2 y 2021/22 las soluciones son **propias** y están marcadas así. Todo el código C se compiló y ejecutó en WSL (`~/so/verif_parcial`).
+Los exámenes 2024-I y 2024-II traen solucionario oficial. Para 2026-1, 2025-2 y 2021/22 las soluciones son **propias** y están marcadas así. Todo el código C se compiló y se probó en ejecuciones de prueba.
 :::

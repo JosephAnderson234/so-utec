@@ -1,6 +1,6 @@
 ---
 title: 'Ejercicios de sincronización (los 32 oficiales)'
-description: 'Los 9 ejercicios de 09-OSL-Ejercicios (dificultad I–III) y los 23 de Ejercicios_Repaso, con el patrón y las primitivas de cada uno; barbería, ascensor y hospital con código probado en WSL.'
+description: 'Los 9 ejercicios de 09-OSL-Ejercicios (dificultad I–III) y los 23 de Ejercicios_Repaso, con el patrón y las primitivas de cada uno; barbería, ascensor y hospital con código probado en ejecuciones de prueba.'
 ---
 
 import Solucion from '../../../components/Solucion.astro';
@@ -29,7 +29,7 @@ import Fuente from '../../../components/Fuente.astro';
 | 8 | Barbería: 2 barberos, 5 sillas de espera | sala acotada | patrón *sleeping barber* (abajo) |
 | 9 | Ascensor: capacidad 6, dos sentidos | sentido + cupo | monitor tipo **baño unisex con capacidad** + turno contra la starvation (abajo) |
 
-<Solucion titulo="Ejercicio 7 · Hospital (probado en WSL: sin violaciones, 8700–9500 atenciones en 3 s)">
+<Solucion titulo="Ejercicio 7 · Hospital (ejecución de prueba: sin violaciones, 8700–9500 atenciones en 3 s)">
 
 ```c
 sem_t consultorio, medico, rayos;          // = 3, 2, 1
@@ -56,7 +56,7 @@ void *paciente(void *arg) {
 
 </Solucion>
 
-<Solucion titulo="Ejercicio 8 · Barbería (probado en WSL; el assert «≤ 2 atendiendo» detectó un bug en la primera versión)">
+<Solucion titulo="Ejercicio 8 · Barbería (ejecución de prueba; el assert «≤ 2 atendiendo» detectó un bug en la primera versión)">
 
 ```c
 #define SILLAS 5
@@ -96,7 +96,7 @@ void *cliente(void *a) {
 
 </Solucion>
 
-<Solucion titulo="Ejercicio 9 · Ascensor (probado en WSL: capacidad respetada y ~3200 viajes en cada sentido, sin starvation)">
+<Solucion titulo="Ejercicio 9 · Ascensor (ejecución de prueba: capacidad respetada y ~3200 viajes en cada sentido, sin starvation)">
 
 ```c
 #define CAP 6
@@ -162,4 +162,4 @@ Es el [baño unisex](/monitores/problemas/) más la condición **`dentro < CAP`*
 
 **La trampa del 22 (en tu `e22.c`):** con N_A = 6 y N_B = 3 funciona porque sobran A. Pero si B1 y B2 hacen **su primer** `wait` a la vez y solo quedan 2 A, cada uno toma una y ambos esperan la segunda, que nunca llega si no hay más A: hay **hold and wait**. La solución es un `mutex` alrededor de los dos `sem_wait`, para que un B tome **las dos** A de forma atómica.
 
-<Fuente archivos={['lab2/09-OSL-Ejercicios.pdf', 'lab2/Ejercicios_Repaso.pdf', 'WSL ~/so/sem4/ejercicios_repaso/e1.c … e23.c', 'WSL ~/so/verif_parcial/ej/{barberia,ascensor,hospital}.c']} />
+<Fuente archivos={['lab2/09-OSL-Ejercicios.pdf', 'lab2/Ejercicios_Repaso.pdf', 'código del curso so/sem4/ejercicios_repaso/e1.c … e23.c', 'prueba propia verif_parcial/ej/{barberia,ascensor,hospital}.c']} />

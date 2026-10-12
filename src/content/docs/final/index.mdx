@@ -1,0 +1,130 @@
+---
+title: 'Etapa final: mapa de temas'
+description: 'Qué evalúa el Laboratorio Calificado 3 y el final, de dónde sale cada tema (clases, laboratorios, código y ejercicios de la semana 9), qué ya está en la web y qué se va a agregar.'
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+import EnSimple from '../../../components/EnSimple.astro';
+import Fuente from '../../../components/Fuente.astro';
+
+<EnSimple>
+Esta sección es el **mapa** de la segunda mitad del curso. Piénsalo como el índice de un libro antes de escribir los capítulos: cada fila dice **qué tema entra**, **de qué material sale** (lámina, laboratorio, código o ejercicio) y **dónde estudiarlo**. Lo del parcial sigue en el menú, más abajo y plegado: el final se apoya en eso (semáforos, deadlock, paginación) y no lo repetimos, solo lo enlazamos.
+</EnSimple>
+
+## Qué evalúa el Laboratorio Calificado 3
+
+Según las indicaciones oficiales (octubre 2026):
+
+| Sección | Puntaje | Formato |
+| --- | :-: | --- |
+| 4 preguntas **teóricas (libro)** | 5 | quiz de Canvas; pueden pedir **justificar** |
+| 3 preguntas de **análisis** | 9 | quiz de Canvas |
+| 2 preguntas de **código** | 6 | enunciado **impreso**, se resuelve en el entorno de ejecución del quiz; máximo **60 min** |
+| **Total** | **20** | |
+
+- **Entran todos los temas vistos después del LC2.**
+- **Lectura del libro (Stallings):** cap. 6, secciones **6.1–6.8**; cap. 7 **completo**; cap. 8, secciones **8.1–8.4**.
+- **Reglas que cambian la estrategia:**
+  - El código va **primero**: empieza 10 min después del inicio de la clase. Si llegas tarde, pierdes esa parte y el máximo baja a 14.
+  - El quiz se abre 20 min después de empezar la parte de código, y solo cuando ya la enviaste.
+  - Una vez enviado el código, **no se puede volver a entrar**.
+
+:::tip[Cómo repartir el estudio]
+El **análisis** vale casi la mitad (9/20). En los ejercicios de la semana 9 eso significa:
+- simular algoritmos de reemplazo (FIFO, OPT, LRU, Clock),
+- traducir direcciones,
+- calcular tablas de páginas y TLB.
+
+Las preguntas de **código** salen de los laboratorios: **filósofos y barbero dormilón** con semáforos POSIX, más los errores de memoria que detecta **Valgrind**.
+:::
+
+## Mapa de temas
+
+Leyenda: ✅ cubierto (las páginas de la sección final llevan código ejecutado y respuestas verificadas).
+
+### A · Deadlock y starvation (Stallings cap. 6, §6.1–6.8; lab 11)
+
+| Tema | Fuente | Estado | Dónde |
+| --- | --- | :-: | --- |
+| Principios: recursos reutilizables y consumibles, grafo de asignación, 4 condiciones | Stallings §6.1 | ✅ | [Deadlock](/semaforos/deadlock/) |
+| Prevención, evitación (banquero), detección y estrategia integrada | Stallings §6.2–6.5 | ✅ | [Deadlock](/semaforos/deadlock/) (simulador del banquero) |
+| Deadlock **de un solo hilo** (`lock` dos veces) y por qué **trylock** lo evita | lab 11, diap. 8–10 | ✅ | [Livelock y trylock](/final/deadlock/livelock-trylock/) |
+| **Livelock** con `trylock` + «soltar y reintentar» | lab 11, diap. 11–14 | ✅ | [Livelock y trylock](/final/deadlock/livelock-trylock/) (con ejecución de prueba) |
+| **Filósofos:** versión con deadlock y la espera circular que la causa | lab 11 · `deadlock-bug.c` | ✅ | [Filósofos § 1](/final/deadlock/filosofos/) |
+| **Filósofos:** 5 soluciones del curso | lab 11 · `sem_central.c`, `table.c`, `limit_seats.c`, `assymetric.c`, `tanen-sem.c` | ✅ | [Filósofos § 2–5](/final/deadlock/filosofos/) (medidos y con recorrido de estados) |
+| **Filósofos:** starvation a pesar de alto paralelismo | `tanen-5-1.c`, `tanen-4-2.c` | ✅ | [Filósofos § 6](/final/deadlock/filosofos/) + variante propia sin starvation |
+| **Barbero dormilón** (1 barbero): `sem_trywait`, la silla del barbero, ¿es justo?, ¿quién decide terminar? | lab 11, diap. 33–41 | ✅ | [Barbero](/final/deadlock/barbero/) |
+| **Barbero con N barberos** (panel `write_panel`/`read_panel`, tarea: ¿se puede quitar `barber_chair`?) | lab 11, diap. 42–47 | ✅ | [Barbero § N barberos](/final/deadlock/barbero/) (el código de las diapositivas no funciona tal cual) |
+| Mecanismos de concurrencia de UNIX: pipes, mensajes, memoria compartida, semáforos, señales | Stallings §6.7 | ✅ | [Mecanismos de UNIX y Linux](/final/deadlock/mecanismos-kernel/) |
+| Mecanismos del kernel Linux: atómicas, spinlocks (y de lectores–escritores), semáforos, barreras, RCU | Stallings §6.8 | ✅ | [Mecanismos de UNIX y Linux](/final/deadlock/mecanismos-kernel/) |
+
+### B · Gestión de memoria (Stallings cap. 7 completo; clase 09)
+
+| Tema | Fuente | Estado | Dónde |
+| --- | --- | :-: | --- |
+| Requisitos: relocalización, protección, compartición, organización lógica y física; overlays | §7.1 · clase 09, diap. 4–7 | ✅ | [Particiones](/memoria/particiones/) |
+| Dirección lógica vs física, MMU y registro de relocalización | clase 09, diap. 8, 14–15 | ✅ | [Segmentación](/memoria/segmentacion/) |
+| Particiones fijas y dinámicas, placement (best, first, next), fragmentación, compactación | §7.2 · diap. 17–27 | ✅ | [Particiones](/memoria/particiones/) (simulador de placement) |
+| Buddy system | §7.2 · diap. 22–24 | ✅ | [Particiones](/memoria/particiones/) (simulador buddy) |
+| Paginación simple y fragmentación interna (ejemplo 72 766 B con páginas de 2 KB) | §7.3 · diap. 48–57 | ✅ | [Paginación](/memoria/paginacion/) |
+| Segmentación: tabla, protección, ejemplo de 4 segmentos de 16 bits, x86 y Linux de 64 bits | §7.4 · diap. 30–46 | ✅ | [Segmentación](/memoria/segmentacion/) (traductor) |
+| Carga y enlace (apéndice 7A) | cap. 7 | ✅ | [Particiones § carga y enlace](/memoria/particiones/) |
+
+### C · Memoria virtual (Stallings §8.1–8.4; clase 09, parte final)
+
+| Tema | Fuente | Estado | Dónde |
+| --- | --- | :-: | --- |
+| Localidad, jerarquía (SRAM/DRAM/SSD/HDD), la memoria principal como caché del disco | §8.1 · diap. 9–13 | ✅ | [Hardware y fallo de página](/final/memoria-virtual/fundamentos/) |
+| Tabla de páginas, PTE (P, M, R, protección), multinivel, hash, invertida | §8.1 · diap. 59–73 | ✅ | [Paginación](/memoria/paginacion/) (calculadora) |
+| TLB y tiempo efectivo de acceso | §8.1 | ✅ | [Paginación § TLB](/memoria/paginacion/) (simulador EAT) |
+| Tamaño de página y segmentación + paginación combinadas | §8.1 | ✅ | [Hardware y fallo de página](/final/memoria-virtual/fundamentos/) |
+| **Paginación por demanda y page fault** paso a paso | §8.2 · diap. 74–76 | ✅ | [Hardware y fallo de página](/final/memoria-virtual/fundamentos/) (con medición de page faults) |
+| **Políticas del SO:** fetch (demanda vs prepaging), placement, **reemplazo** (bloqueo de frames, OPT, LRU, FIFO, **Clock**), page buffering | §8.2 | ✅ | [Reemplazo](/final/memoria-virtual/reemplazo/) (simulador paso a paso) |
+| **Conjunto residente:** asignación fija o variable, alcance local o global, **working set**, PFF | §8.2 | ✅ | [Working set y carga](/final/memoria-virtual/conjunto-residente/) |
+| Política de limpieza (demanda vs precleaning) y **control de carga** (thrashing, nivel de multiprogramación) | §8.2 | ✅ | [Working set y carga](/final/memoria-virtual/conjunto-residente/) |
+| UNIX y Solaris: PTE, descriptor de bloque de disco, tabla de frames, swap-use, **reloj de dos manecillas**, *lazy buddy* | §8.3 | ✅ | [UNIX, Solaris y Linux](/final/memoria-virtual/unix-linux/) |
+| Linux: tablas de varios niveles, buddy para páginas, reemplazo (listas activa/inactiva), **slab** | §8.4 | ✅ | [UNIX, Solaris y Linux](/final/memoria-virtual/unix-linux/) |
+
+### D · Memoria de un proceso en Linux (lab 10 · Memory)
+
+| Tema | Fuente | Estado | Dónde |
+| --- | --- | :-: | --- |
+| Espacio de direcciones virtual: text, data, librerías, heap y stack | lab 10, diap. 12–16 | ✅ | [Memoria de un proceso](/final/linux/espacio-direcciones/) |
+| El stack en acción (`stack.c`, `gdb attach` y `bt`) | `stack.c` | ✅ | [Memoria de un proceso](/final/linux/espacio-direcciones/) |
+| Ver el mapa del proceso (mapeos del proceso desde GDB) | lab 10, diap. 15–16 | ✅ | [Memoria de un proceso](/final/linux/espacio-direcciones/) (`/proc/PID/maps` real) |
+| `memcpy` y sus bugs: desborde de un buffer de 20 B y escritura en una dirección de kernel (`0xffffffffff601000`) | `memcpy1.c`, `memcpy2.c`, `main.c` | ✅ | [Memoria de un proceso § memcpy](/final/linux/espacio-direcciones/) |
+| `malloc`, `size_t`, ¿cuánto se puede pedir?, `realloc`, malloc **no siempre** usa el heap (mmap para bloques grandes) | `malloc.c`, `malloc_limits.c` · diap. 18–23 | ✅ | [Memoria de un proceso § malloc](/final/linux/espacio-direcciones/) |
+
+### E · Herramientas (actividad Valgrind)
+
+| Tema | Fuente | Estado | Dónde |
+| --- | --- | :-: | --- |
+| Valgrind **memcheck**: accesos inválidos, valores sin inicializar, liberación incorrecta, leaks | guía Valgrind · `mem1.c`, `mem2.c`, `mem3.c`, `hello.c` | ✅ | [Valgrind y perf](/final/linux/valgrind-perf/) |
+| **helgrind** (condiciones de carrera entre hilos) | guía Valgrind | ✅ | [Valgrind y perf](/final/linux/valgrind-perf/) |
+| `perf` para contar **page faults** al recorrer un arreglo de `PAGESIZE × N` | guía Valgrind · «Paging y TLB» | ✅ | [Valgrind y perf](/final/linux/valgrind-perf/), [medición](/final/memoria-virtual/fundamentos/) |
+
+### F · Ejercicios de repaso (semana 9)
+
+| Hoja | Preguntas | Estado |
+| --- | --- | :-: |
+| **Page Replacement** | P1: FIFO, OPT, LRU y Clock con 3 frames (16 referencias) · P2: FIFO con 3 y 4 frames (**anomalía de Belady**) · P3: memoria virtual de 6 GB, páginas de 8 kB y PTE de 6 B · P4: PTE para Clock en 10-10-12 y simulación con 4 frames | ✅ [resueltos](/final/ejercicios/page-replacement/) |
+| **Virtual Memory** | P1: bits de VPN/PFN/PTE · P2: segmentación (5 direcciones, ¿segfault?) · P3: traducción binaria · P4: tabla con bits V/R/M (1052, 2221, 5499) · P5: recorrido por columnas de `A[64][64]` y page faults · P6: 8 GB, páginas de 8 kB, 46 bits, niveles, TLB y EAT de 61 ns | ✅ [resueltos](/final/ejercicios/memoria-virtual/) |
+
+## Páginas de la sección
+
+<CardGrid>
+	<LinkCard title="A · Deadlock en la práctica" href="/final/deadlock/filosofos/" description="Livelock y trylock, las 8 versiones de los filósofos ejecutadas, barbero dormilón (1 y N barberos), mecanismos de UNIX y Linux." />
+	<LinkCard title="C · Memoria virtual" href="/final/memoria-virtual/fundamentos/" description="Page fault medido, reemplazo con simulador (OPT, LRU, FIFO, Clock, Belady), working set, thrashing, UNIX y Linux." />
+	<LinkCard title="D · Linux en la práctica" href="/final/linux/espacio-direcciones/" description="/proc/PID/maps, stack con gdb, bugs de memcpy, malloc con brk vs mmap, Valgrind y perf." />
+	<LinkCard title="E · Ejercicios resueltos" href="/final/ejercicios/page-replacement/" description="Las 10 preguntas de Page Replacement y Virtual Memory, verificadas." />
+	<LinkCard title="Repaso y simulacro del LC3" href="/final/repaso/" description="Chuleta, 40 flashcards y un simulacro con el formato del LC3 (2 de código + 4 teóricas + 3 de análisis)." />
+</CardGrid>
+
+## Avance por semana
+
+| Semana | Material | Estado |
+| --- | --- | :-: |
+| 9 | clase 09 «All About Memory» (78 diap.) · lab 10 Memory (26 diap.) · guía Valgrind · lab 11 Deadlock (50 diap.) · ejercicios de Page Replacement y de Virtual Memory · indicaciones del LC3 · código de `sem9/` (memoria, valgrind y deadlock) | ✅ mapeado y escrito (13 páginas) |
+| 10 en adelante | — | ⏳ pendiente |
+
+<Fuente archivos={['sem_9/OSL-Indicaciones-Laboratorio_Calificado_3.pdf', 'sem_9/Sem9_09-OST-Memory.pdf', 'sem_9/10-OSL-Memory.pdf', 'sem_9/10-OSL-Valgrind.pdf', 'sem_9/11-OSL-Deadlock.pdf', 'sem_9/11-OSL-Ejercicios_Page_Replacement.pdf', 'sem_9/11-OSL-Ejercicios_Virtual_Memory.pdf', 'Código del curso sem9/: deadlock/*.c, valgrind/*.c, stack.c, malloc.c, malloc_limits.c, memcpy1.c, memcpy2.c, main.c', 'Stallings 9e, caps. 6–8']} />

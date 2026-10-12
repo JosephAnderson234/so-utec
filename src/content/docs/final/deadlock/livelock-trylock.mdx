@@ -1,0 +1,128 @@
+---
+title: 'Deadlock de un hilo, trylock y livelock'
+description: 'Lab 11 (diap. 4–14): repaso de semáforos POSIX, el deadlock de un solo hilo (lock dos veces), pthread_mutex_trylock, cómo «soltar y reintentar» cambia deadlock por livelock, y qué se ve al ejecutarlo de verdad.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+- **Deadlock:** dos personas en un pasillo angosto, cada una esperando que la otra retroceda. Nadie se mueve, **para siempre**.
+- **Livelock:** las dos son **demasiado educadas**. Las dos se hacen a un lado al mismo tiempo, luego las dos vuelven al centro, otra vez a un lado… Se mueven todo el tiempo, pero **nadie pasa**.
+- **trylock** es lo que permite ser «educado»: intentar tomar el recurso **sin quedarse esperando**. Si no se puede, soltar lo que tengo y reintentar. Arregla el deadlock, pero si los dos reintentan **sincronizados**, aparece el livelock.
+</EnSimple>
+
+## Repaso rápido: semáforos POSIX (diap. 4–7)
+
+Un semáforo es un **contador especial** para recursos compartidos (Dijkstra, 1965):
+- **P()** (*wait*, *down*): si el contador es 0, **bloquea**; si no, lo decrementa.
+- **V()** (*signal*, *post*, *up*): **nunca bloquea**. Despierta a uno si hay alguno esperando; si no, incrementa.
+
+En POSIX (`man 7 sem_overview`) el valor **nunca baja de 0**. Hay semáforos **con nombre** (`sem_open("/nombre")`, para procesos sin parentesco) y **sin nombre** (`sem_init`). Todo el detalle está en [Mutex POSIX y semáforos](/hardware/futex/#5-semáforos-posix-a-fondo).
+
+## Deadlock de un solo hilo (diap. 8–9)
+
+```c
+void f() {
+    mutex_lock(&lock);
+    mutex_lock(&lock);    // ← el mismo hilo espera un lock que él mismo tiene
+}
+```
+
+No hace falta un segundo hilo: el hilo espera a que **él mismo** suelte el lock, cosa que nunca va a pasar. Con un `pthread_mutex_t` **NORMAL** (el predeterminado de Linux), esto se cuelga **para siempre**. Con **ERRORCHECK**, el segundo `lock` retorna **`EDEADLK`**; con **RECURSIVE**, funciona (cuenta 2). Esto se probó en una ejecución de prueba: ver [tipos de mutex](/hardware/futex/#tipos-de-mutex-ejecución-de-prueba-tiposc).
+
+**Cuándo pasa en la vida real:** una función pública toma el lock y llama a **otra función pública** que también lo toma. Las diapositivas mencionan dos soluciones (que el curso no profundiza):
+- **Replicar el código**, para que la función interna no tome el lock.
+- **Función auxiliar no atómica:** la versión pública toma el lock y llama a `aux_function1(e)`, que asume que el lock ya está tomado. Las funciones internas solo llaman a las auxiliares.
+
+```c
+void function1(Structure *e) {
+    mutex_lock(&e->lock);
+    aux_function1(e);          // trabaja sin tomar el lock
+    mutex_unlock(&e->lock);
+}
+```
+
+## `pthread_mutex_trylock` (diap. 10)
+
+> *«Equivalente a `pthread_mutex_lock()`, salvo que si el mutex está tomado (por **cualquier** hilo, **incluido el actual**), la llamada retorna de inmediato.»*
+
+- Retorna **0** si lo obtuvo, y **`EBUSY`** si estaba tomado. **Nunca bloquea.**
+- Es el equivalente de `sem_trywait` (retorna −1 con `errno = EAGAIN`), que se usa en el [barbero dormilón](/final/deadlock/barbero/).
+- Rompe la condición **hold and wait** de Coffman: si no puedo tomar el segundo recurso, **no me quedo esperando con el primero**.
+
+## Livelock (diap. 11–14)
+
+```c
+void process1(void) {                          void process2(void) {
+    acquire_lock(&resource_1);                     acquire_lock(&resource_2);
+    while (try_lock(&resource_2) == FAIL) {        while (try_lock(&resource_1) == FAIL) {
+        release_lock(&resource_1);                     release_lock(&resource_2);
+        wait_fixed_time();                             wait_fixed_time();
+        acquire_lock(&resource_1);                     acquire_lock(&resource_2);
+    }                                              }
+    use_both_resources();                          use_both_resources();
+    release_lock(&resource_2);                     release_lock(&resource_1);
+    release_lock(&resource_1);                     release_lock(&resource_2);
+}                                              }
+```
+
+**La secuencia de las diapositivas:**
+1. P1 toma el recurso 1 y P2 toma el recurso 2.
+2. Cada uno intenta el otro lock y **falla**. Por cortesía, suelta el que tenía, espera un tiempo **fijo** y lo vuelve a tomar.
+3. Como esperan **lo mismo**, vuelven a chocar exactamente igual… **hasta que algo externo rompa la simetría**.
+
+> *«Ningún proceso está bloqueado, así que no es un deadlock. Pero no hay progreso posible: es algo equivalente, un **livelock**.»*
+
+| | Deadlock | Livelock | Starvation |
+| --- | --- | --- | --- |
+| ¿Los procesos ejecutan? | **no**: bloqueados | **sí**: gastan CPU | sí (otros avanzan) |
+| ¿Alguien progresa? | nadie | nadie | **sí**, todos menos la víctima |
+| ¿Se resuelve solo? | nunca | **puede**, si cambian los tiempos | puede, si cambian los tiempos |
+| Ejemplo | los 5 filósofos con un tenedor cada uno | dos procesos educados con `trylock` y espera fija | [filósofo 0 en `tanen-5-1.c`](/final/deadlock/filosofos/#6--starvation-con-alto-paralelismo) |
+
+### ¿Qué pasa al ejecutarlo de verdad?
+
+Programé el ejemplo con `pthread_mutex_trylock`: los dos hilos arrancan juntos con una barrera, cada uno espera 1 ms con el primer lock tomado, y luego intenta el segundo. Ejecución de prueba, 5 rondas:
+
+```text
+== espera fija (1 ms)
+ronda 0: reintentos P1=0 P2=1
+ronda 1: reintentos P1=1 P2=0
+ronda 2: reintentos P1=0 P2=1
+…
+== espera aleatoria (0.1–2 ms)
+ronda 0: reintentos P1=1 P2=0
+…
+```
+
+**El livelock no se sostuvo:** en todas las rondas, uno de los dos tuvo que reintentar **una sola vez**. En una máquina real, los tiempos nunca son idénticos: el planificador, las interrupciones y la caché meten **ruido** que rompe la simetría. Pero eso **no prueba** que el código sea correcto. El livelock es **posible**, y en un sistema con temporización muy regular (por ejemplo, un sistema embebido sin otras tareas) puede durar mucho.
+
+**Cómo evitarlo de verdad:**
+1. **Orden global de los locks:** todos toman primero el recurso 1 y luego el 2. Rompe la **espera circular** y no hace falta `trylock`. Es la mejor solución.
+2. **Espera aleatoria** (*randomized backoff*), como el retroceso exponencial de Ethernet: hace muy improbable repetir el choque.
+3. **Asimetría:** un proceso cede siempre y el otro nunca. Es la idea de los [filósofos asimétricos](/final/deadlock/filosofos/#4--solución-asimétrica-assymetricc).
+
+<Solucion titulo="Pregunta de análisis: ¿el código con trylock puede tener deadlock? ¿y starvation?">
+
+- **Deadlock: no.** Ningún proceso espera bloqueado sosteniendo un recurso: cuando `try_lock` falla, suelta lo que tiene. Se rompe *hold and wait*.
+- **Livelock: sí**, si ambos repiten la secuencia sincronizados (espera fija e igual).
+- **Starvation: sí.** Aunque no haya livelock, un proceso puede tener mala suerte siempre: el otro vuelve a tomar su lock justo antes de cada `try_lock`. Nada garantiza un orden.
+
+</Solucion>
+
+<Quiz
+	client:visible
+	id="fin-livelock"
+	preguntas={[
+		{ q: 'Un hilo hace lock dos veces sobre el mismo mutex NORMAL…', opts: ['funciona', 'se bloquea para siempre: deadlock de un hilo', 'retorna EBUSY', 'retorna EPERM'], ok: 1 },
+		{ q: 'pthread_mutex_trylock sobre un mutex tomado por el mismo hilo…', opts: ['bloquea', 'retorna de inmediato con EBUSY', 'lo libera', 'deadlock'], ok: 1 },
+		{ q: 'trylock + soltar y reintentar rompe la condición de Coffman…', opts: ['exclusión mutua', 'hold and wait', 'no expropiación', 'ninguna'], ok: 1 },
+		{ q: 'En un livelock, los procesos…', opts: ['están bloqueados', 'ejecutan pero nadie progresa', 'progresan todos menos uno', 'terminan'], ok: 1 },
+		{ q: 'La solución más robusta al ejemplo de las diapositivas es…', opts: ['esperar más tiempo fijo', 'que ambos tomen los locks en el mismo orden', 'usar sleep(0)', 'quitar el trylock'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['sem_9/11-OSL-Deadlock.pdf (diap. 4–14)', 'man pthread_mutex_trylock(3), sem_overview(7)', 'Prueba propia: livelock.c (ejecución de prueba)']} />
