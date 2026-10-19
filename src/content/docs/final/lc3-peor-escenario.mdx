@@ -1,0 +1,378 @@
+---
+title: 'LC3 · preparación para el peor escenario'
+description: 'Simulacro de dificultad alta para el Laboratorio Calificado 3: plan de tiempo, trampas típicas, dos preguntas de código duras (barbería de N barberos que cierra, y una lista enlazada con 7 bugs de memoria), teóricas engañosas y tres análisis largos (Clock mejorado con escrituras, EAT con page faults, Tanenbaum con un bug sutil), todo verificado.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Quiz from '../../../components/Quiz.tsx';
+
+<EnSimple>
+Esta página entrena el **peor escenario**: enunciados largos, preguntas con trampa y código que «parece funcionar» pero tiene bugs escondidos. Si puedes con esto, el LC3 real debería sentirse más fácil.
+
+Hazlo **cronometrado y en el mismo orden que el LC3**: primero el código (60 min máximo) y después el quiz (teóricas y análisis). Las soluciones están plegadas: ábrelas **solo al terminar**. El simulacro de dificultad media está en [Repaso](/final/repaso/).
+</EnSimple>
+
+## Plan para el día del LC3
+
+| Momento | Qué hacer |
+| --- | --- |
+| **Antes** | Prueba el entorno de ejecución del quiz (lo piden las indicaciones). Llega **antes** de los 10 minutos: si llegas tarde, pierdes los 6 puntos de código. Lleva lápiz: hay cuadernillo. |
+| **Código (60 min)** | Lee **las dos** preguntas primero (2 min). Empieza por la que tenga más «plantilla» que ya conoces (barbero, filósofos, Valgrind). Escribe primero en papel **qué semáforo protege qué y con qué valor inicial**, y recién después el código. Compila y prueba **antes** de enviar: una vez enviado, no hay vuelta atrás. |
+| **Quiz (teóricas + análisis)** | Las de análisis valen 3 puntos cada una: haz la tabla o el cálculo en el cuadernillo y **escribe la convención** que usas (Clock: u = 1 al cargar; ¿se cuentan los fallos iniciales?). |
+| **Si te trabas** | Escribe la estructura de la solución con comentarios en prosa («aquí el barbero avisa que terminó»). El razonamiento suma puntos parciales. |
+
+**Lo que dijo la profesora en la clase del 10/10** ([resumen](/final/clase-memoria/)):
+- la **segmentación entra**;
+- no pedirá mucha conversión decimal ↔ binario (dará equivalencias), y como mucho hexadecimal;
+- **todo en base 2**;
+- si no mencionan bits de validez, la PTE solo guarda el frame.
+
+### Las 13 trampas más probables
+
+1. **Contar o no los fallos iniciales** en reemplazo. Decláralo.
+2. **Clock:** el puntero queda **después** del frame reemplazado, y un acierto **no mueve** el puntero.
+3. **Belady:** FIFO y Clock pueden tenerla; **LRU y OPT nunca**.
+4. **Fija + global es imposible.**
+5. «turn tiene un solo valor» **no prueba exclusión mutua**: prueba ausencia de deadlock.
+6. **`sem_wait` vs `sem_trywait`:** «si no hay silla, se va» exige `trywait`.
+7. **`sem_getvalue` + `wait`** es check-then-act: está **mal**.
+8. **Mutex con dueño:** no lo puede soltar otro hilo. Semáforo **sin dueño**: sí.
+9. **memcheck** reporta el valor no inicializado **donde se usa** (if, printf), no donde se declara, y **no** ve desbordes del stack.
+10. **`malloc(strlen(s))`** sin el +1 para el `'\0'`.
+11. **Offset:** en paginación se **concatena**; en segmentación se **suma** (y se compara con el límite: `offset < longitud`).
+12. **Traducir sin mirar la tabla:** primero la página, luego su entrada (¿Valid = 1?), luego la física. La profesora cometió este error en vivo con 2221.
+13. **EAT:** ¿la TLB se consulta siempre? ¿La tabla es de 1 o de k niveles? Escribe el modelo.
+
+## Código 1 (3 pts) · La barbería que cierra
+
+> Una barbería tiene **3 barberos**, **4 sillas de espera** y recibe **200 clientes** (hilos).
+> - Un cliente que no encuentra silla de espera **se va**.
+> - Cada cliente debe ser atendido por **un barbero concreto** y saber cuál es.
+> - Un barbero sin clientes **duerme**, y nunca atiende a dos a la vez.
+> - Cuando los 200 clientes terminaron (se atendieron o se fueron), la barbería **cierra**: **todos** los barberos deben salir de su bucle y `main` debe poder hacer `pthread_join` de cada uno. El programa no puede quedar colgado.
+>
+> Escribe `barbero()`, `cliente()` y el cierre en `main` usando **solo semáforos POSIX** y variables compartidas.
+
+<Solucion titulo="Solución (probada: 3 corridas, 200/200 clientes, los 3 barberos terminaron siempre)">
+
+La base es el **panel** de las diapositivas, ya corregido ([barbero § N barberos](/final/deadlock/barbero/#n-barberos-diap-4247)). Lo difícil es el **cierre**: un barbero puede estar dormido en **dos** lugares distintos, `wait(write_panel)` o `wait(client_seat[id])`, y hay que despertarlo en cualquiera de los dos.
+
+```c
+sem_t seats, write_panel, read_panel, client_seat[NB], hair_cut[NB];
+int panel;
+volatile int cerrado = 0;
+
+void *barbero(void *a) {
+    int id = (int)(long)a;
+    for (;;) {
+        sem_wait(&write_panel);
+        if (cerrado) { sem_post(&write_panel); break; }   // pasa el «testigo» al siguiente barbero
+        panel = id;
+        sem_post(&read_panel);
+        sem_wait(&client_seat[id]);
+        if (cerrado) { sem_post(&write_panel); break; }   // lo despertó main, no un cliente
+        cut_shave();
+        sem_post(&hair_cut[id]);
+    }
+    return NULL;
+}
+
+void *cliente(void *a) {
+    if (sem_trywait(&seats) == 0) {
+        sem_wait(&read_panel);
+        int my = panel;
+        sem_post(&write_panel);
+        sem_post(&seats);
+        sem_post(&client_seat[my]);
+        sem_wait(&hair_cut[my]);
+    } else leaves();
+    return NULL;
+}
+
+/* main, después de pthread_join de los 200 clientes: */
+cerrado = 1;
+for (int i = 0; i < NB; i++) sem_post(&client_seat[i]);   // despierta al que publicó su id
+for (int i = 0; i < NB; i++) pthread_join(b[i], NULL);
+```
+
+**Por qué termina:**
+- Cuando ya no quedan clientes, **exactamente un** barbero publicó su id y duerme en `client_seat[id]`. Ese tiene `write_panel` «tomado» porque ningún cliente lo leyó. Los otros dos duermen en `wait(write_panel)`.
+- `main` hace `post` a **todos** los `client_seat`. El que publicó despierta, ve `cerrado` y **devuelve** `write_panel`.
+- Eso despierta a otro barbero en `wait(write_panel)`, que ve `cerrado`, devuelve el testigo y sale. Y así en **cadena** hasta que salen todos.
+- Los `post` sobrantes en los `client_seat` de los barberos que no publicaron no hacen daño: esos barberos salen por el primer `if` y nunca llegan a esperar en su `client_seat`.
+
+**Ejecución de prueba:**
+
+```text
+cerrado: atendidos=200 se_fueron=0 (total 200); cortes por barbero = 63 66 71; los 3 barberos terminaron
+cerrado: atendidos=200 se_fueron=0 (total 200); cortes por barbero = 65 68 67; los 3 barberos terminaron
+cerrado: atendidos=200 se_fueron=0 (total 200); cortes por barbero = 68 63 69; los 3 barberos terminaron
+```
+
+Además, un `assert` comprobó en cada corte que ningún barbero atendía a dos clientes a la vez.
+
+**Errores típicos que restan puntos:**
+- **Cerrar con `pthread_cancel`:** puede matar a un barbero en medio de un corte.
+- **Hacer `post` solo a `write_panel`:** el barbero dormido en `client_seat` nunca despierta y el `join` **cuelga**.
+- **Revisar `cerrado` solo al inicio del bucle:** mismo problema.
+- **Usar `sem_wait(&seats)`:** el cliente no se iría.
+
+**Pauta (3 pts):** 1 por el panel correcto (cada cliente con su barbero) · 0.5 por `trywait` y la liberación de la silla · 0.5 por el aviso de fin de corte · 1 por el cierre sin colgarse.
+
+</Solucion>
+
+## Código 2 (3 pts) · Una lista con 7 bugs
+
+> El programa imprime `ana luis 0` y **parece** funcionar. Usa memcheck y lo que sabes de C para encontrar **todos** los errores (tipo y línea, incluidos los que memcheck **no** reporta) y corrígelo.
+
+```c
+ 5  typedef struct nodo {
+ 6      char *nombre;
+ 7      int nota;
+ 8      struct nodo *sig;
+ 9  } nodo;
+10
+11  nodo *nuevo(const char *nombre, int nota) {
+12      nodo *n = malloc(sizeof(nodo));
+13      n->nombre = malloc(strlen(nombre));
+14      strcpy(n->nombre, nombre);
+15      n->nota = nota;
+16      return n;
+17  }
+18
+19  void liberar(nodo *l) {
+20      for (nodo *p = l; p != NULL; p = p->sig)
+21          free(p);
+22  }
+23
+24  int main(void) {
+25      nodo *l = nuevo("ana", 15);
+26      l->sig = nuevo("luis", 12);
+27      int *notas = malloc(2 * sizeof(int));
+28      notas[0] = l->nota;
+29      notas[1] = l->sig->nota;
+30      notas = realloc(notas, 3 * sizeof(int));
+31      printf("%s %s %d\n", l->nombre, l->sig->nombre, notas[2]);
+32      liberar(l);
+33      free(notas);
+34      return 0;
+35  }
+```
+
+<Solucion titulo="Solución: lo que dijo memcheck (ejecución de prueba) y los 7 problemas">
+
+**Salida resumida de `valgrind --leak-check=full ./lista`:**
+
+```text
+Invalid write of size 1   nuevo (lista.c:14) ← main (lista.c:25)   0 bytes after a block of size 3 alloc'd
+Invalid write of size 1   nuevo (lista.c:14) ← main (lista.c:26)   0 bytes after a block of size 4 alloc'd
+Invalid read of size 1    main (lista.c:31)                         0 bytes after a block of size 3 alloc'd
+Conditional jump or move depends on uninitialised value(s)   main (lista.c:31)   (×3)
+Use of uninitialised value of size 8                         main (lista.c:31)
+Invalid read of size 8    liberar (lista.c:20)   16 bytes inside a block of size 24 free'd
+3 bytes in 1 blocks are definitely lost   (malloc de nuevo, lista.c:13, para "ana")
+4 bytes in 1 blocks are definitely lost   (malloc de nuevo, lista.c:13, para "luis")
+ERROR SUMMARY: 12 errors from 10 contexts
+```
+
+| # | Línea | Problema | ¿Lo ve memcheck? |
+| :-: | :-: | --- | --- |
+| 1 | 13 → 14 | `malloc(strlen(nombre))` no deja lugar para `'\0'`: `strcpy` escribe 1 byte de más | ✔ `Invalid write of size 1` (una vez por nodo) |
+| 2 | 31 | `printf("%s", l->nombre)` lee ese byte de más (consecuencia del #1) | ✔ `Invalid read of size 1` |
+| 3 | 30 → 31 | `realloc` agranda a 3 enteros, pero `notas[2]` **nunca se inicializa** y se imprime | ✔ `Conditional jump … uninitialised` en la **31** (donde se usa, no donde nace) |
+| 4 | 20–21 | `free(p)` y luego `p = p->sig`: se lee un nodo **ya liberado** | ✔ `Invalid read of size 8 … 16 bytes inside a block of size 24 free'd` (sig está en el offset 16 de la struct) |
+| 5 | 21 | `liberar` no libera `p->nombre`: 2 fugas (3 + 4 bytes) | ✔ `definitely lost` |
+| 6 | 12–16 | `nuevo` **no inicializa `n->sig`**: el último nodo tiene `sig` con basura | **no siempre.** En esta ejecución el `malloc` devolvió ceros, el bucle de `liberar` terminó «de casualidad» y el error quedó tapado por el #4 |
+| 7 | 30 | `notas = realloc(notas, …)`: si `realloc` falla devuelve NULL, se pierde el bloque original y hay una fuga | **no**: es un error de diseño, no un acceso inválido |
+
+**Corrección** (memcheck: `All heap blocks were freed … ERROR SUMMARY: 0 errors`; imprime `ana luis 13`):
+
+```c
+nodo *nuevo(const char *nombre, int nota) {
+    nodo *n = malloc(sizeof(nodo));
+    n->nombre = malloc(strlen(nombre) + 1);           // #1
+    strcpy(n->nombre, nombre);
+    n->nota = nota;
+    n->sig = NULL;                                     // #6
+    return n;
+}
+
+void liberar(nodo *l) {
+    while (l != NULL) {
+        nodo *sig = l->sig;                            // #4: guardar ANTES de liberar
+        free(l->nombre);                               // #5
+        free(l);
+        l = sig;
+    }
+}
+
+/* en main: */
+int *tmp = realloc(notas, 3 * sizeof(int));            // #7
+if (tmp == NULL) { free(notas); liberar(l); return 1; }
+notas = tmp;
+notas[2] = (notas[0] + notas[1]) / 2;                  // #3
+```
+
+**Pauta (3 pts):** 0.4 por cada uno de los problemas 1, 3, 4, 5, 6 y 7 (el 2 se acepta junto con el 1), y 0.6 por un programa corregido que compile y quede en 0 errores.
+
+</Solucion>
+
+## Teóricas difíciles (estilo «justifica»)
+
+<Quiz
+	client:visible
+	id="lc3-dificil-teoricas"
+	titulo="Teóricas con trampa"
+	preguntas={[
+		{ q: '¿Puede haber thrashing con UN solo proceso en el sistema?', opts: ['No: el thrashing exige muchos procesos', 'Sí: si su working set no cabe en la memoria disponible, fallará continuamente aunque esté solo', 'Solo con FIFO', 'Solo si no hay TLB'], ok: 1, why: 'El thrashing es la falta de frames para el working set. Con multiprogramación se agrava porque los procesos compiten, pero no la necesita.' },
+		{ q: 'Con una tabla de páginas invertida, compartir una página entre dos procesos es…', opts: ['trivial: dos PTE apuntan al mismo frame', 'difícil: hay una sola entrada por frame, así que el frame solo «pertenece» a un par (página, PID) a la vez; hacen falta cadenas o alias', 'imposible por diseño del hardware', 'igual que con tablas multinivel'], ok: 1 },
+		{ q: 'Un proceso hace fork() y el hijo solo escribe 3 páginas antes de exec(). Con copy-on-write, ¿cuántas páginas se copian?', opts: ['Todas las del padre', '3 (las que se escriben); el resto se comparte hasta el exec', '0', '1'], ok: 1, why: 'Cada escritura a una página COW provoca un fallo de protección y la copia de esa página nada más.' },
+		{ q: '¿Por qué al cambiar de proceso hay que vaciar la TLB (o usar ASID)?', opts: ['Para ahorrar energía', 'Porque la misma página virtual de otro proceso corresponde a otro frame: usar entradas viejas violaría la protección', 'Porque la TLB es lenta', 'No hace falta nunca'], ok: 1 },
+		{ q: 'Semáforo central de valor 4 con 5 filósofos (cada uno toma derecho y luego izquierdo). ¿Puede un filósofo sufrir starvation?', opts: ['No, porque no hay deadlock', 'Sí: sin deadlock no implica sin starvation; los semáforos POSIX no garantizan orden FIFO', 'Solo si el central vale 1', 'No, el semáforo es justo por definición'], ok: 1 },
+		{ q: 'En Clock mejorado, ¿por qué el segundo barrido pone u = 0 en los frames que salta?', opts: ['Por error del algoritmo', 'Para garantizar que en el tercer barrido exista al menos un candidato (u = 0) y el algoritmo termine', 'Para escribir las páginas sucias', 'Para imitar FIFO'], ok: 1 },
+		{ q: 'Un proceso con working set W(t, Δ) de 6 páginas recibe 4 frames con reemplazo local. ¿Qué es lo más probable?', opts: ['Funciona igual', 'Una tasa de fallos alta: el conjunto residente es menor que su working set', 'Anomalía de Belady', 'Deadlock'], ok: 1 },
+		{ q: '`pthread_mutex_lock(&m); pthread_mutex_lock(&m);` en el mismo hilo, con un mutex RECURSIVE. Después hace un solo unlock. ¿Otro hilo puede tomarlo?', opts: ['Sí', 'No: el contador queda en 1; hacen falta tantos unlock como lock', 'Retorna EPERM', 'Deadlock inmediato'], ok: 1 },
+	]}
+/>
+
+## Análisis 1 (3 pts) · Clock mejorado con escrituras
+
+> **4 frames** vacíos y Clock **mejorado** (bits u y m, algoritmo de Stallings fig. 8.17).
+> - Al cargar: u = 1, y m = 1 si la referencia es de escritura.
+> - El puntero queda en el frame **siguiente** al reemplazado.
+> - Referencias (`w` = escritura, `r` = lectura): `Aw Br Cr Dw Ar Er Bw Fr Cr Aw Gr Dr Hr Cw`.
+>
+> Da el contenido final con sus bits, el número de fallos y el número de **escrituras a disco** (víctimas con m = 1).
+
+<Solucion titulo="Solución (verificada con un simulador del algoritmo)">
+
+**Notación:** `*` = u en 1, `m` = modificada, `·` = frame vacío.
+
+| Ref | Resultado | f0 | f1 | f2 | f3 | Puntero |
+| --- | --- | --- | --- | --- | --- | :-: |
+| Aw | fallo | A\*m | · | · | · | 1 |
+| Br | fallo | A\*m | B\* | · | · | 2 |
+| Cr | fallo | A\*m | B\* | C\* | · | 3 |
+| Dw | fallo | A\*m | B\* | C\* | D\*m | 0 |
+| Ar | acierto | A\*m | B\* | C\* | D\*m | 0 |
+| Er | fallo, sale **B** | Am | E\* | C | Dm | 2 |
+| Bw | fallo, sale **C** | Am | E\* | B\*m | Dm | 3 |
+| Fr | fallo, sale **D** ✍ | Am | E\* | B\*m | F\* | 0 |
+| Cr | fallo, sale **A** ✍ | C\* | E\* | B\*m | F\* | 1 |
+| Aw | fallo, sale **E** | C | A\*m | Bm | F | 2 |
+| Gr | fallo, sale **F** | C | A\*m | Bm | G\* | 0 |
+| Dr | fallo, sale **C** | D\* | A\*m | Bm | G\* | 1 |
+| Hr | fallo, sale **B** ✍ | D\* | Am | H\* | G\* | 3 |
+| Cw | fallo, sale **A** ✍ | D | C\*m | H\* | G | 2 |
+
+**Paso clave (Cw):** ninguna página es (0,0). El barrido 2 apaga G y D y encuentra A = (0,1): sale **A**, que estaba modificada, así que hay una escritura a disco.
+
+**Paso clave (Er):** los 4 tenían u = 1, así que no hay ni (0,0) ni (0,1).
+1. El **barrido 2** apaga todos los u mientras busca (0,1), y no encuentra.
+2. Se **repite el barrido 1** desde el puntero (f0): A es (0,1), no sirve; B es (0,0): **sale B**. A tenía prioridad para quedarse porque está modificada.
+
+**Respuesta:**
+- **Estado final:** f0 = D (u = 0), f1 = **C (u = 1, m = 1)**, f2 = H (u = 1), f3 = G (u = 0). El puntero queda en el frame 2.
+- **13 fallos** de 14 referencias.
+- **4 escrituras a disco** (✍): las víctimas modificadas fueron D, A, B y otra vez A (la que se había reescrito con `Aw`).
+
+Con LRU, la misma cadena da también **13 fallos y 4 escrituras**. Clock mejorado no siempre gana en fallos; su ventaja es que **prefiere** víctimas limpias cuando las hay, y lo logra con 2 bits por frame en vez de marcas de tiempo.
+
+**Pauta:** 1 por la tabla hasta Er (el paso difícil) · 1 por el estado final · 1 por fallos y escrituras con la convención declarada.
+
+</Solucion>
+
+## Análisis 2 (3 pts) · EAT con fallos de página
+
+> - Memoria principal: **100 ns**. TLB: **2 ns** (se consulta siempre). Tablas de **2 niveles**.
+> - Tasa de aciertos de la TLB: **95 %**.
+> - Atender un page fault cuesta **8 ms**, o **20 ms** si la víctima está sucia, lo que pasa en el **30 %** de los fallos.
+>
+> a) EAT si la probabilidad de fallo por acceso es $p = 10^{-6}$.
+> b) ¿Qué $p$ máxima permite que el EAT sea como mucho un **10 %** mayor que sin fallos?
+
+<Solucion titulo="Solución">
+
+**Sin fallos:**
+$$
+\text{EAT}_{mem} = 2 + 100 + 0.05 \cdot (2 \cdot 100) = 112\ \text{ns}
+$$
+
+**Costo medio de un fallo:**
+$$
+0.7 \cdot 8\ \text{ms} + 0.3 \cdot 20\ \text{ms} = 11.6\ \text{ms} = 11\,600\,000\ \text{ns}
+$$
+
+**a)**
+$$
+\text{EAT} = (1-p)\cdot 112 + p \cdot 11\,600\,000 \approx 112 + 11.6 = \mathbf{123.6\ ns}
+$$
+Un fallo cada **millón** de accesos ya agrega un 10 % de tiempo.
+
+**b)**
+$$
+(1-p)\cdot 112 + p \cdot 11\,600\,000 \le 1.1 \cdot 112 = 123.2
+\;\Rightarrow\;
+p \le \frac{11.2}{11\,600\,000 - 112} \approx \mathbf{9.66 \times 10^{-7}}
+$$
+Es decir, como mucho **un fallo cada ~1 035 704 accesos**.
+
+**Lectura:** el disco es tan lento que la tasa de fallos tiene que ser **ínfima**. Por eso importan tanto la localidad, el working set y no caer en thrashing. Las páginas sucias encarecen el fallo (de 8 a 20 ms); eso es lo que motiva el *precleaning* y el Clock mejorado.
+
+**Pauta:** 1 por EAT sin fallos · 1 por (a) · 1 por (b).
+
+</Solucion>
+
+## Análisis 3 (3 pts) · Tanenbaum con un bug sutil
+
+> En `tanen-sem.c`, alguien «optimiza» `release_forks` y deja **solo** `test_forks(LEFT)`, borrando `test_forks(RIGHT)`. Con N = 5:
+> a) ¿Puede haber deadlock?
+> b) ¿Qué propiedad se rompe? Da una traza corta.
+> c) Si cada filósofo come un número **finito** de veces, ¿qué le pasa al programa?
+
+<Solucion titulo="Solución (verificada recorriendo todos los estados con N = 5)">
+
+**a) No hay deadlock.** Recorrí todos los estados (341) y en ninguno quedan todos bloqueados: siempre hay alguno que puede pensar, ponerse hambriento o comer.
+
+**b) Se rompe el progreso: un filósofo puede quedar esperando con los tenedores libres.** Traza de 4 pasos (en el código, `LEFT = (id + 1) % N` y `RIGHT = (id + N − 1) % N`):
+
+| # | Acción | Estados (F0…F4) |
+| - | --- | --- |
+| 1 | F0 `take_forks`: H; nadie come, así que pasa a **E** | E T T T T |
+| 2 | F0 hace `sem_wait` y pasa (come) | E T T T T |
+| 3 | F4 `take_forks`: H, pero su vecino F0 (= LEFT de F4) **come**, así que espera | E T T T **H** |
+| 4 | F0 `release_forks`: T y prueba **solo** `test_forks(LEFT de F0 = F1)`. **Nadie prueba a F4** | T T T T **H** |
+
+**Ahora F4 está hambriento, la mesa está vacía, y aun así duerme en `sem_wait(&philosopher[4])`.** Solo lo puede despertar su otro vecino (F3) cuando coma y libere, porque al hacerlo prueba a su LEFT, que es F4. Es un **despertar perdido**: la condición se cumplió, pero nadie se lo avisó.
+
+En el algoritmo correcto (con las dos pruebas), el mismo recorrido de estados **no encuentra** ningún estado así.
+
+**c) El programa puede quedar colgado para siempre.** Si F3 ya terminó sus porciones y no vuelve a comer, F4 no se despierta nunca, y `pthread_join` de F4 no retorna. No es un deadlock clásico (no hay espera circular por recursos): es **starvation por un aviso perdido**, que en la práctica se ve igual que un cuelgue.
+
+**Pauta:** 1 por (a) bien justificada (no basta «no hay espera circular») · 1.5 por la traza · 0.5 por (c).
+
+</Solucion>
+
+## Extra (sin puntaje) · El costo real de las tablas de 4 niveles
+
+> x86-64: direcciones virtuales de **48 bits**, páginas de 4 KB y PTE de 8 B. Un proceso usa **1 GB contiguo** de memoria virtual. ¿Cuánta memoria ocupan sus tablas de páginas? Compáralo con una tabla de un solo nivel.
+
+<Solucion titulo="Solución">
+
+- **Partes de la dirección:** offset de 12 bits y VPN de 36. Cada tabla ocupa 4 KB con 512 entradas, así que hay **9 bits por nivel** y $36/9 = 4$ niveles.
+- **Páginas usadas:** 1 GB / 4 KB = 262 144 páginas.
+- **Tablas por nivel:**
+  - **Nivel 4** (PTE): 262 144 / 512 = **512 tablas**;
+  - **nivel 3**: 512 entradas, que caben en **1 tabla**;
+  - **nivel 2: 1 tabla**;
+  - **nivel 1** (raíz): **1 tabla**.
+- **Total:** 515 tablas × 4 KB ≈ **2.01 MB**.
+- **Tabla de un solo nivel:** $2^{36}$ entradas × 8 B = $2^{39}$ B = **512 GiB** por proceso, imposible.
+
+El multinivel solo crea las tablas de las regiones **usadas**: esa es toda la gracia.
+
+</Solucion>
+
+<Fuente archivos={['sem_9_10/OSL-Indicaciones-Laboratorio_Calificado_3.pdf (formato y reglas)', 'Pruebas propias: cierre.c (3 corridas), lista.c y lista_ok.c (memcheck), simulador de Clock mejorado, recorrido de estados de Tanenbaum (correcto vs solo LEFT)', 'Stallings 9e §6.6, §8.1–8.2 (fig. 8.17)']} />

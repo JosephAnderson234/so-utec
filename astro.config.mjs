@@ -37,6 +37,7 @@ export default defineConfig({
 					badge: { text: 'nuevo', variant: 'success' },
 					items: [
 						{ label: 'Mapa de temas del final', slug: 'final' },
+						{ label: 'Clase del 10/10 (grabación)', slug: 'final/clase-memoria', badge: { text: 'clase', variant: 'tip' } },
 						{
 							label: 'A · Deadlock en la práctica (cap. 6)',
 							items: [
@@ -79,6 +80,7 @@ export default defineConfig({
 							],
 						},
 						{ label: 'Repaso y simulacro del LC3', slug: 'final/repaso', badge: { text: 'LC3', variant: 'caution' } },
+						{ label: 'LC3 · peor escenario (difícil)', slug: 'final/lc3-peor-escenario', badge: { text: 'difícil', variant: 'danger' } },
 					],
 				},
 				{

@@ -1,0 +1,190 @@
+---
+title: 'Clase de laboratorio del 10/10: paginación explicada y ejercicios en vivo'
+description: 'Lo que explicó la profesora en la clase grabada de memoria: la paginación con su dibujo (page, frame, page table, bits de control, page fault), cómo calcular bits con potencias de 2, segmentación vs paginación, las preguntas 1 a 5 de Virtual Memory resueltas en vivo, sus pistas para el LC3 y los dos lapsus corregidos en clase.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Quiz from '../../../components/Quiz.tsx';
+
+<EnSimple>
+Esta página resume la **clase grabada del 10 de octubre** (laboratorio, 1 h 53 min). La profesora explicó la paginación con un dibujo y después resolvió en vivo las preguntas 1 a 5 de la hoja *Virtual Memory*. Aquí está **cómo lo explicó ella**, con sus mismos pasos, porque es la forma en que va a corregir el LC3. Las soluciones completas y verificadas de la hoja están en [Ejercicios: Virtual Memory](/final/ejercicios/memoria-virtual/).
+</EnSimple>
+
+## Lo que dijo sobre el LC3 (anótalo)
+
+- Las **indicaciones del LC3** están publicadas en la **semana 10 de Canvas**. Son las que resume el [mapa del final](/final/).
+- **«Este tema entra en el laboratorio 3»**: lo dijo después de explicar **segmentación**.
+- **Binario:** «yo nunca les voy a pedir tanto que traduzcan de decimal a binario». En el laboratorio, si aparece, **dará las equivalencias**. En la parte de **teoría** sí pueden darte direcciones en binario.
+- Si pidiera otra base, **como mucho hexadecimal** (agrupar los bits de a 4), «porque la memoria normalmente se referencia en hexadecimal».
+- **Todo en base 2:** 1 KB = $2^{10}$, nunca $10^3$, «porque si no vamos a obtener diferentes valores».
+- **Bits de control:** si el enunciado no menciona bits de validez, asume que **no hay** y que la PTE solo guarda el número de frame. Si los menciona, siempre te dirá cuántos.
+- **Tamaño de toda la tabla de páginas** = número de entradas × tamaño de cada entrada.
+- Subirá la guía **solo con respuestas** (sin desarrollo), y la TA (Sofía) atiende dudas en su asesoría.
+- **Otros avisos:** el **proyecto** se publica la semana siguiente en Canvas, y hay que armar **grupos de 3** en Canvas.
+
+## La explicación de paginación (su dibujo)
+
+```text
+ Memoria virtual (VM)            Page table                  Memoria física (PM)
+ ┌────────┐ page 0          ┌───────────────────┐ entry 0   ┌────────┐ frame 0
+ │  1 KB  │ ───────────────▶│ frame 100 │ bits  │ ────────▶ │  1 KB  │   …
+ ├────────┤ page 1          ├───────────────────┤ entry 1   ├────────┤
+ │  1 KB  │                 │     —     │  V=0  │           │  1 KB  │  RAM + disco + cachés
+ ├────────┤  …              ├───────────────────┤  …        ├────────┤  (la VM es mucho más
+ │        │ page 2¹⁰−1      │                   │           │        │   grande que la PM)
+ └────────┘                 └───────────────────┘           └────────┘
+   page size = 1 KB           #entries = #pages               frame size = page size
+```
+
+**Las ideas, con sus palabras:**
+- La memoria virtual es una **abstracción**, igual que las syscalls: es mucho más grande que la física. La memoria física, en estos ejercicios, agrupa RAM, disco y cachés en un solo bloque.
+- **Page** = bloque de la memoria virtual. **Frame** = bloque de la memoria física, también llamado «page física». Ambos tienen el **mismo tamaño**: frame size = page size.
+- Un proceso tiene asignadas páginas. Por ejemplo, 10 KB con páginas de 1 KB son **10 páginas**. Pero normalmente **escribe** muchas menos de las que usa: opera con matrices intermedias y solo guarda el resultado. Por eso la memoria física puede ser más chica.
+- La **page table** tiene **tantas entradas (filas) como páginas virtuales**. Cada entrada guarda el **número de frame** de esa página. No tiene por qué ser el mismo número: la página 0 puede estar en el frame 100. Además guarda **bits de control**, como *write* o *modified*. Si modified = 1, al sacar la página hay que escribir el cambio en la memoria física.
+- **No todas las entradas tienen un frame:** la memoria física es limitada. Un bit de control indica si la página está cargada.
+- **Page fault:** el proceso quiere leer una variable o un archivo cuya página no está mapeada. El SO busca el dato en la memoria física (cachés → RAM → disco), lo carga en un frame **que el SO elige** y llena la entrada de la tabla. Esto es **paginación por demanda**.
+
+**Traducir una dirección** (los 4 pasos de la guía):
+1. La dirección virtual = **número de página | offset**. Se ubica la página.
+2. Se busca su **entrada** en la page table, que da el número de frame (si no está mapeada: page fault).
+3. Dirección física = **número de frame | el mismo offset**. El offset **no cambia nunca**.
+4. Se lee o escribe en la dirección física.
+
+> «Normalmente la cantidad de bits de un frame va a ser **menor** a la de una page, porque tenemos menos frames que pages.»
+
+## Cómo calcular bits (con su ejemplo)
+
+**La fórmula que repitió toda la clase:**
+
+$$
+\text{memoria virtual total} = \#\text{páginas} \times \text{page size}
+\qquad
+\text{memoria física total} = \#\text{frames} \times \text{frame size}
+$$
+
+**Ejemplo:** memoria virtual de 2 GB con páginas de 4 KB.
+- $2\ \text{GB} = 2 \cdot 2^{30} = 2^{31}$, y $4\ \text{KB} = 2^{2}\cdot 2^{10} = 2^{12}$.
+- $\#\text{páginas} = 2^{31} / 2^{12} = 2^{19}$, así que hay **19 bits** de número de página.
+- Offset: $\log_2(2^{12})$ = **12 bits**.
+- **Comprobación:** 19 + 12 = **31 bits** = los bits de toda la memoria virtual.
+
+:::tip[Su consejo: calcula de dos formas]
+En la pizarra primero le salieron **20** bits de página: olvidó el 2 de los «2 GB» al pasar a potencia. Lo detectó al comprobar que 20 + 12 no daba 31. **Siempre verifica** que bits de página + bits de offset = bits totales de la memoria.
+:::
+
+**Para qué sirven los exponentes:** con 3 bits hay $2^3 = 8$ combinaciones (000 a 111). Para numerar $2^{n}$ cosas hacen falta $n$ bits.
+
+**Bits vs bytes:** si un dato viene en **bits** (por ejemplo, «$2^{10}$ bits»), conviértelo a bytes (÷ 8) antes de operar. Todo tiene que estar en la misma unidad.
+
+**Una dirección es dónde empieza el dato:** «solo nos interesa dónde inicia la dirección, no cuánto se extiende». Cuántos enteros caben en una página es otra pregunta: tamaño de página ÷ tamaño del entero.
+
+## Segmentación vs paginación (su explicación)
+
+- **Paginación:** bloques **fijos**. Ubicar la página 1000 es directo, 1000 × page size, como un arreglo. Problema: un programa con dos enteros (unos 10 bytes) ocupa igual una página entera de 4 KB.
+- **Segmentación:** a cada programa se le da **exactamente lo que necesita**: un segmento de 10 bytes, uno de 1 GB… Problema: quedan huecos. Por ejemplo, hay **40 KB + 40 KB libres**, pero un programa de **56 KB no entra en ninguno**, aunque en total hay 80 KB. Habría que partirlo (40 + 16 KB), y eso complica la gestión. Es la **fragmentación externa** ([particiones](/memoria/particiones/)).
+- La **tabla de segmentos** guarda, por segmento, la **dirección base** (dónde empieza) y la **longitud**, porque cada segmento mide distinto.
+- **Dirección virtual con segmentación** = número de segmento | offset. Dirección física = **base + offset**, válida solo si **offset < longitud**.
+
+## Ejercicios resueltos en vivo (hoja *Virtual Memory*)
+
+<Solucion titulo="P1 · Paginación simple: 2³² B de física, páginas de 2¹⁰ B y 2¹⁶ páginas">
+
+Su método: **anotar primero los datos**. PM = $2^{32}$ B, page size = $2^{10}$ B, #pages = $2^{16}$ (una cantidad, no bits).
+
+- **Bits de la dirección virtual:** VM = #pages × page size = $2^{16}\cdot 2^{10} = 2^{26}$, así que **26 bits**. Un alumno lo resolvió más rápido: 16 bits de página + 10 de offset = 26. Ambos caminos valen.
+- **Bytes de un frame:** frame size = page size = **$2^{10}$ B**.
+- **Bits del número de frame:** #frames = PM / frame size = $2^{32}/2^{10} = 2^{22}$, así que **22 bits**. Otra forma: 32 bits físicos − 10 de offset = 22.
+- **Entradas de la page table:** una por página, **$2^{16}$**.
+- **Bits por PTE con 1 bit de validez:** 22 + 1 = **23 bits**.
+
+</Solucion>
+
+<Solucion titulo="P2 · Segmentación: (0,198) (2,156) (1,530) (3,444) (0,222)">
+
+- **Notación:** «0, 198» = segmento 0, offset 198 (en decimal; «idealmente debería estar en binario»).
+- **Física = base + offset**, si el offset cabe en la longitud:
+  - 660 + 198 = **858**;
+  - 222 + 156 = **378**;
+  - 1752 + 530: **530 ≥ 422**, no cabe;
+  - 996 + 444 = **1440**;
+  - 660 + 222 = **882**.
+
+:::caution[Ojo con el término]
+En clase, al caso «no cabe» lo llamó *page fault*. El nombre correcto, y el que usa el **propio enunciado**, es **segmentation fault**: la dirección cae **fuera** del segmento y el proceso no tiene permiso de acceder ahí. El page fault es otra cosa: una página **válida** que todavía no está en memoria, y el SO la carga y **reintenta** la instrucción. En el LC3 escribe **segmentation fault**.
+:::
+
+**Pregunta de un alumno:** «si ya usé el segmento 0, ¿vuelvo a tener fallo?». **No.** En este ejercicio nada reemplaza los segmentos. Solo habría que recalcular si dijeran que el segmento 0 fue reemplazado por otro.
+
+</Solucion>
+
+<Solucion titulo="P3 · Traducción binaria de 0001010010111010">
+
+**(1) Paginación con páginas de 256 B; el número de frame es la cuarta parte del número de página.**
+- 256 = $2^8$, así que los **últimos 8 bits** son el offset (`10111010`) y los primeros 8 el número de página (`00010100` = **20**).
+- Frame = 20 / 4 = **5** = `101`. Dirección física = **`101 | 10111010`**, que vale 5 · 256 + 186 = **1466**.
+- Dejó como tarea averiguar «la forma más rápida de dividir entre 4 en binario»: es **desplazar 2 bits a la derecha**. `00010100` → `00000101`.
+
+**(2) Segmentación con segmentos de máximo 1 kB; base(n) = 22 + 4096·n.**
+- Como el segmento mide **a lo más** 1 kB = $2^{10}$, se toman los **últimos 10 bits** como offset: `0010111010` = **186**. Los bits restantes, `000101` = **5**, son el número de segmento.
+- Física = 22 + 4096 · 5 + 186 = **20 688**.
+- **Por qué el máximo:** «no nos dan otro dato que indique cuánto vale ese segmento». Si dijeran que el segmento mide 256 B, el offset serían los últimos 8 bits. **El tamaño de segmento hace el papel del page size para el offset.**
+
+</Solucion>
+
+<Solucion titulo="P4 · Page table con V/R/M, páginas de 1024 B: 1052, 2221, 5499">
+
+**Su método:**
+1. **Página = piso(dirección / 1024).** Por ejemplo, 1052 / 1024 = 1.0… → **página 1**. La página k cubre las direcciones de k · 1024 a (k + 1) · 1024 − 1: la página 1 va de 1024 a 2047.
+2. **Ir a la entrada de esa página** y mirar **Valid**. Si vale 0, no hay frame: **page fault**.
+3. **Offset** = dirección − página · 1024. Por ejemplo, 1052 − 1024 = **28**.
+4. **Física = frame · 1024 + offset**, para dejarla en la misma base que la virtual.
+
+**Resultados:**
+- **1052** → página 1, válida, frame 7 → 7 · 1024 + 28 = **7196**.
+- **2221** → página 2, **Valid = 0** → **page fault**. No tiene dirección física.
+- **5499** → página 5, frame 0, offset 379 → **379**.
+
+:::caution[El error que cometió (y corrigió) en vivo]
+Con 2221 calculó «frame 2» porque usó el número de **página** como si fuera el de frame, y no miró la tabla. Un alumno se lo hizo notar y ella lo corrigió: **siempre** hay que buscar la página en la tabla. Ahí la página 2 tiene Valid = 0, así que hay **page fault**. Es justo la trampa que puede aparecer en el LC3: **primero la página, luego la tabla, luego la física**.
+:::
+
+La pregunta «describe la traducción» se responde con los 4 pasos de arriba (página/offset → entrada → frame → frame | offset), mencionando page y frame del mismo tamaño y el page fault.
+
+</Solucion>
+
+<Solucion titulo="P5 · A, B, C de 64×64 recorridas por columnas (su razonamiento)">
+
+- **Enteros por página:** $2^{10}/2^2 = 2^8 = 256$ = **4 filas** de 64.
+- **Páginas por matriz:** $2^{12}/2^8 = 2^4 = $ **16**. Ese es el dato «16 pages» del enunciado: sale de esta división.
+- **Frames:** 4 reservados, pero **uno es para las instrucciones**, así que quedan **3 para datos**. `i` y `j` están en **registros**, así que no ocupan memoria. «Si fueran enteros normales sí contarían».
+
+**El recorrido**, con j = 0 fijo e i bajando por la columna:
+- i = 0: **3 page faults**, uno por matriz (A, B y C cargan su primera página, filas 0–3).
+- i = 1, 2, 3: aciertos.
+- i = 4: otros **3**, para las páginas de las filas 4–7. Y así sucesivamente.
+- **Patrón: 3 page faults cada 4 iteraciones.** Por columna son 16 bloques × 3 = **48**.
+- Al pasar a j = 1 se vuelve a la fila 0, cuya página ya fue reemplazada: otros 48. En total **48 × 64 = 3072**. Es lo que quedó escrito en la pizarra: «PFs = 48 × 64».
+
+**¿Se puede mejorar?** Sí: **intercambiar los bucles** (i afuera, j adentro), «como normalmente lo hacemos». Así se aprovecha cada página entera antes de pasar a la siguiente. El cálculo de la nueva frecuencia lo dejó pendiente: son **48 fallos en total**, 3 cada 256 iteraciones (ver la [solución completa](/final/ejercicios/memoria-virtual/#pregunta-5--recorrido-por-columnas)).
+
+</Solucion>
+
+La **P6** (8 GB, páginas de 8 kB, 46 bits, TLB y EAT) no alcanzó a verse en esta sección. Su solución está en [Ejercicios: Virtual Memory](/final/ejercicios/memoria-virtual/#pregunta-6--8-gb-de-ram-páginas-de-8-kb-pte-de-4-b-y-direcciones-de-46-bits).
+
+<Quiz
+	client:visible
+	id="clase-10oct"
+	preguntas={[
+		{ q: 'Según la profesora, en el LC3 las conversiones decimal ↔ binario…', opts: ['serán la parte principal', 'no las pedirá mucho; si aparecen dará las equivalencias (en teoría sí puede haber direcciones en binario)', 'no existen', 'serán solo en hexadecimal'], ok: 1 },
+		{ q: 'La page table tiene…', opts: ['tantas entradas como frames', 'tantas entradas como páginas virtuales', '1024 entradas siempre', 'tantas entradas como procesos'], ok: 1 },
+		{ q: 'Si el enunciado no menciona bits de validez, la PTE…', opts: ['tiene 1 bit de validez', 'solo guarda el número de frame', 'tiene 3 bits de control', 'no existe'], ok: 1 },
+		{ q: 'Con segmentación, base 222 y longitud 198, el offset 198…', opts: ['da 420', 'es segmentation fault (los offsets válidos van de 0 a 197)', 'es page fault y se carga', 'da 198'], ok: 1 },
+		{ q: 'Al traducir la dirección virtual 2221 (páginas de 1 KB), ¿qué hay que hacer antes de calcular la física?', opts: ['Dividir entre 4', 'Mirar en la page table si la página 2 es válida (aquí no: page fault)', 'Sumarle la base', 'Pasarla a hexadecimal'], ok: 1 },
+		{ q: 'Dividir entre 4 un número binario equivale a…', opts: ['sumar 4', 'desplazar 2 bits a la izquierda', 'desplazar 2 bits a la derecha', 'invertir los bits'], ok: 2 },
+		{ q: '2 GB de VM con páginas de 4 KB: bits de número de página y de offset', opts: ['20 y 12', '19 y 12', '21 y 10', '31 y 12'], ok: 1, why: '2 GB = 2³¹ y 4 KB = 2¹², así que hay 2¹⁹ páginas. Comprueba: 19 + 12 = 31.' },
+	]}
+/>
+
+<Fuente archivos={['Grabación de la clase de laboratorio del 10/10/2026 (sem_9_10/recuperacion, 1 h 53 min, transcrita)', 'sem_9_10/10-OSL-Valgrind.pdf (sección Paging que se explicó en clase)', 'sem_9_10/11-OSL-Ejercicios_Virtual_Memory.pdf (P1–P5 resueltas en vivo)']} />
