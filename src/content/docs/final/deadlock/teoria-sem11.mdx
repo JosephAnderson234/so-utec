@@ -1,0 +1,255 @@
+---
+title: 'Clase de teoría sem. 11 · Deadlock (lo que añade al libro)'
+description: 'Lo que la clase 11 de teoría agrega al cap. 6 de Stallings: deadlock vs starvation vs livelock, tipos de recurso, productor–consumidor con los P() invertidos, deadlock por orden de locks en transferencias, grafo de espera, cuándo un ciclo implica deadlock, el ejemplo de detección de 5 procesos, criterios de recuperación, la «solución del avestruz» y lockdep de Linux. Ejemplos verificados.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+La clase 11 repite el cap. 6 del libro (las 4 condiciones, prevención, evitación, detección) y le suma **ejemplos de código** y **algoritmos al estilo de Silberschatz**: Work, Finish y Need. Esta página solo trae **lo nuevo**. Lo que ya está en el libro lo encuentras en [Stallings cap. 6](/final/stallings/cap6/).
+</EnSimple>
+
+:::note[Por qué importa para el LC3]
+Esta clase es posterior al LC2, así que **entra**. Sus ejemplos de código (productor–consumidor mal ordenado, transferencias con dos locks) tienen justo la forma de una pregunta de **análisis** o de **código**.
+:::
+
+## Starvation, livelock y deadlock
+
+| | Qué pasa | Ejemplo de la clase |
+| --- | --- | --- |
+| **Starvation** | Un hilo espera **indefinidamente**, aunque el sistema sigue avanzando | hilos de baja prioridad que nunca corren porque siempre hay otros de alta |
+| **Livelock** | Un **caso especial de starvation**: los estados de los procesos **cambian todo el tiempo**, pero ninguno progresa | dos hilos que se ceden el paso eternamente (como el `trylock` + reintentar del lab 11) |
+| **Deadlock** | **Espera circular** por recursos: nadie se mueve | el hilo A tiene Res 1 y espera Res 2; el hilo B tiene Res 2 y espera Res 1 |
+
+**Relación clave:** **todo deadlock es starvation, pero no al revés.** En un deadlock los procesos involucrados esperan para siempre, pero puede haber starvation sin ningún ciclo.
+
+## Modelo del sistema: tipos de recurso
+
+- Los recursos son de **tipos** R1 … Rm, y cada tipo Ri tiene **Wi instancias**.
+- Cada proceso usa un recurso en tres pasos: **1) pedir (request), 2) usar (use), 3) liberar (release)**.
+
+| Clasificación | Qué significa | Ejemplos |
+| --- | --- | --- |
+| **Expropiable** (*preemptible*) | el SO **puede quitarlo** sin problema | CPU |
+| **No expropiable** | no se le puede quitar al hilo | espacio en disco, impresora, **derecho a entrar a una sección crítica** |
+| **Compartible vs exclusivo** | ¿varios lo pueden usar a la vez? | archivo de solo lectura (compartible) vs impresora (exclusivo) |
+| **Reutilizable vs consumible** | como en el libro | memoria y semáforos vs mensajes y señales |
+
+**Expropiar** (*preemption*) es interrumpir temporalmente lo que hace una tarea, con la intención de reanudarla después.
+
+## Ejemplo 1 · Productor–consumidor con los P() invertidos
+
+La versión correcta pide primero el **semáforo de conteo** y después el **mutex**:
+
+```c
+Producer(item) {               Consumer() {
+    emptySlots.P();                fullSlots.P();
+    mutex.P();                     mutex.P();
+    Enqueue(item);                 item = Dequeue();
+    mutex.V();                     mutex.V();
+    fullSlots.V();                 emptySlots.V();
+}                                  return item; }
+```
+
+La clase cambia el orden **solo en el productor**: `mutex.P()` y después `emptySlots.P()`. **¿Por qué hay deadlock?**
+
+<Solucion titulo="Traza del deadlock">
+
+Supongamos que el buffer está **lleno**: `mutex = 1`, `emptySlots = 0`, `fullSlots = N`.
+
+| Paso | Quién | Acción | Estado |
+| :-: | --- | --- | --- |
+| 1 | Productor | `mutex.P()` ✔ | mutex = 0 |
+| 2 | Productor | `emptySlots.P()` → **se bloquea** (vale 0) **con el mutex tomado** | |
+| 3 | Consumidor | `fullSlots.P()` ✔ | fullSlots = N − 1 |
+| 4 | Consumidor | `mutex.P()` → **se bloquea** (vale 0) | |
+
+- El productor espera a que el consumidor libere un espacio, pero el consumidor espera el mutex que tiene el productor. Es una **espera circular**: deadlock.
+- **La regla:** nunca hay que bloquearse esperando una condición **mientras se tiene el mutex**. Primero el semáforo de conteo, después el mutex.
+- **Verificación:** recorrí todos los estados con un buffer de tamaño 1. La versión correcta tiene 8 estados y ningún deadlock. La invertida tiene 11 estados y **un deadlock**, justo el de la traza: productor con mutex esperando `emptySlots`, consumidor esperando `mutex`, buffer lleno.
+
+</Solucion>
+
+## Ejemplo 2 · Deadlock por orden de locks
+
+**Dos hilos que toman dos mutex en orden opuesto** (recurso reutilizable):
+
+```c
+void *do_work_one(void *param) {           void *do_work_two(void *param) {
+    pthread_mutex_lock(&first_mutex);          pthread_mutex_lock(&second_mutex);
+    pthread_mutex_lock(&second_mutex);         pthread_mutex_lock(&first_mutex);
+    ...                                        ...
+}                                          }
+```
+
+Si el hilo 1 toma `first_mutex` y el hilo 2 toma `second_mutex`, cada uno espera el del otro.
+
+**Transferencias bancarias** (*lock ordering deadlock*): aquí el orden lo deciden los **argumentos**.
+
+```c
+void transaction(Account from, Account to, double amount) {
+    lock1 = get_lock(from);
+    lock2 = get_lock(to);
+    acquire(lock1);
+    acquire(lock2);
+    withdraw(from, amount);
+    deposit(to, amount);
+    release(lock2);
+    release(lock1);
+}
+```
+
+La transacción 1 hace A → B ($25) y la 2 hace B → A ($50). La 1 toma el lock de A y la 2 el de B, y luego cada una espera el lock del otro. Ninguna función está «mal escrita»: el deadlock depende de **los datos**.
+
+<Solucion titulo="Cómo se arregla (orden global de los locks)">
+
+Se rompe la **espera circular** tomando siempre los locks en un **orden global** fijo, por ejemplo por número de cuenta, sin importar cuál es el origen y cuál el destino:
+
+```c
+void transaction(Account from, Account to, double amount) {
+    Account first  = from.id < to.id ? from : to;
+    Account second = from.id < to.id ? to : from;
+    acquire(get_lock(first));
+    acquire(get_lock(second));
+    withdraw(from, amount);
+    deposit(to, amount);
+    release(get_lock(second));
+    release(get_lock(first));
+}
+```
+
+Ahora A → B y B → A **toman primero el lock de A**, así que no se puede formar el ciclo. Es la prevención de la espera circular del libro (§6.2) llevada al código. La solución propia es la misma idea que el filósofo asimétrico del lab 11.
+
+</Solucion>
+
+## Prevención: los detalles de la clase
+
+- **Exclusión mutua:** no hace falta para recursos **compartibles** (archivos de solo lectura); sí para los no compartibles.
+- **Hold and wait**, dos opciones:
+  1. pedir y recibir **todos** los recursos **antes de empezar**;
+  2. pedir recursos **solo cuando no se tiene ninguno**.
+  - Desventajas: **baja utilización** de los recursos y **posible starvation**.
+- **No expropiación:** si un proceso que tiene recursos pide uno que no se le puede dar ya, **libera todo lo que tiene**. Lo liberado pasa a su lista de espera y el proceso se reinicia solo cuando puede recuperar **lo viejo y lo nuevo**.
+- **Espera circular:** un **orden total** de los tipos de recurso, pidiéndolos en orden **creciente**.
+
+## Grafo de asignación y cuándo un ciclo es deadlock
+
+- **Arista de petición:** Pi → Rj.
+- **Arista de asignación:** Rj → Pi.
+- **Arista de reclamo** (*claim*): Pi ⇢ Rj, **punteada**. Indica que Pi **podría** pedir Rj en el futuro; se usa en la evitación.
+
+| El grafo… | Conclusión |
+| --- | --- |
+| **No tiene ciclos** | **no hay deadlock** |
+| Tiene un ciclo y **una instancia** por tipo | **hay deadlock** |
+| Tiene un ciclo y **varias instancias** por tipo | **posibilidad** de deadlock: hay que analizar |
+
+**El ejercicio de la clase** («¿este grafo representa un deadlock?»): no lo hay si se puede **ir liberando**.
+1. T3 termina y libera R4 y R2.
+2. Con eso, T2 termina y libera R1, R2 y R3.
+3. Luego T1 termina.
+
+Si existe un orden así, **no hay deadlock** aunque haya un ciclo. En los dos grafos siguientes de la clase, uno **sí** tiene deadlock (nadie puede terminar) y el otro **no**, porque un hilo fuera del ciclo (T2 o T4) libera una instancia.
+
+## Algoritmos según el número de instancias
+
+| Instancias | Evitación | Detección |
+| --- | --- | --- |
+| **Una por tipo** | analizar el grafo de asignación | **grafo de espera** (*wait-for*): los nodos son solo **procesos**, con Pi → Pj si Pi espera a Pj. Hay deadlock **si y solo si hay un ciclo**. Buscarlo cuesta **O(n²)** |
+| **Varias por tipo** | **banquero** | algoritmo con **Available, Allocation y Request**, de costo **O(m × n²)** |
+
+**El grafo de espera** se obtiene del grafo de asignación **eliminando los nodos de recurso** y uniendo directamente al que espera con el que tiene el recurso.
+
+### El banquero en notación Silberschatz (como en la clase)
+
+- **Need = Max − Allocation.**
+- **Petición de Pi:**
+  1. si Request ≤ Need, ir al paso 2; si no, **error** (superó su máximo);
+  2. si Request ≤ Available, ir al paso 3; si no, **esperar**;
+  3. **simular**: Available −= Request, Allocation += Request, Need −= Request. Si el estado es seguro se asigna; si no, **se restaura** y Pi espera.
+- **Seguridad:**
+  1. Work = Available y Finish = false;
+  2. buscar un i con Finish[i] = false y Need_i ≤ Work, hacer Work += Allocation_i y Finish[i] = true, y repetir;
+  3. si todos tienen Finish = true, el estado es **seguro**.
+- **Estado seguro (definición de la clase):** existe una secuencia ⟨P1 … Pn⟩ con **todos** los procesos en la que lo que Pi aún puede pedir se cubre con lo disponible **más lo que tienen todos los Pj con j &lt; i**.
+- **Seguro ⇒ no hay deadlock. Inseguro ⇒ posibilidad de deadlock.** La evitación garantiza no entrar nunca en un estado inseguro.
+
+## Ejemplo de detección con 5 procesos
+
+Hay 5 procesos y 3 recursos: A = 7, B = 2 y C = 6. **Available = (0, 0, 0).**
+
+| | Allocation (A B C) | Request (A B C) |
+| :-: | :-: | :-: |
+| P0 | 0 1 0 | 0 0 0 |
+| P1 | 2 0 0 | 2 0 2 |
+| P2 | 3 0 3 | 0 0 0 |
+| P3 | 2 1 1 | 1 0 0 |
+| P4 | 0 0 2 | 0 0 2 |
+
+<Solucion titulo="¿Hay deadlock? ¿Y si P2 pide una C más?">
+
+**Estado inicial: no hay deadlock.** La clase da la secuencia ⟨P0, P2, P3, P1, P4⟩, con Finish = true para todos. Por ejemplo, P0 no pide nada y libera (0, 1, 0); P2 tampoco pide y libera (3, 0, 3), y así sucesivamente. El script encontró otra secuencia válida, ⟨P0, P2, P1, P3, P4⟩: puede haber varias.
+
+**P2 pide una C más** (su fila de Request pasa a 0 0 1):
+- Solo P0 puede terminar (no pide nada), y entonces Work = (0, 1, 0).
+- Con eso **nadie más** puede: P1 pide 2 A, P2 pide 1 C, P3 pide 1 A y P4 pide 2 C.
+- **Hay deadlock entre P1, P2, P3 y P4.**
+
+Las dos respuestas están verificadas con un script del algoritmo de detección.
+
+</Solucion>
+
+**Ojo con el paso 1:** a los procesos con Allocation = 0 se les pone **Finish = true** desde el inicio (en Stallings: «marcar los que tienen la fila en ceros»).
+
+**¿Cada cuánto correrlo?** Si se invoca de forma arbitraria puede haber **muchos ciclos** en el grafo, y no se sabría **cuál proceso «causó»** el deadlock.
+
+## Recuperación (la lista de la clase)
+
+**Terminando procesos:** abortar **todos** los que están en deadlock, o **uno a la vez** hasta romper el ciclo. Para elegir a quién:
+1. la **prioridad** del proceso;
+2. **cuánto ha computado** y cuánto le falta;
+3. los **recursos que ya usó**;
+4. los **recursos que necesita** para terminar;
+5. **cuántos procesos** habrá que terminar;
+6. si es **interactivo o batch**.
+
+**Expropiando recursos:**
+- **Elegir víctima** minimizando el costo.
+- **Rollback:** volver a un estado seguro y reiniciar desde ahí.
+- **Starvation:** puede salir **siempre la misma víctima**. La solución es incluir **el número de rollbacks** en el costo.
+
+## «Ignorar el problema» y lockdep
+
+- **No hay una estrategia que sirva para todo tipo de deadlock.**
+- **Otra solución es ignorarlo** (la «del avestruz»). La usan **la mayoría de los SO, como UNIX y Linux**, **excepto en las funciones del kernel**.
+- **Dentro del kernel, Linux usa lockdep** (*Lock Dependency Validator*, en `kernel/locking/lockdep.c`):
+  - detecta de forma **dinámica y proactiva** los deadlocks de **spinlocks y mutex**;
+  - verifica que los locks se tomen **siempre en un orden consistente** en todo el código del kernel (es la prevención de la espera circular, comprobada en ejecución);
+  - Linux propone además un mecanismo nuevo: **DEPT** (*Dependency Tracker*).
+
+## Autoevaluación
+
+<Quiz
+	client:visible
+	id="sem11-deadlock"
+	titulo="Clase de teoría sem. 11"
+	preguntas={[
+		{ q: '¿Cuál afirmación es correcta?', opts: ['Toda starvation es un deadlock', 'Todo deadlock es una forma de starvation, pero puede haber starvation sin deadlock', 'El livelock no cambia de estado', 'Deadlock y livelock son lo mismo'], ok: 1 },
+		{ q: 'En el productor–consumidor, el productor hace mutex.P() antes que emptySlots.P(). Con el buffer lleno…', opts: ['funciona igual', 'deadlock: el productor duerme en emptySlots con el mutex tomado y el consumidor no puede entrar', 'starvation del consumidor', 'se pierde un item'], ok: 1, why: 'Verificado recorriendo todos los estados: 1 estado de deadlock con buffer de tamaño 1.' },
+		{ q: 'Transferencias A→B y B→A con dos locks pueden tener deadlock. La solución estándar es…', opts: ['un sleep entre los dos acquire', 'tomar los locks en un orden global (por id de cuenta)', 'usar más hilos', 'liberar en orden inverso'], ok: 1 },
+		{ q: 'El derecho a entrar a una sección crítica es un recurso…', opts: ['expropiable', 'no expropiable', 'consumible', 'compartible'], ok: 1 },
+		{ q: 'Un grafo de asignación con un ciclo y una instancia por tipo…', opts: ['puede no tener deadlock', 'tiene deadlock', 'es un estado seguro', 'necesita el banquero'], ok: 1 },
+		{ q: 'El grafo de espera (wait-for) se usa cuando…', opts: ['hay varias instancias por tipo', 'hay una instancia por tipo; buscar un ciclo cuesta O(n²)', 'se quiere evitar el deadlock', 'hay recursos consumibles'], ok: 1 },
+		{ q: 'Costo del algoritmo de detección con varias instancias:', opts: ['O(n)', 'O(n²)', 'O(m × n²)', 'O(m + n)'], ok: 2 },
+		{ q: 'En el ejemplo de 5 procesos, P2 pide una C más. Resultado:', opts: ['sigue sin deadlock', 'deadlock de P1, P2, P3 y P4 (solo P0 puede terminar)', 'deadlock solo de P2', 'deadlock de todos'], ok: 1 },
+		{ q: 'Al expropiar recursos para recuperarse, ¿cómo se evita que siempre caiga la misma víctima?', opts: ['Eligiéndola al azar', 'Incluyendo en el costo el número de rollbacks que ya sufrió', 'Abortando todos', 'Con el banquero'], ok: 1 },
+		{ q: '¿Qué hace lockdep en Linux?', opts: ['Ejecuta el banquero en cada lock', 'Verifica en ejecución que los locks del kernel se tomen siempre en un orden consistente', 'Mata procesos en deadlock', 'Evita la starvation de los lectores'], ok: 1 },
+		{ q: 'La mayoría de los SO (UNIX, Linux) ante el deadlock de procesos de usuario…', opts: ['usan el banquero', 'lo ignoran (salvo en el kernel)', 'usan detección cada segundo', 'previenen hold and wait'], ok: 1 },
+		{ q: 'Prevenir hold and wait pidiendo todo antes de empezar tiene como desventajas…', opts: ['más deadlocks', 'baja utilización de recursos y posible starvation', 'livelock', 'necesita orden total'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['sem_11/Sem11_11-OST-Deadlock.pdf (clase de teoría 11)', 'Stallings 9e, cap. 6', 'Ejemplos verificados con scripts propios: recorrido de todos los estados del productor–consumidor y algoritmo de detección', 'La corrección de la transferencia es una solución propia']} />

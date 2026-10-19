@@ -39,9 +39,18 @@ export default defineConfig({
 						{ label: 'Mapa de temas del final', slug: 'final' },
 						{ label: 'Clase del 10/10 (grabación)', slug: 'final/clase-memoria', badge: { text: 'clase', variant: 'tip' } },
 						{
+							label: '0 · Post-LC2 (ya vistos en el E1)',
+							items: [
+								{ label: 'Monitores y variables de condición', link: '/monitores/monitores/' },
+								{ label: 'Lectores–escritores', link: '/monitores/lectores-escritores/' },
+								{ label: 'Registros safe, regular y atomic', link: '/hardware/registros/' },
+							],
+						},
+						{
 							label: 'A · Deadlock en la práctica (cap. 6)',
 							items: [
 								{ label: 'Teoría base: Coffman y banquero', link: '/semaforos/deadlock/' },
+								{ label: 'Clase de teoría sem. 11', slug: 'final/deadlock/teoria-sem11', badge: { text: 'nuevo', variant: 'success' } },
 								{ label: 'Deadlock de un hilo, trylock y livelock', slug: 'final/deadlock/livelock-trylock' },
 								{ label: 'Filósofos: las 8 versiones', slug: 'final/deadlock/filosofos' },
 								{ label: 'Barbero dormilón (1 y N)', slug: 'final/deadlock/barbero' },

@@ -42,6 +42,16 @@ Las preguntas de **código** salen de los laboratorios: **filósofos y barbero d
 
 Leyenda: ✅ cubierto (las páginas de la sección final llevan código ejecutado y respuestas verificadas).
 
+### 0 · Temas posteriores al LC2 que ya entraron al E1
+
+El LC3 evalúa «todo lo visto después del LC2», y estas clases (material del 24/09) llegaron después del LC2 aunque se tomaron en el parcial. **No están en la lectura recomendada** (monitores es el cap. 5 de Stallings y los registros salen del libro de Herlihy), así que lo más probable es que aparezcan como **código**: un monitor con `pthread_cond_wait`.
+
+| Tema | Fuente | Estado | Dónde |
+| --- | --- | :-: | --- |
+| Monitores y variables de condición (Hoare vs Mesa, `while` en vez de `if`) | lab 09 · Monitors and Reader-Writer | ✅ | [Monitores](/monitores/monitores/) |
+| Lectores–escritores (prioridad a lectores o a escritores, con monitor) | lab 09 | ✅ | [Lectores–escritores](/monitores/lectores-escritores/) |
+| Registros safe, regular y atomic | teoría 06 · About registers (Herlihy) | ✅ | [Registros](/hardware/registros/) |
+
 ### A · Deadlock y starvation (Stallings cap. 6, §6.1–6.8; lab 11)
 
 | Tema | Fuente | Estado | Dónde |
@@ -57,6 +67,7 @@ Leyenda: ✅ cubierto (las páginas de la sección final llevan código ejecutad
 | **Barbero con N barberos** (panel `write_panel`/`read_panel`, tarea: ¿se puede quitar `barber_chair`?) | lab 11, diap. 42–47 | ✅ | [Barbero § N barberos](/final/deadlock/barbero/) (el código de las diapositivas no funciona tal cual) |
 | Mecanismos de concurrencia de UNIX: pipes, mensajes, memoria compartida, semáforos, señales | Stallings §6.7 | ✅ | [Mecanismos de UNIX y Linux](/final/deadlock/mecanismos-kernel/) |
 | Mecanismos del kernel Linux: atómicas, spinlocks (y de lectores–escritores), semáforos, barreras, RCU | Stallings §6.8 | ✅ | [Mecanismos de UNIX y Linux](/final/deadlock/mecanismos-kernel/) |
+| Starvation vs livelock vs deadlock, tipos de recurso, productor–consumidor con los `P()` invertidos, orden de locks en transferencias, grafo de espera, ejemplo de detección de 5 procesos, recuperación, lockdep | teoría 11 · Deadlock | ✅ | [Clase de teoría sem. 11](/final/deadlock/teoria-sem11/) (ejemplos verificados) |
 
 ### B · Gestión de memoria (Stallings cap. 7 completo; clase 09)
 
@@ -129,6 +140,8 @@ Leyenda: ✅ cubierto (las páginas de la sección final llevan código ejecutad
 | --- | --- | :-: |
 | 9 | clase 09 «All About Memory» (78 diap.) · lab 10 Memory (26 diap.) · guía Valgrind · lab 11 Deadlock (50 diap.) · ejercicios de Page Replacement y de Virtual Memory · indicaciones del LC3 · código de `sem9/` (memoria, valgrind y deadlock) | ✅ mapeado y escrito (13 páginas) |
 | 10 | grabación de la clase de laboratorio del 10/10 (paginación + ejercicios en vivo) | ✅ [resumida](/final/clase-memoria/) |
-| 11 en adelante | — | ⏳ pendiente |
+| 11 | clase de teoría 11 «Deadlock» | ✅ [lo que añade al libro](/final/deadlock/teoria-sem11/) |
+| — | libro: lectura recomendada del LC3 (caps. 6–8) | ✅ [Stallings para el LC3](/final/stallings/) |
+| 12 en adelante | — | ⏳ pendiente |
 
-<Fuente archivos={['sem_9/OSL-Indicaciones-Laboratorio_Calificado_3.pdf', 'sem_9/Sem9_09-OST-Memory.pdf', 'sem_9/10-OSL-Memory.pdf', 'sem_9/10-OSL-Valgrind.pdf', 'sem_9/11-OSL-Deadlock.pdf', 'sem_9/11-OSL-Ejercicios_Page_Replacement.pdf', 'sem_9/11-OSL-Ejercicios_Virtual_Memory.pdf', 'Código del curso sem9/: deadlock/*.c, valgrind/*.c, stack.c, malloc.c, malloc_limits.c, memcpy1.c, memcpy2.c, main.c', 'Stallings 9e, caps. 6–8']} />
+<Fuente archivos={['sem_9/OSL-Indicaciones-Laboratorio_Calificado_3.pdf', 'sem_9/Sem9_09-OST-Memory.pdf', 'sem_9/10-OSL-Memory.pdf', 'sem_9/10-OSL-Valgrind.pdf', 'sem_9/11-OSL-Deadlock.pdf', 'sem_9/11-OSL-Ejercicios_Page_Replacement.pdf', 'sem_9/11-OSL-Ejercicios_Virtual_Memory.pdf', 'Código del curso sem9/: deadlock/*.c, valgrind/*.c, stack.c, malloc.c, malloc_limits.c, memcpy1.c, memcpy2.c, main.c', 'sem_11/Sem11_11-OST-Deadlock.pdf', 'for_partial/pending_themes/ (monitores y lectores–escritores, registros)', 'Stallings 9e, caps. 6–8']} />
