@@ -1,0 +1,296 @@
+---
+title: 'Stallings cap. 7 · Gestión de memoria (completo + apéndice 7A)'
+description: 'Lo que dice el libro sobre gestión de memoria: los 5 requisitos, particiones fijas y dinámicas, placement (best, first y next fit), buddy, relocalización con registros base y límite, paginación y segmentación simples, y carga y enlace (apéndice 7A). Con las Review Questions 7.1–7.9 resueltas.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+La RAM es como un **estacionamiento** que comparten muchos autos (procesos). El capítulo 7 cuenta cómo se fue mejorando la forma de repartirlo:
+1. **Particiones fijas:** cajones de tamaño fijo, donde un auto chico desperdicia el cajón.
+2. **Dinámicas:** cajones a la medida, pero con el tiempo quedan huecos sueltos.
+3. **Paginación:** cortar cada auto en piezas iguales que van en cualquier cajón libre.
+4. **Segmentación:** cortarlo en piezas con significado (código, datos, pila).
+
+En este capítulo **todo el proceso** sigue en memoria; el cap. 8 da el salto de cargar solo una parte.
+</EnSimple>
+
+:::tip[Qué entra del cap. 7]
+**Todo el capítulo**, apéndice incluido. Las cuentas de bits, la traducción y el traductor interactivo están en [Particiones](/memoria/particiones/), [Segmentación](/memoria/segmentacion/) y [Paginación](/memoria/paginacion/). Esta página es la **teoría del libro**, que es de donde salen las preguntas teóricas.
+:::
+
+## 7.1 Requisitos de la gestión de memoria 📌
+
+Son **cinco**: relocalización, protección, compartición, organización lógica y organización física.
+
+| Requisito | Qué significa | Detalle que se pregunta |
+| --- | --- | --- |
+| **Relocalización** | No se sabe de antemano dónde quedará el programa, y el swap puede devolverlo **a otro lugar** | El hardware y el SO deben traducir las referencias del código (saltos, datos) a direcciones físicas reales |
+| **Protección** | Ningún proceso debe leer o escribir la memoria de otro (ni la del SO) sin permiso | **No se puede verificar al compilar**: no se sabe dónde quedará el programa y las direcciones se calculan en ejecución (índices, punteros). Por eso la verifica el **procesador (hardware)** en cada acceso, no el SO |
+| **Compartición** | Permitir acceso **controlado** a zonas comunes | Varios procesos que corren el **mismo programa** comparten una copia; procesos que cooperan comparten estructuras |
+| **Organización lógica** | La memoria es lineal, pero los programas se escriben en **módulos** | Ventajas de manejar módulos: se compilan por separado, tienen distinta protección (solo lectura o solo ejecución) y se comparten por módulo. La herramienta que mejor lo cumple es la **segmentación** |
+| **Organización física** | Dos niveles: principal (rápida, cara, **volátil**) y secundaria (lenta, barata, persistente) | Mover datos entre ambos niveles no puede quedar en manos del programador: los **overlays** le hacen perder tiempo y además no sabe cuánto espacio tendrá. Es **responsabilidad del sistema** |
+
+**Matiz que el libro repite:** los mecanismos que dan **relocalización** también dan **protección** y **compartición**. Al mismo tiempo, la relocalización **dificulta** la protección, porque las direcciones ya no son predecibles.
+
+## 7.2 Particionamiento
+
+### Tabla 7.2 · Las técnicas del cap. 7 y el 8 📌
+
+| Técnica | Descripción | Ventajas | Desventajas |
+| --- | --- | --- | --- |
+| **Particiones fijas** | Particiones estáticas, definidas al generar el sistema | Simple, poco *overhead* del SO | **Fragmentación interna**; número máximo de procesos activos **fijo** |
+| **Particiones dinámicas** | Se crean a la medida exacta de cada proceso | **Sin fragmentación interna**, mejor uso de memoria | Necesita **compactación** (gasta CPU) por la **fragmentación externa** |
+| **Paginación simple** | Frames iguales; las páginas del proceso van en frames no contiguos; se cargan **todas** | **Sin fragmentación externa** | Un poco de fragmentación **interna** |
+| **Segmentación simple** | Segmentos de distinto tamaño en particiones dinámicas no contiguas; se cargan **todos** | **Sin fragmentación interna**; mejor que las dinámicas | Fragmentación **externa** |
+| **Paginación con MV** | Como la simple, pero **no** hace falta cargar todas las páginas | Sin fragmentación externa, **más multiprogramación**, espacio virtual grande | *Overhead* de una gestión compleja |
+| **Segmentación con MV** | Como la simple, pero **no** hace falta cargar todos los segmentos | Sin fragmentación interna, más multiprogramación, espacio grande, **protección y compartición** | *Overhead* de una gestión compleja |
+
+### Particiones fijas
+
+**Iguales:** cualquier proceso que quepa entra en cualquier partición libre. Tienen dos problemas:
+1. Un programa **más grande** que la partición necesita **overlays**.
+2. Uso muy ineficiente: un programa de 2 MB ocupa una partición de 8 MB. Eso es la **fragmentación interna** (espacio perdido **dentro** de la partición).
+
+**Desiguales** (figura 7.2b): **reducen** ambos problemas pero no los resuelven. Hay dos formas de asignar:
+
+| | Una cola por partición (7.3a) | Una sola cola (7.3b) |
+| --- | --- | --- |
+| Regla | cada proceso va a la **partición más chica** donde cabe | se elige la **partición libre más chica** que lo contenga |
+| Ventaja | minimiza la fragmentación interna **de cada partición** | mejor para **el sistema completo** |
+| Problema | una partición grande puede quedar **vacía** mientras otros esperan | — |
+
+**Desventajas generales:**
+- el número de particiones **limita** los procesos activos;
+- los trabajos pequeños aprovechan mal el espacio.
+
+Hoy casi no se usan. El ejemplo del libro es **OS/MFT** de IBM.
+
+### Particiones dinámicas
+
+- Cada proceso recibe **exactamente** lo que necesita. El ejemplo del libro es **OS/MVT** de IBM.
+- Con el tiempo quedan muchos huecos pequeños entre particiones: **fragmentación externa**.
+- **Compactación:** el SO mueve los procesos para juntar todo el espacio libre. Consume tiempo de CPU y **exige relocalización dinámica**.
+
+**Placement 📌:**
+
+| Algoritmo | Cómo elige | Lo que dice el libro |
+| --- | --- | --- |
+| **First-fit** | el **primer** bloque libre suficiente desde el inicio | **El más simple y, por lo general, el mejor y más rápido**. Puede llenar el inicio de fragmentos pequeños |
+| **Next-fit** | el siguiente bloque suficiente desde **la última asignación** | Algo **peor** que first-fit: rompe rápido el bloque grande del final y obliga a compactar más |
+| **Best-fit** | el bloque de tamaño **más cercano** al pedido | **Pese a su nombre, suele ser el peor**: deja fragmentos diminutos inútiles y obliga a compactar más seguido |
+
+En el ejemplo de la figura 7.5, un pedido de 16 MB con la última asignación hecha en un bloque de 22 MB deja:
+- **best-fit**: un fragmento de 2 MB (usa el bloque de 18 MB);
+- **first-fit**: un fragmento de 6 MB;
+- **next-fit**: un fragmento de 20 MB.
+
+**Reemplazo:** si todos los procesos en memoria están bloqueados y no hay espacio ni compactando, se hace swap de alguno. El tema se desarrolla en el cap. 8.
+
+### Buddy system
+
+Es un **compromiso** entre las particiones fijas y las dinámicas.
+
+- Los bloques miden $2^K$, con $L \le K \le U$: $2^L$ es el bloque más chico y $2^U$ normalmente toda la memoria.
+- **Asignar s:** si $2^{U-1} < s \le 2^U$ se da el bloque entero. Si no, se divide en dos **buddies** de $2^{U-1}$, y así sucesivamente hasta el **bloque más chico que sea ≥ s**.
+- **Liberar:** si los dos buddies de un par quedan libres, se **fusionan** en el bloque de tamaño $2^{i+1}$.
+- **Árbol (figura 7.7):** si dos buddies son hojas, **al menos uno está asignado**; si no, ya se habrían fusionado.
+- **Ejemplo del libro:** 1 MB inicial y A pide 100 KB, así que recibe **128 KB** (1 MB → 512 → 256 → 128).
+- **Dónde se usa:** en sistemas paralelos, en una **variante para el kernel de UNIX** (el *lazy buddy* del cap. 8) y en la asignación de páginas de Linux.
+
+Practica con el simulador de [Particiones](/memoria/particiones/).
+
+### Relocalización: tipos de dirección 📌
+
+| Dirección | Definición del libro |
+| --- | --- |
+| **Lógica** | Referencia **independiente** de dónde están los datos en memoria; hay que traducirla antes del acceso |
+| **Relativa** | Un caso de dirección lógica: se expresa **respecto a un punto conocido**, normalmente un registro (el inicio del programa) |
+| **Física (absoluta)** | La ubicación **real** en la memoria principal |
+
+**Hardware de la figura 7.8:**
+- Al pasar a Running se cargan dos registros: el **base** (dirección de inicio) y el **límite** (*bounds*, dirección final).
+- En cada referencia relativa: (1) base + relativa = absoluta; (2) se **compara con el límite**. Si está fuera, hay una **interrupción** al SO.
+- Así se logra la **relocalización** (el swap puede devolver el proceso a otro lugar) **y la protección** (cada imagen queda aislada por base y límite).
+
+## 7.3 Paginación simple
+
+- La memoria se divide en **frames** pequeños de tamaño fijo, y el proceso en **páginas** del mismo tamaño.
+- **Sin fragmentación externa**; solo hay fragmentación interna en **la última página** del proceso.
+- **Las estructuras:**
+  - una **tabla de páginas por proceso**, con una entrada por página que dice el frame;
+  - una **lista de frames libres** para todo el sistema.
+- **Ejemplo de la figura 7.9:** el proceso D tiene 5 páginas y entra en los frames 4, 5, 6, 11 y 12, aunque **no** estén contiguos.
+- **Paginación vs particiones fijas:** se parecen, pero en la paginación las particiones son **pequeñas**, un programa ocupa **varias** y estas **no necesitan ser contiguas**.
+
+**Por qué la página es potencia de 2:**
+1. La dirección lógica (página, offset) **es idéntica a la relativa**, así que el esquema es transparente para el programador, el ensamblador y el *linker*.
+2. Es fácil hacer la traducción **en hardware**.
+
+**Traducción** con n bits de página y m de offset:
+1. tomar los n bits de la izquierda como número de página;
+2. indexar la tabla y obtener el frame k;
+3. la dirección física es $k \cdot 2^m$ + offset, es decir, **se concatena** el frame con el offset (no hace falta sumar).
+
+**Ejemplo de la figura 7.11:** dirección relativa 1502 con páginas de 1 KB y 16 bits.
+- Se parte en **6 bits de página** (máximo 64 páginas) y **10 de offset**.
+- 1502 = `000001 0111011110`, es decir **página 1, offset 478**.
+- Si la página 1 está en el frame 6, la física es `000110 0111011110`.
+
+## 7.4 Segmentación simple
+
+- Los segmentos tienen **tamaños distintos** (con un **máximo**). La dirección es (segmento, offset).
+- Se parece a las particiones dinámicas, pero el programa ocupa **varias** particiones que no tienen que ser contiguas.
+- **Sin fragmentación interna**, con fragmentación **externa** (menor que con particiones dinámicas, porque los trozos son más chicos).
+- **Visibilidad:** la paginación es **invisible** para el programador; la segmentación **suele ser visible** y sirve para organizar programas y datos. El inconveniente es que el programador debe conocer el **tamaño máximo** de segmento.
+- **Tabla de segmentos por proceso:** cada entrada guarda la **base** y la **longitud**. Al pasar a Running, la dirección de la tabla se carga en un registro.
+
+**Traducción** con n bits de segmento y m de offset:
+1. tomar los n bits de la izquierda como número de segmento;
+2. indexar la tabla y obtener la **base**;
+3. si **offset ≥ longitud**, la dirección es **inválida**;
+4. física = **base + offset** (aquí sí se **suma**).
+
+**Ejemplo de la figura 7.11c:** 4 bits de segmento y 12 de offset, así que el segmento máximo es $2^{12}$ = 4096 B.
+- `0001 001011110000` es **segmento 1, offset 752**.
+- Con base `0010000000100000`, la física es `0010001100010000`.
+
+## Apéndice 7A · Carga y enlace
+
+### Carga 📌
+
+| Tipo | Cómo funciona | Limitación |
+| --- | --- | --- |
+| **Absoluta** | El módulo **siempre** se carga en la misma dirección; todas sus referencias son absolutas | Hay que decidir la ubicación de antemano. Si las fija el programador, todos deben conocer la estrategia de ubicación y cualquier cambio obliga a reescribir las direcciones. Es mejor usar símbolos y resolverlos al compilar |
+| **Relocalizable** | El compilador genera direcciones **relativas al inicio** (0); el cargador suma x a cada referencia | Usa el **diccionario de relocalización**, que indica dónde están las referencias. **No sirve con swap**: ya quedó atado a un lugar |
+| **Dinámica en ejecución** | El módulo se carga con referencias **relativas**, y la dirección absoluta se calcula **al ejecutar cada instrucción**, en **hardware** | Flexibilidad total: se puede hacer swap a otra ubicación |
+
+### Tabla 7.3 · Momento del enlace (binding) 📌
+
+**(a) El cargador:** ¿cuándo se fija la dirección física?
+
+| Momento | Qué pasa |
+| --- | --- |
+| Programación | el programador escribe direcciones físicas |
+| Compilación o ensamblado | el compilador convierte símbolos en direcciones físicas |
+| Carga | el compilador da direcciones relativas y el **cargador** las convierte |
+| Ejecución | el programa conserva direcciones relativas y el **hardware** las convierte |
+
+**(b) El enlazador:** ¿cuándo se resuelven las referencias externas?
+
+| Momento | Qué pasa |
+| --- | --- |
+| Programación | no hay referencias externas; el programador incluye el código de todo |
+| Compilación | el ensamblador trae y ensambla todo junto |
+| Creación del módulo de carga | se enlazan los módulos objeto con direcciones relativas al origen del módulo de carga |
+| Carga | las referencias se resuelven **al cargar**, agregando los módulos dinámicos |
+| Ejecución | se resuelven **cuando se ejecuta la llamada**: se interrumpe y se enlaza el módulo |
+
+### Enlace
+
+- El **linker** toma módulos objeto (con referencias **simbólicas** entre ellos) y genera **un solo módulo de carga**.
+- Un *linker* que produce un módulo **relocalizable** se llama **linkage editor** (editor de enlace).
+- **Enlace dinámico:** se posterga el enlace de algunos módulos externos hasta **después** de crear el módulo de carga.
+
+**En la carga (load-time)** tiene tres ventajas sobre el estático:
+1. Es más fácil **actualizar** el módulo destino sin re-enlazar la aplicación (el software comercial se vende ya enlazado).
+2. Permite **compartir código** automáticamente: una sola copia para varias aplicaciones.
+3. Facilita que terceros **extiendan** el SO.
+
+**En ejecución (run-time):**
+- La referencia se resuelve cuando se **llama** al módulo ausente. En Windows son las **DLL**.
+- Si otro proceso ya cargó el módulo, el nuevo **se enlaza** a esa copia.
+- **DLL hell:** dos procesos comparten una DLL pero esperan **versiones distintas** (por ejemplo, una reinstalación trae una versión vieja).
+- **Ventaja extra:** solo se reserva memoria para los módulos que **de verdad se usan**, como en transacciones de una aerolínea o de un banco. Sirve de apoyo a los **sistemas segmentados**.
+
+## Términos clave del capítulo
+
+absolute loading · buddy system · compaction · dynamic linking · dynamic partitioning · dynamic run-time loading · external fragmentation · fixed partitioning · frame · internal fragmentation · linkage editor · linking · loading · logical address · logical organization · memory management · page · page table · paging · partitioning · physical address · physical organization · protection · relative address · relocatable loading · relocation · segment · segmentation · sharing
+
+## Review Questions 7.1–7.9 (resueltas)
+
+<Solucion titulo="7.1 · ¿Qué requisitos debe satisfacer la gestión de memoria?">
+Relocalización, protección, compartición, organización lógica y organización física.
+</Solucion>
+
+<Solucion titulo="7.2 · ¿Por qué es deseable poder relocalizar procesos?">
+- El programador no sabe qué otros programas estarán en memoria ni dónde quedará el suyo.
+- Para aprovechar mejor el procesador se hace **swap**, y obligar a que el proceso vuelva **a la misma zona** sería muy limitante: debe poder ir a cualquier lugar libre.
+- La **compactación** también mueve procesos.
+</Solucion>
+
+<Solucion titulo="7.3 · ¿Por qué no se puede garantizar la protección al compilar?">
+Por dos razones:
+1. No se sabe dónde quedará el programa en memoria (relocalización).
+2. Muchos lenguajes **calculan direcciones en ejecución** (índices de arreglos, punteros).
+
+Por eso **cada referencia** se debe verificar al ejecutarse, y lo hace el **hardware**: revisar todo de antemano sería imposible o demasiado costoso.
+</Solucion>
+
+<Solucion titulo="7.4 · ¿Por qué permitir que dos o más procesos accedan a una misma región?">
+- Si varios procesos ejecutan **el mismo programa**, conviene que compartan una copia en vez de tener una cada uno.
+- Procesos que **cooperan** en una tarea necesitan compartir una estructura de datos.
+- Las bibliotecas compartidas son otro ejemplo.
+</Solucion>
+
+<Solucion titulo="7.5 · Ventajas de las particiones fijas de tamaño desigual">
+- Caben programas **más grandes** sin overlays (por ejemplo, de hasta 16 MB).
+- Las particiones **pequeñas** reducen la fragmentación interna de los programas chicos.
+
+Es decir, hay **más flexibilidad** manteniendo la simplicidad y el bajo *overhead*.
+</Solucion>
+
+<Solucion titulo="7.6 · Diferencia entre fragmentación interna y externa">
+- **Interna:** espacio perdido **dentro** de un bloque asignado, porque lo cargado es más chico que el bloque (particiones fijas, última página).
+- **Externa:** espacio libre **entre** bloques asignados, partido en huecos demasiado pequeños para usarse (particiones dinámicas, segmentación). Se combate con **compactación**.
+</Solucion>
+
+<Solucion titulo="7.7 · Distinción entre direcciones lógicas, relativas y físicas">
+- **Lógica:** independiente de la ubicación actual en memoria; requiere traducción.
+- **Relativa:** un tipo de lógica, expresada respecto a un punto conocido, normalmente el inicio del programa guardado en un registro.
+- **Física o absoluta:** la ubicación real en la memoria principal.
+</Solucion>
+
+<Solucion titulo="7.8 · Diferencia entre página y frame">
+- La **página** es un trozo de tamaño fijo **del proceso** (memoria lógica).
+- El **frame** es un trozo del mismo tamaño **de la memoria principal** (física), donde se carga una página.
+</Solucion>
+
+<Solucion titulo="7.9 · Diferencia entre página y segmento">
+| | Página | Segmento |
+| --- | --- | --- |
+| Tamaño | fijo, igual al frame | variable (con un máximo) |
+| Visibilidad | invisible para el programador | visible: el programador o el compilador decide |
+| Fragmentación | interna | externa |
+| Dirección física | frame **concatenado** con el offset | base **+** offset (se verifica la longitud) |
+| Significado | ninguno | lógico: código, datos, pila, módulos |
+</Solucion>
+
+## Autoevaluación del capítulo
+
+<Quiz
+	client:visible
+	id="stal-cap7"
+	titulo="Cap. 7 según el libro"
+	preguntas={[
+		{ q: '¿Quién debe verificar la protección de memoria según Stallings?', opts: ['El compilador', 'El sistema operativo antes de cargar', 'El procesador (hardware), en cada referencia al ejecutarse', 'El linker'], ok: 2 },
+		{ q: 'La herramienta que mejor satisface la organización lógica es…', opts: ['la paginación', 'la segmentación', 'el buddy system', 'el overlay'], ok: 1 },
+		{ q: 'Según el libro, el algoritmo de placement que suele rendir peor es…', opts: ['first-fit', 'next-fit', 'best-fit, porque deja fragmentos diminutos inútiles', 'worst-fit'], ok: 2 },
+		{ q: 'El que suele ser el más simple, rápido y mejor es…', opts: ['first-fit', 'next-fit', 'best-fit', 'buddy'], ok: 0 },
+		{ q: 'Next-fit tiende a obligar a compactar más porque…', opts: ['busca desde el inicio', 'rompe rápido el bloque libre grande que suele estar al final de la memoria', 'deja fragmentos de 0 bytes', 'no usa lista de huecos'], ok: 1 },
+		{ q: 'Un sistema con particiones fijas iguales sufre de…', opts: ['fragmentación externa', 'fragmentación interna y límite fijo de procesos activos', 'thrashing', 'DLL hell'], ok: 1 },
+		{ q: 'Con buddy y 1 MB libre, un pedido de 100 KB recibe…', opts: ['100 KB', '128 KB', '256 KB', '512 KB'], ok: 1 },
+		{ q: 'En un árbol buddy, dos buddies hoja…', opts: ['pueden estar ambos libres', 'tienen al menos uno asignado (si no, se habrían fusionado)', 'están ambos asignados', 'son de distinto tamaño'], ok: 1 },
+		{ q: 'Los registros base y límite permiten…', opts: ['solo protección', 'solo relocalización', 'relocalización dinámica y protección', 'paginación'], ok: 2 },
+		{ q: '¿Por qué la página es potencia de 2?', opts: ['Por el disco', 'Para que la dirección lógica (página, offset) sea igual a la relativa y la traducción sea fácil en hardware', 'Para evitar la fragmentación interna', 'Para que quepa en la TLB'], ok: 1 },
+		{ q: 'La carga relocalizable no sirve con swap porque…', opts: ['no tiene diccionario de relocalización', 'las direcciones quedan fijadas al cargar; si vuelve a otra zona, quedan mal', 'usa direcciones absolutas al compilar', 'requiere DLL'], ok: 1 },
+		{ q: 'Un linker que produce un módulo de carga relocalizable se llama…', opts: ['loader', 'linkage editor', 'dynamic linker', 'relocation dictionary'], ok: 1 },
+		{ q: 'DLL hell ocurre cuando…', opts: ['dos procesos comparten una DLL pero esperan versiones distintas', 'una DLL no se encuentra', 'hay deadlock entre DLL', 'la DLL es muy grande'], ok: 0 },
+		{ q: 'En segmentación simple, la dirección física se obtiene…', opts: ['concatenando el segmento con el offset', 'sumando la base y el offset, tras verificar offset < longitud', 'con un hash', 'con la TLB'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['Stallings, Operating Systems 9e, cap. 7 completo (§7.1–7.6) y apéndice 7A', 'Indicaciones del LC3: lectura recomendada']} />

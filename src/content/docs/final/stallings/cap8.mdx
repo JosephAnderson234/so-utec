@@ -1,0 +1,562 @@
+---
+title: 'Stallings cap. 8 · Memoria virtual (§8.1–8.4)'
+description: 'Lo que dice el libro sobre memoria virtual: el salto conceptual, localidad y thrashing, PTE, tablas de dos niveles e invertidas, TLB, tamaño de página, segmentación y combinación con paginación, las políticas del SO (fetch, placement, reemplazo, conjunto residente, limpieza y control de carga), UNIX/Solaris y Linux. Con las Review Questions 8.1–8.12 resueltas.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+Para estudiar no necesitas **toda la biblioteca** en tu escritorio: basta con los dos o tres libros del tema de hoy, y cuando hace falta otro vas a buscarlo al estante. La **memoria virtual** hace lo mismo con los procesos: en la RAM (el escritorio) solo está lo que se usa ahora y el resto espera en disco (el estante). Funciona gracias a la **localidad**: casi siempre usas lo mismo que acabas de usar. Si el escritorio es demasiado chico, te pasas el día yendo y viniendo del estante sin estudiar: eso es el **thrashing**.
+</EnSimple>
+
+:::tip[Qué entra del cap. 8]
+Las secciones **8.1 a 8.4**: hardware, software del SO, UNIX/Solaris y Linux. Windows y Android (8.5 y 8.6) **no entran**. Los ejercicios del curso (V/R/M con 1052, 2221 y 5499, y el bucle de A[64][64]) son los **problemas 8.1 y 8.2 del libro**, resueltos en [Virtual Memory](/final/ejercicios/memoria-virtual/).
+:::
+
+## 8.1 Hardware y estructuras de control
+
+### El salto conceptual
+
+Dos características de la paginación y la segmentación lo hacen posible:
+1. Las referencias son **direcciones lógicas traducidas en ejecución**, así que el proceso puede ocupar distintos lugares en distintos momentos.
+2. El proceso está en **trozos no contiguos**.
+
+**Por lo tanto, no hace falta que estén todos los trozos en memoria.**
+
+**Cómo funciona:**
+- **Conjunto residente:** la parte del proceso que está en memoria en un momento dado.
+- Si se referencia algo fuera de él, ocurre un **fallo de acceso a memoria**:
+  1. el SO **bloquea** al proceso;
+  2. pide la E/S de disco y **despacha otro proceso** mientras tanto;
+  3. al terminar la E/S hay una interrupción y el proceso vuelve a **Ready**.
+
+**Dos consecuencias** 📌:
+1. **Caben más procesos** en memoria, así que es más probable que alguno esté Ready y se aprovecha más la CPU.
+2. **Un proceso puede ser más grande que toda la memoria principal.** Se acaban los overlays.
+
+- **Memoria real:** la principal, donde se ejecuta el proceso.
+- **Memoria virtual:** la que percibe el usuario, mucho más grande, ubicada en disco.
+
+### Tabla 8.2 · Paginación y segmentación, simples y virtuales
+
+| | Paginación simple | Paginación virtual | Segmentación simple | Segmentación virtual |
+| --- | --- | --- | --- | --- |
+| Memoria | frames fijos | frames fijos | no particionada | no particionada |
+| Quién divide | compilador o SO | compilador o SO | **el programador** | **el programador** |
+| Fragmentación | interna | interna | externa | externa |
+| El SO mantiene | tabla de páginas y lista de frames libres | igual | tabla de segmentos y lista de huecos | igual |
+| ¿Todo en memoria? | **sí** (salvo overlays) | **no**: las páginas se traen cuando se necesitan | **sí** (salvo overlays) | **no** |
+| Traer un trozo | — | puede obligar a **escribir una página** a disco | — | puede obligar a escribir **uno o más segmentos** |
+
+### Localidad y thrashing
+
+- **Thrashing:** el sistema pasa la mayor parte del tiempo **intercambiando trozos** en vez de ejecutar instrucciones. Pasa cuando se expulsa un trozo justo antes de que se use.
+- **Principio de localidad:** las referencias de un proceso **tienden a agruparse**. Por eso es válido suponer que en un periodo corto se necesitan pocos trozos, y se pueden hacer predicciones razonables que evitan el thrashing.
+- **Para que la memoria virtual funcione hacen falta dos cosas:**
+  1. soporte de **hardware** para la paginación o la segmentación;
+  2. **software** del SO que mueva páginas entre la memoria y el disco.
+
+### La PTE (figura 8.1a)
+
+| Campo | Para qué |
+| --- | --- |
+| **P** (presente) | ¿la página está en memoria? Si P = 1, la entrada trae el número de frame |
+| **Número de frame** | dónde está la página |
+| **M** (modificado) | si se modificó desde que se cargó. Si M = 0, **no hay que escribirla** al reemplazarla |
+| **Otros bits de control** | protección y compartición a nivel de página |
+
+### Estructura de la tabla de páginas
+
+- La tabla tiene largo **variable**, así que no cabe en registros y **va en memoria principal**. Un registro apunta a su inicio.
+- Normalmente el campo de página es **más largo** que el de frame (n &gt; m), porque un proceso puede tener más páginas que frames hay.
+- **El problema del tamaño:** en una VAX, 2 GB virtuales con páginas de 512 B dan $2^{22}$ PTE por proceso. Por eso las tablas se guardan **en memoria virtual** y se paginan también; al menos debe estar en memoria la parte con la PTE de la página que se ejecuta.
+
+**Dos niveles** (figura 8.3, 32 bits y páginas de 4 KB):
+- El espacio de 4 GB tiene $2^{20}$ páginas, y su tabla de usuario ocupa 4 MB ($2^{20}$ PTE de 4 B), es decir **$2^{10}$ páginas**.
+- Esas páginas se mapean con una **tabla raíz de $2^{10}$ PTE = 4 KB**, que **siempre está en memoria**.
+- La dirección se parte en **10 | 10 | 12**:
+  1. los primeros 10 bits indexan la raíz;
+  2. si la página de la tabla de usuario no está en memoria, hay un **page fault**;
+  3. los siguientes 10 bits indexan esa página.
+- Normalmente cada tabla mide **una página**. El ejemplo del libro es el **Pentium**.
+
+**Tabla de páginas invertida** (PowerPC, UltraSPARC, IA-64, Mach en el RT-PC):
+- Los otros diseños tienen un tamaño **proporcional al espacio virtual**. La invertida tiene **una entrada por frame**, así que ocupa una proporción **fija** de la memoria real sin importar cuántos procesos haya.
+- Se aplica un **hash** al número de página y las colisiones se resuelven por **encadenamiento**. Las cadenas son cortas: 1 o 2 entradas.
+- Se llama invertida porque **se indexa por frame** y no por página virtual.
+- **Cada entrada tiene:**
+  - el número de página;
+  - el **identificador de proceso**;
+  - bits de control (válido, referenciado, modificado, protección, bloqueo);
+  - un **puntero de cadena**.
+
+### TLB (translation lookaside buffer)
+
+- **El problema:** cada referencia virtual puede costar **dos** accesos a memoria (la PTE y el dato), es decir **el doble** de tiempo.
+- **La solución:** una caché de alta velocidad para las PTE más usadas recientemente.
+
+**Flujo (figura 8.7):**
+1. Se busca en la TLB. Si **acierta**, se arma la dirección real.
+2. Si **falla**, se busca en la tabla de páginas.
+   - Si **P = 1**, se arma la dirección y se **actualiza la TLB**.
+   - Si **P = 0**, hay un **page fault**: el SO carga la página y actualiza la tabla.
+
+**Detalles de diseño:**
+- **Mapeo asociativo:** la TLB **no se puede indexar** por número de página porque solo tiene algunas entradas. Cada entrada guarda **el número de página y la PTE completa**, y el hardware compara **muchas entradas a la vez**. La tabla de páginas, en cambio, usa **mapeo directo** (indexación).
+- **Con la caché de datos (figura 8.9):** primero se arma la dirección real con la TLB o la tabla, y después se consulta la caché con su *tag*. Si no está, se va a memoria.
+- **El peor caso de una sola referencia:** la PTE puede estar en la TLB, en memoria o **en disco**, y el dato en caché, en memoria o en disco.
+
+### Tamaño de página
+
+| Página más **chica** | Página más **grande** |
+| --- | --- |
+| ✔ menos fragmentación interna | ✔ los discos (rotacionales) transfieren mejor bloques grandes |
+| ✘ más páginas por proceso, así que **tablas más grandes**, que quizá no quepan en memoria: puede haber un **doble page fault** (uno por la tabla y otro por la página) | ✔ cada entrada de la TLB cubre más memoria |
+| ✔ con muchas páginas chicas en memoria, la tasa de fallos es **baja** | ✘ cada página incluye zonas más lejos de la referencia reciente, así que la **localidad se debilita** y suben los fallos |
+
+**La curva de la figura 8.10a:** la tasa de fallos **sube** al crecer la página y luego **baja** cuando la página se acerca al tamaño del proceso (punto P). Si una página contiene todo el proceso, no hay fallos.
+
+**Figura 8.10b:** con un tamaño de página fijo, la tasa de fallos **baja** cuando aumentan los frames asignados. La política de software (cuánta memoria dar) interactúa con la decisión de hardware (el tamaño de página).
+
+**Tendencias que bajan la localidad:**
+- la **orientación a objetos**, con muchos módulos pequeños dispersos;
+- el **multithreading**, con saltos bruscos en el flujo de instrucciones.
+
+Por eso **baja el hit ratio de la TLB** y esta puede volverse un **cuello de botella**. Hay dos salidas:
+1. Una TLB más grande, aunque su tamaño **no crecerá tan rápido** como la memoria.
+2. **Varios tamaños de página**, que soportan MIPS R4000, Alpha, UltraSPARC, x86 e IA-64: páginas grandes para el código y chicas para las pilas de hilos. Aun así, **la mayoría de los SO comerciales usa un solo tamaño**, porque cambiarlo afecta a muchas partes del SO.
+
+**Tabla 8.3 · Tamaños de página que conviene recordar:**
+
+| Máquina | Página |
+| --- | --- |
+| VAX | **512 B** |
+| Pentium | 4 KB o 4 MB |
+| Intel Core i7 | 4 KB a 1 GB |
+
+### Segmentación con memoria virtual
+
+**Ventajas para el programador** 📌:
+1. Simplifica el manejo de **estructuras de datos que crecen**: se le da un segmento propio y el SO lo agranda o lo achica.
+2. Los programas se pueden **modificar y recompilar por separado** sin re-enlazar ni recargar todo.
+3. Facilita la **compartición**: una utilidad o una tabla de datos se pone en un segmento que otros referencian.
+4. Facilita la **protección**: un segmento contiene un conjunto bien definido, y es cómodo asignarle permisos.
+
+**La entrada de la tabla de segmentos (figura 8.1b)** tiene:
+- el bit **P**;
+- el bit **M**;
+- **base** y **longitud**;
+- bits de control.
+
+La traducción **suma** la base y el offset (figura 8.11).
+
+### Paginación y segmentación combinadas
+
+- **La idea:** la paginación es **transparente** y elimina la fragmentación externa (sus trozos iguales permiten algoritmos sofisticados). La segmentación es **visible** y da estructuras que crecen, modularidad, compartición y protección. Combinarlas suma ambas cosas.
+- El espacio se divide en **segmentos** a criterio del programador, y cada segmento en **páginas** del tamaño de un frame.
+  - **Para el programador**, la dirección es (segmento, offset).
+  - **Para el sistema**, el offset es (página, offset dentro de la página).
+- **Las estructuras:** **una tabla de segmentos por proceso** y **una tabla de páginas por segmento**.
+  - La entrada de segmento tiene la **longitud** y una **base que apunta a la tabla de páginas**. **No necesita P ni M**, porque eso se maneja a nivel de página.
+- **Protección y compartición:**
+  - La longitud impide salirse del segmento.
+  - Compartir es poner el mismo segmento en las tablas de varios procesos.
+  - En paginación pura también se puede, pero es incómodo porque las páginas **no son visibles**.
+- **Anillos de protección:** el anillo 0 es el núcleo; los anillos interiores tienen más privilegio. Hay dos reglas:
+  1. un programa solo accede a datos de **su mismo anillo o uno menos privilegiado**;
+  2. solo llama a servicios de **su mismo anillo o uno más privilegiado**.
+
+## 8.2 Software del sistema operativo
+
+**Tres decisiones de diseño:**
+1. si usar memoria virtual;
+2. paginación, segmentación o ambas;
+3. los algoritmos de gestión.
+
+Las dos primeras **dependen del hardware**: los primeros UNIX no tenían memoria virtual porque sus procesadores no la soportaban. Los sistemas puramente segmentados son cada vez más raros, y con la combinación casi todo el problema queda en la **paginación**.
+
+**El objetivo central es minimizar la tasa de page faults**, porque cada fallo implica:
+- decidir qué reemplazar;
+- la E/S;
+- un **cambio de proceso**.
+
+**No hay una política que sea la mejor en todos los casos.**
+
+### Tabla 8.4 · Las políticas 📌
+
+| Política | Opciones |
+| --- | --- |
+| **Fetch** | por demanda · prepaging |
+| **Placement** | — |
+| **Reemplazo** | algoritmos básicos (óptimo, LRU, FIFO, clock) · page buffering |
+| **Gestión del conjunto residente** | tamaño fijo o variable · alcance global o local |
+| **Limpieza** | por demanda · precleaning |
+| **Control de carga** | grado de multiprogramación |
+
+### Fetch: ¿cuándo se trae una página?
+
+- **Por demanda** (*demand paging*): solo cuando se referencia. Al inicio hay una **ráfaga de fallos**, y luego, por localidad, bajan mucho.
+- **Prepaging:** se traen **también otras páginas** además de la pedida. Aprovecha la búsqueda y la latencia rotacional del disco: si las páginas están contiguas, conviene traer varias de una vez. **No sirve** si las extras no se usan. Puede hacerse al inicio (el programador las indica) o en cada fallo (es invisible y por eso es preferible).
+- **Prepaging no es swapping.** En el swapping se sacan **todas** las páginas residentes del proceso suspendido y se devuelven todas al reanudarlo.
+
+### Placement: ¿dónde se pone?
+
+- En **segmentación pura** sí importa: se usa best-fit, first-fit y similares.
+- Con **paginación** casi **no importa**: el hardware traduce cualquier combinación de página y frame con la misma eficiencia.
+- **La excepción es NUMA:** el tiempo de acceso depende de la distancia entre el procesador y el módulo de memoria, así que conviene colocar las páginas **cerca** del procesador que las usa.
+
+### Reemplazo: ¿qué página se saca?
+
+- **La terminología del libro:** «cuántos frames dar a cada proceso» y «si se eligen víctimas solo del proceso o de toda la memoria» forman la **gestión del conjunto residente**. **Reemplazo** es solo elegir **qué página** sacar entre las candidatas.
+- **Bloqueo de frames:** algunos frames están **bloqueados** y no se reemplazan (gran parte del kernel, estructuras clave, buffers de E/S, zonas críticas en tiempo). Se marca con un **lock bit** en la tabla de frames y en la tabla de páginas.
+
+**Algoritmos básicos** 📌. En el ejemplo de la figura 8.14 la cadena es `2 3 2 1 5 2 4 5 3 2 5 2`, con 3 frames:
+
+| Algoritmo | Regla | Fallos (después de llenar) | Lo que dice el libro |
+| --- | --- | :-: | --- |
+| **Óptimo** | sacar la que se usará **más tarde** | **3** | El de **menos fallos** (Belady), pero **imposible** de implementar porque requiere conocer el futuro. Es la **referencia** contra la que se comparan los demás |
+| **LRU** | la usada **hace más tiempo** | **4** | Casi tan bueno como el óptimo. Es difícil de implementar: requiere marcar el tiempo en **cada** referencia o mantener una pila, con un *overhead* enorme |
+| **FIFO** | la que lleva **más tiempo en memoria** | **6** | Un buffer circular con un puntero: lo más simple. Falla porque saca páginas que se usan **todo el tiempo** |
+| **Clock** | FIFO que **salta** los frames con bit de uso = 1 (y los pone en 0) | **5** | Se aproxima a LRU con poco *overhead*. Se usó en Multics. Protege las páginas 2 y 5 |
+
+Verifiqué esos conteos con un simulador: con los 3 fallos iniciales dan 6, 7, 9 y 8 en total.
+
+**Detalles del Clock:**
+- Cuando una página se carga, su bit de uso se pone en **1**, y cada referencia posterior lo deja en 1.
+- Si todos tienen u = 1, el puntero da **una vuelta completa** poniéndolos en 0 y reemplaza el frame donde empezó.
+- **Con cero bits, el Clock degenera en FIFO** (nota 6 del libro).
+- **Ejemplo de la figura 8.15:** llega la página 727 y el puntero está en el frame 2 (página 45, u = 1).
+  1. Pone u = 0 en la 45 y luego en la 191.
+  2. Saca la 556 del frame 4.
+  3. Deja u = 1 y el puntero en el frame 5.
+
+**Experimentos:**
+- **Baer (1980):** la diferencia entre algoritmos se nota sobre todo con **pocos frames**, y FIFO llega a ser más del doble de malo que el óptimo.
+- **Finkel:** factor máximo de unas 2 veces. Aunque parezca poco, se nota en la memoria que hace falta o en el rendimiento.
+- **Conviene operar en la rodilla de la curva.**
+- **Carr (1984):** con asignación variable, el Clock se aproxima mucho a LRU.
+
+**Clock mejorado (con el bit M):** cuatro clases.
+
+| Clase | u | m | Significado |
+| :-: | :-: | :-: | --- |
+| 1 | 0 | 0 | no usada recientemente, no modificada (**la mejor víctima**) |
+| 2 | 1 | 0 | usada, no modificada |
+| 3 | 0 | 1 | no usada, modificada |
+| 4 | 1 | 1 | usada y modificada |
+
+1. **Primera pasada:** buscar (0, 0) **sin cambiar** los bits de uso.
+2. **Segunda pasada:** buscar (0, 1) **poniendo u = 0** en cada frame que salta.
+3. Si tampoco aparece, todos quedaron con u = 0: repetir el paso 1 y, si hace falta, el 2.
+
+Se usó en una versión temprana de la **Macintosh**. Su ventaja es que **prefiere las páginas no modificadas**, que no hay que escribir.
+
+**Page buffering** (el ejemplo es VAX VMS):
+- Usa **FIFO simple**, pero la página reemplazada **no se pierde**: pasa a la **lista de páginas libres** (si no estaba modificada) o a la **de modificadas**.
+- La página **no se mueve en memoria**: solo su entrada cambia de lista.
+- **Si se referencia otra vez, se recupera casi gratis.** Las listas funcionan como una **caché de páginas**.
+- Las modificadas se escriben **en grupos**, lo que ahorra E/S.
+- **Mach** usa una versión más simple, sin distinguir entre modificadas y no modificadas.
+
+**Con la caché de datos:** si el frame reemplazado estaba en la caché, también se pierde ese bloque. Una colocación cuidadosa de las páginas en el buffer da entre **10 y 20 % menos fallos de caché** (Kessler, 1992).
+
+### Gestión del conjunto residente
+
+**Al decidir cuántos frames dar:**
+- **Menos frames por proceso** permite más procesos en memoria, así que es más probable que haya uno listo.
+- **Pocos frames** generan una tasa de fallos alta.
+- **Más allá de cierto tamaño**, agregar frames ya casi no mejora nada (por localidad).
+
+**Las políticas:**
+- **Asignación fija:** un número de frames fijado al **crear** el proceso.
+- **Asignación variable:** cambia durante la vida del proceso. Es más poderosa, pero el SO debe **evaluar el comportamiento** de cada proceso, lo que tiene un costo.
+
+**Alcance del reemplazo:**
+- **Local:** solo entre las páginas del proceso que falló.
+- **Global:** entre todas las páginas **no bloqueadas** de la memoria.
+- No hay evidencia de que la local sea mejor; la global es más **simple** y tiene menos *overhead*.
+
+**Tabla 8.5 · Combinaciones** 📌:
+
+| | Reemplazo **local** | Reemplazo **global** |
+| --- | --- | --- |
+| **Asignación fija** | ✔ frames fijos; la víctima es del mismo proceso | ✘ **imposible**: sacarle una página a otro proceso cambiaría los tamaños |
+| **Asignación variable** | ✔ el número se reevalúa periódicamente para mantener el working set; la víctima es del mismo proceso | ✔ la víctima puede ser de cualquiera, así que los tamaños varían |
+
+| Combinación | Cómo funciona | Problema o ventaja |
+| --- | --- | --- |
+| **Fija + local** | se reemplaza dentro de los frames del proceso | hay que decidir el tamaño antes: si es chico hay muchos fallos; si es grande caben pocos procesos (CPU ociosa o mucho swap) |
+| **Variable + global** | el que falla toma un frame libre y va creciendo | **la más fácil de implementar**; muchos SO la usan. El problema es que no hay criterio para decidir **a quién** quitarle. Se mitiga con **page buffering** |
+| **Variable + local** | (1) asignar al cargar; (2) en un fallo, elegir la víctima del mismo proceso; (3) **reevaluar** la asignación cada cierto tiempo | más compleja, pero puede rendir más. La clave es el criterio de tamaño: **working set** |
+
+**Working set** (Denning):
+- $W(t, \Delta)$ es el conjunto de páginas referenciadas en las **últimas Δ unidades de tiempo virtual**. El tiempo virtual se mide **en referencias** del proceso.
+- **Propiedades:**
+  - $W(t, \Delta + 1) \supseteq W(t, \Delta)$: con una ventana más grande, el working set es mayor o igual;
+  - $1 \le |W(t, \Delta)| \le \min(\Delta, N)$.
+- **Comportamiento (figura 8.18):** se alternan periodos **estables** con **transiciones**. Al cambiar de localidad, el working set **crece** un rato (quedan páginas viejas en la ventana) y luego baja.
+- **La estrategia:**
+  1. monitorear el working set de cada proceso;
+  2. sacar periódicamente del conjunto residente lo que no está en el working set (**es esencialmente LRU**);
+  3. un proceso solo corre si su working set está en memoria.
+- **Sus problemas** 📌:
+  1. el pasado **no siempre predice** el futuro;
+  2. medirlo de verdad es **impráctico**: habría que marcar el tiempo de cada referencia;
+  3. **no se conoce el Δ óptimo**, y además varía.
+
+**PFF (page fault frequency):**
+- Usa un **bit de uso** por página y un umbral **F**.
+- En cada fallo se mira el tiempo virtual desde el **fallo anterior**:
+  - si es **menor que F**, se **agrega** una página al conjunto residente;
+  - si no, se **descartan** las páginas con u = 0 y se reinician los bits.
+- Se puede refinar con **dos umbrales**: uno para crecer y otro para encoger.
+- **Su defecto:** en las **transiciones** entre localidades el conjunto residente **se hincha** antes de soltar las páginas viejas, porque ninguna sale antes de F.
+
+**VSWS** (*variable-interval sampled working set*):
+- Muestrea el working set en intervalos de tiempo virtual. Al inicio de cada intervalo se borran los bits de uso, y al final se conservan solo las páginas usadas.
+- **Parámetros:** M (duración mínima), L (duración máxima) y Q (fallos permitidos entre muestras).
+- El conjunto residente **solo puede bajar al final de un intervalo**; durante el intervalo se mantiene o crece.
+- Normalmente el muestreo lo dispara el fallo número Q (caso 2b).
+- Es **tan simple como PFF y más efectivo** (GCOS 8 de Bull).
+
+### Limpieza: ¿cuándo se escribe una página modificada?
+
+Es lo **opuesto** de la política de fetch.
+
+| | Por demanda | Precleaning |
+| --- | --- | --- |
+| Cuándo | solo cuando se elige como víctima | **antes** de que se necesite el frame, en grupos |
+| Problema | el proceso que falla espera **dos transferencias** (escribir y leer), y baja el uso de CPU | se escriben páginas que se **vuelven a modificar** antes de salir, lo que desperdicia el ancho de banda del disco |
+
+**Lo mejor es combinarla con page buffering:** limpiar solo las páginas reemplazables, pero **separar la limpieza del reemplazo**. Las de la lista de modificadas se escriben en grupos y pasan a la de no modificadas, desde donde se **recuperan** si se usan o se pierden cuando se reasigna el frame.
+
+### Control de carga
+
+- **El problema:** ¿cuántos procesos tener en memoria (el **nivel de multiprogramación**)?
+  - **Muy pocos:** todos se bloquean y hay mucho swap.
+  - **Demasiados:** los conjuntos residentes son insuficientes, hay muchos fallos y aparece el **thrashing**.
+- **Figura 8.19:** el uso de la CPU **sube** con el nivel de multiprogramación hasta que **se desploma**.
+
+**Formas de controlarlo** 📌:
+1. Las políticas de **working set o PFF** ya traen implícito el control de carga: solo corren los procesos con suficiente conjunto residente.
+2. **Criterio L = S** (Denning): ajustar el nivel para que **el tiempo medio entre fallos sea igual al tiempo medio de atender un fallo**. Ahí el uso de la CPU es máximo.
+3. **Criterio del 50 %:** mantener el dispositivo de paginación ocupado cerca del **50 %**.
+4. **Velocidad del puntero del Clock** (con alcance global):
+   - si gira **lento**, hay pocos fallos o es fácil encontrar víctimas, así que **se puede subir** el nivel;
+   - si gira **rápido**, el nivel es **demasiado alto**.
+
+**Qué proceso suspender** para bajar el nivel (Carr, 6 opciones) 📌:
+
+| Opción | Razón |
+| --- | --- |
+| **El de menor prioridad** | es una decisión de planificación, no de rendimiento |
+| **El que falla** | probablemente no tiene su working set; además **ya iba a bloquearse** y se ahorra un reemplazo y una E/S |
+| **El último activado** | es el que menos probablemente tiene su working set |
+| **El de conjunto residente más chico** | cuesta menos recargarlo, pero castiga a los programas con **buena localidad** |
+| **El más grande** | libera más frames, así que no hará falta suspender otro pronto |
+| **El de mayor ventana de ejecución restante** | se aproxima a «el más corto primero» |
+
+## 8.3 UNIX y Solaris
+
+- Los primeros UNIX usaban **particiones variables sin memoria virtual**; los actuales usan **paginación**.
+- En SVR4 y Solaris hay **dos esquemas**:
+  1. el **sistema de paginación**, para los procesos de usuario y los buffers de disco;
+  2. el **asignador de memoria del kernel**, porque la paginación no sirve para los objetos pequeños del kernel.
+
+### Las cuatro estructuras 📌 (tabla 8.6)
+
+| Estructura | Una por… | Campos |
+| --- | --- | --- |
+| **Tabla de páginas** | proceso (una entrada por página virtual) | frame · **age** (cuánto tiempo lleva sin usarse; depende del procesador) · **copy on write** · modify · reference · valid · **protect** |
+| **Descriptor de bloque de disco** | página del proceso (describe su copia en disco) | dispositivo de swap · número de bloque · **tipo de almacenamiento** (swap o ejecutable, y si hay que borrar con ceros antes de la primera carga) |
+| **Tabla de datos de frame** (pfdata) | frame real, **indexada por frame** | estado de la página (libre, en swap, en el ejecutable, DMA en curso) · **contador de referencias** (cuántos procesos la usan) · dispositivo lógico · bloque · punteros (lista de libres y cola hash). **La usa el reemplazo** |
+| **Tabla de uso de swap** | dispositivo de swap (una entrada por página del dispositivo) | contador de referencias (cuántas PTE apuntan a esa página) · número de página o unidad |
+
+**Copy on write:** se activa cuando varios procesos comparten una página. Si uno escribe, **recién entonces** se hace una copia aparte. Así la copia se **posterga** y, si no hace falta, se evita.
+
+### Reemplazo: reloj de dos manecillas (figura 8.21)
+
+- La lista de frames libres se mantiene, y si baja de un umbral el kernel **roba** frames.
+- **La manecilla delantera** pone el bit de referencia en 0.
+- **La trasera** pasa después: si el bit sigue en 0, la página no se usó en ese intervalo y va a la **lista para paginar**; si está en 1, se ignora.
+- **Parámetros:**
+  - **scanrate:** las páginas por segundo que recorren las manecillas. Varía linealmente entre **slowscan y fastscan** según la memoria libre, entre **lotsfree y minfree**: con menos memoria libre, las manecillas **van más rápido**.
+  - **handspread:** la distancia entre las dos manecillas. Junto con scanrate define la **ventana** que tiene una página para ser usada antes de salir.
+
+### Asignador del kernel: lazy buddy
+
+- **Qué pide el kernel:** muchos bloques **pequeños** (buffers de rutas, STREAMS con `allocb()`, estructuras *zombie*, proc, vnodes, descriptores).
+- **Por qué no el buddy normal:** en el buddy, asignar y liberar es barato comparado con best-fit o first-fit, pero **dividir y fusionar** toma tiempo. Si un bloque se libera y se fusiona, y enseguida se pide otro de ese tamaño, hay que volver a dividir.
+- **El lazy buddy** (Barkley y Lee, AT&T) **posterga la fusión** hasta que parece necesaria y entonces fusiona todo lo que puede.
+- **Variables:**
+  - $N_i$: los bloques de tamaño $2^i$;
+  - $A_i$: los asignados;
+  - $G_i$: los libres **globales** (se pueden fusionar);
+  - $L_i$: los libres **locales** (no se fusionan).
+- **Relaciones:**
+  - $N_i = A_i + G_i + L_i$;
+  - criterio: $L_i \le A_i$;
+  - variable de retardo: $D_i = A_i - L_i$.
+- **El algoritmo (figura 8.22):**
+  - **Al asignar:** si el bloque era local, D sube 2; si era global, sube 1. Si no hay ninguno libre, se divide uno mayor.
+  - **Al liberar:**
+    - con D ≥ 2, se libera **local** y D baja 2;
+    - con D = 1, se libera **global** (se fusiona si se puede) y D queda en 0;
+    - con D = 0, se libera global y además **se pasa un local a global**, con D en 0.
+
+## 8.4 Linux
+
+- **Unidad:** `struct page`, normalmente de **4 KB**. También hay **hugepages** (por ejemplo, de 2 MB); DPDK las usa para los buffers de paquetes y así accede menos a la TLB.
+
+### Tabla de páginas de 3 niveles 📌
+
+| Nivel | Qué es |
+| --- | --- |
+| **Page directory** | **uno por proceso**, de una página, siempre en memoria |
+| **Page middle directory** | puede ocupar varias páginas; cada entrada apunta a una página de la tabla |
+| **Page table** | puede ocupar varias páginas; cada entrada apunta a una página virtual |
+
+- **La dirección tiene 4 campos:** directorio | intermedio | tabla | offset.
+- Se diseñó para el **Alpha de 64 bits**, que tiene 3 niveles en hardware.
+- **En x86 de 32 bits** (2 niveles en hardware), Linux define el *middle directory* **de tamaño 1**, y esa indirección se **elimina al compilar**, así que no cuesta nada en ejecución.
+
+### Asignación de páginas
+
+Usa el **buddy system** sobre grupos de **1, 2, 4, 8, 16 o 32 frames** contiguos, que se dividen y fusionan al asignar y liberar.
+
+### Reemplazo
+
+| Antes de la 2.6.28 | Desde la 2.6.28: **split LRU** |
+| --- | --- |
+| Clock con una variable **age de 8 bits** en vez del bit de uso. Cada acceso **suma**; un barrido en segundo plano **resta** | Dos banderas, **PG_active** y **PG_referenced**. La memoria se divide en **zonas**, cada una con lista **activa** e **inactiva** |
+| La página con age 0 es la mejor víctima. **Era en la práctica un LFU** (*least frequently used*) | El demonio **kswapd** barre periódicamente y limpia el bit de acceso cada vez que lo lee |
+| Problema: los barridos gastan cada vez más CPU con memorias grandes | (1) primer acceso en la inactiva: se pone PG_referenced; (2) **segundo acceso en otro barrido**: pasa a la activa; (3) si el segundo acceso no llega a tiempo, se borra PG_referenced; (4) bajar de activa a inactiva requiere **dos timeouts**. Se reemplaza desde la inactiva con un estilo LRU |
+
+### Memoria del kernel
+
+- **La base** es el mismo **buddy** de páginas, pero la unidad mínima es una página y el kernel pide trozos pequeños y de tamaños raros.
+- **Slab allocation** dentro de una página. En x86 hay trozos de **32, 64, 128, 252, 508, 2040 y 4080 B**, con listas por tamaño que se dividen y unen como en el buddy.
+- **Tres asignadores** 📌:
+
+| Asignador | Diseñado para |
+| --- | --- |
+| **SLAB** | ser lo más **amigable con la caché** posible (minimizar los fallos de caché) |
+| **SLUB** | ser **simple** y usar pocas instrucciones |
+| **SLOB** | ser lo más **compacto** posible, para sistemas con poca memoria |
+
+Más detalle práctico en [UNIX, Solaris y Linux](/final/memoria-virtual/unix-linux/).
+
+## Términos clave del capítulo
+
+associative mapping · demand paging · external fragmentation · fetch policy · frame · hash table · hashing · internal fragmentation · locality · page · page fault · page placement policy · page replacement policy · page table · paging · prepaging · real memory · resident set · resident set management · segment · segment table · segmentation · slab allocation · thrashing · translation lookaside buffer (TLB) · virtual memory · working set
+
+## Review Questions 8.1–8.12 (resueltas)
+
+<Solucion titulo="8.1 · Diferencia entre paginación simple y paginación con memoria virtual">
+- En la **simple**, **todas** las páginas del proceso deben estar en memoria para que corra.
+- Con **memoria virtual** solo hace falta una parte, y las demás se traen **cuando se necesitan** (lo que puede obligar a escribir otra página a disco).
+</Solucion>
+
+<Solucion titulo="8.2 · Explique el thrashing">
+Es cuando el sistema pasa la mayor parte del tiempo **intercambiando páginas** entre memoria y disco en vez de ejecutar instrucciones. Ocurre cuando se expulsan páginas justo antes de usarlas, típicamente porque hay **demasiados procesos** y sus conjuntos residentes no alcanzan. El uso de la CPU **se desploma**.
+</Solucion>
+
+<Solucion titulo="8.3 · ¿Por qué la localidad es crucial para la memoria virtual?">
+Porque las referencias tienden a **agruparse**:
+- en un periodo corto se usan **pocas páginas**, así que basta con tener esas en memoria;
+- el pasado reciente permite **predecir** qué páginas se necesitarán, para no expulsarlas y evitar el thrashing.
+
+Sin localidad, la memoria virtual fallaría constantemente.
+</Solucion>
+
+<Solucion titulo="8.4 · Elementos típicos de una PTE">
+- **Número de frame:** dónde está la página.
+- **Bit de presencia (P/V):** si está en memoria.
+- **Bit de modificación (M):** si cambió desde que se cargó (si cambió, hay que escribirla al reemplazarla).
+- **Bit de referencia o uso (R/U):** si se usó recientemente (para el reemplazo).
+- **Bits de protección o compartición:** lectura, escritura, ejecución, usuario o kernel.
+- Además, según el sistema: lock, age, copy-on-write.
+</Solucion>
+
+<Solucion titulo="8.5 · ¿Para qué sirve la TLB?">
+Es una **caché de alta velocidad de las PTE** usadas recientemente. Sin ella, cada referencia costaría **dos** accesos a memoria (la PTE y el dato). Con ella, si acierta, la traducción es casi inmediata, y por localidad casi siempre acierta. La búsqueda es **asociativa**: compara el número de página en paralelo.
+</Solucion>
+
+<Solucion titulo="8.6 · Defina brevemente las políticas de fetch">
+- **Por demanda:** se trae una página solo cuando se referencia algo en ella.
+- **Prepaging:** se traen además otras páginas (normalmente contiguas en disco), aprovechando que leer varias juntas es más eficiente. Solo conviene si se van a usar.
+</Solucion>
+
+<Solucion titulo="8.7 · Diferencia entre gestión del conjunto residente y política de reemplazo">
+- **Gestión del conjunto residente:** decide **cuántos frames** recibe cada proceso (fijo o variable) y **entre qué páginas** se busca la víctima (alcance local o global).
+- **Reemplazo:** dentro del conjunto de candidatas, decide **qué página** concreta se saca (óptimo, LRU, FIFO, clock).
+</Solucion>
+
+<Solucion titulo="8.8 · Relación entre FIFO y Clock">
+El **Clock es un FIFO con segunda oportunidad**:
+- también recorre los frames como un buffer circular con un puntero;
+- pero **salta** (y pone en 0) los que tienen el bit de uso en 1.
+
+**Sin bits, el Clock es FIFO.** Con el bit de uso se aproxima a LRU con poco *overhead*.
+</Solucion>
+
+<Solucion titulo="8.9 · ¿Qué se logra con el page buffering?">
+- La página reemplazada **no se descarta enseguida**: pasa a la lista de libres o a la de modificadas sin moverse de memoria. **Si se vuelve a referenciar, se recupera a muy bajo costo** (las listas son una caché de páginas).
+- Las modificadas se escriben **en grupos**, con menos E/S.
+- Permite usar un algoritmo simple (FIFO) con buen rendimiento.
+</Solucion>
+
+<Solucion titulo="8.10 · ¿Por qué no se puede combinar reemplazo global con asignación fija?">
+- Con alcance **global**, la víctima puede ser una página de **otro** proceso. El que falló **ganaría** un frame y el otro **perdería** uno, así que los tamaños cambiarían.
+- Eso contradice la **asignación fija**: para mantener fijo el número de frames, la página reemplazada tiene que ser del **mismo** proceso, es decir, el alcance tiene que ser **local**.
+</Solucion>
+
+<Solucion titulo="8.11 · Diferencia entre conjunto residente y working set">
+- El **conjunto residente** es lo que el proceso **tiene ahora en memoria**.
+- El **working set** $W(t, \Delta)$ es lo que el proceso **usó en las últimas Δ referencias**, es decir, lo que **necesita** según su localidad actual.
+
+Lo ideal es que el conjunto residente **contenga** al working set.
+</Solucion>
+
+<Solucion titulo="8.12 · Diferencia entre limpieza por demanda y precleaning">
+- **Por demanda:** una página modificada se escribe a disco **solo cuando se elige para reemplazarla**. Minimiza las escrituras, pero quien falla espera dos transferencias.
+- **Precleaning:** se escriben **antes** de necesitar el frame, en grupos. Puede desperdiciar E/S si la página se modifica de nuevo antes de salir.
+
+Lo mejor es combinarlas con **page buffering**.
+</Solucion>
+
+## Autoevaluación del capítulo
+
+<Quiz
+	client:visible
+	id="stal-cap8"
+	titulo="Cap. 8 según el libro"
+	preguntas={[
+		{ q: '¿Cuáles son las dos consecuencias de cargar solo parte del proceso?', opts: ['Menos fallos y menos E/S', 'Caben más procesos en memoria y un proceso puede ser más grande que toda la memoria principal', 'No hay fragmentación y no hace falta TLB', 'Se elimina el thrashing'], ok: 1 },
+		{ q: 'En una tabla invertida, el tamaño de la tabla es proporcional a…', opts: ['el espacio virtual de cada proceso', 'la memoria física (una entrada por frame)', 'el número de procesos', 'el tamaño de la TLB'], ok: 1 },
+		{ q: 'La TLB se busca con mapeo asociativo porque…', opts: ['es más barata', 'solo tiene algunas entradas, así que no se puede indexar por número de página: cada entrada guarda la página y la PTE y se comparan en paralelo', 'está en disco', 'usa hash'], ok: 1 },
+		{ q: 'Con páginas muy pequeñas, ¿qué problema destaca el libro?', opts: ['Más fragmentación interna', 'Tablas más grandes que pueden no caber en memoria, con un posible doble page fault', 'La TLB cubre más memoria', 'Los discos transfieren mejor'], ok: 1 },
+		{ q: 'En una combinación de segmentación y paginación, la entrada de segmento NO necesita…', opts: ['la longitud', 'la base de la tabla de páginas', 'los bits P y M, porque eso se maneja a nivel de página', 'los bits de protección'], ok: 2 },
+		{ q: 'En anillos de protección, un programa puede…', opts: ['acceder a datos de anillos más privilegiados', 'acceder a datos de su anillo o de uno menos privilegiado, y llamar servicios de su anillo o de uno más privilegiado', 'llamar solo a anillos menos privilegiados', 'acceder a cualquier anillo'], ok: 1 },
+		{ q: '¿En qué caso importa la política de placement con paginación?', opts: ['Nunca', 'En sistemas NUMA', 'Con TLB pequeña', 'Con prepaging'], ok: 1 },
+		{ q: 'Con la cadena 2 3 2 1 5 2 4 5 3 2 5 2 y 3 frames, los fallos después de llenar son:', opts: ['OPT 3, LRU 4, FIFO 6, Clock 5', 'OPT 3, LRU 5, FIFO 6, Clock 4', 'OPT 4, LRU 4, FIFO 6, Clock 6', 'OPT 2, LRU 3, FIFO 5, Clock 4'], ok: 0, why: 'Figura 8.14; verificado por simulación (6, 7, 9 y 8 contando los 3 fallos iniciales).' },
+		{ q: 'Clock mejorado, primera pasada:', opts: ['busca (0,1) y pone u = 0', 'busca (0,0) sin tocar los bits de uso', 'pone todos los bits en 0', 'busca (1,1)'], ok: 1 },
+		{ q: '¿Qué combinación es la más fácil de implementar y la usan muchos SO?', opts: ['Fija + local', 'Variable + global', 'Variable + local', 'Fija + global'], ok: 1 },
+		{ q: '¿Cuál NO es un problema del working set según el libro?', opts: ['El pasado no siempre predice el futuro', 'Medirlo de verdad es impráctico', 'El Δ óptimo es desconocido y varía', 'Produce la anomalía de Belady'], ok: 3 },
+		{ q: 'El defecto principal de PFF es…', opts: ['que no usa bit de uso', 'que en las transiciones entre localidades el conjunto residente se hincha antes de soltar las páginas viejas', 'que es más complejo que VSWS', 'que necesita conocer el futuro'], ok: 1 },
+		{ q: 'El criterio L = S ajusta la multiprogramación para que…', opts: ['la CPU esté al 50 %', 'el tiempo medio entre fallos sea igual al tiempo medio de atender un fallo', 'no haya fallos', 'el disco esté al 100 %'], ok: 1 },
+		{ q: 'Suspender al proceso que falla tiene la ventaja de que…', opts: ['libera más frames', 'ya iba a bloquearse y se ahorra un reemplazo y una E/S', 'tiene la menor prioridad', 'tiene el conjunto residente más chico'], ok: 1 },
+		{ q: 'En el reloj de dos manecillas de SVR4, si la memoria libre baja…', opts: ['aumenta handspread', 'aumenta scanrate: las manecillas van más rápido, de slowscan hacia fastscan', 'se detiene la manecilla trasera', 'se activa el lazy buddy'], ok: 1 },
+		{ q: '¿Qué tabla de UNIX se indexa por frame y la usa el reemplazo?', opts: ['La tabla de páginas', 'El descriptor de bloque de disco', 'La tabla de datos de frame (pfdata)', 'La tabla de uso de swap'], ok: 2 },
+		{ q: 'Lazy buddy: libero un bloque con D_i ≥ 2. ¿Qué pasa?', opts: ['Se fusiona enseguida', 'Se libera localmente (sin fusionar) y D_i baja 2', 'Se pasa a global y D_i = 0', 'Se divide'], ok: 1 },
+		{ q: '¿Cómo usa Linux 3 niveles en x86 de 32 bits, que tiene 2 en hardware?', opts: ['Emula el tercero en software, con costo', 'Define el page middle directory de tamaño 1 y la indirección se elimina al compilar', 'Usa una tabla invertida', 'No lo hace: usa 2 niveles'], ok: 1 },
+		{ q: 'El reemplazo de Linux anterior a la 2.6.28 (age de 8 bits) era en la práctica…', opts: ['LRU', 'FIFO', 'LFU (least frequently used)', 'óptimo'], ok: 2 },
+		{ q: 'En split LRU, ¿qué necesita una página para pasar de la lista inactiva a la activa?', opts: ['Un acceso', 'Dos accesos en barridos distintos', 'Que kswapd la marque dirty', 'Dos timeouts'], ok: 1 },
+		{ q: 'SLOB está diseñado para…', opts: ['minimizar los fallos de caché', 'ser simple y usar pocas instrucciones', 'ser lo más compacto posible, para sistemas con poca memoria', 'hugepages'], ok: 2 },
+	]}
+/>
+
+<Fuente archivos={['Stallings, Operating Systems 9e, cap. 8, §8.1–8.4 y sección 8.8 (Key Terms y Review Questions)', 'Indicaciones del LC3: lectura recomendada', 'Figura 8.14 verificada con un simulador propio']} />

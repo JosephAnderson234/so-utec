@@ -1,0 +1,168 @@
+---
+title: 'Stallings para el LC3: plan de lectura y preguntas de desarrollo'
+description: 'Las 4 preguntas teóricas del LC3 (5 pts) salen del libro: cap. 6 §6.1–6.8, cap. 7 completo y cap. 8 §8.1–8.4. Plan de lectura por bloques, las listas que el libro enumera y 14 preguntas de desarrollo con respuesta modelo.'
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+
+<EnSimple>
+El LC3 tiene **4 preguntas teóricas «del libro»** que valen 5 puntos y pueden ser **de desarrollo**: no basta con marcar, hay que **justificar**. Para eso, más que memorizar definiciones sueltas, hay que poder decir **por qué**: por qué best-fit rinde mal, por qué no se puede combinar fija con global, por qué la protección la hace el hardware. Esta sección resume el libro en ese formato.
+</EnSimple>
+
+<CardGrid>
+	<LinkCard title="Cap. 6 · Deadlock (§6.1–6.8)" href="/final/stallings/cap6/" description="Condiciones, prevención, banquero, detección, recuperación, estrategia integrada, filósofos y mecanismos de UNIX y Linux. Review Questions 6.1–6.7." />
+	<LinkCard title="Cap. 7 · Gestión de memoria (completo)" href="/final/stallings/cap7/" description="5 requisitos, particiones, placement, buddy, relocalización, paginación y segmentación simples, y carga y enlace (7A). Review Questions 7.1–7.9." />
+	<LinkCard title="Cap. 8 · Memoria virtual (§8.1–8.4)" href="/final/stallings/cap8/" description="PTE, tablas de 2 niveles e invertidas, TLB, tamaño de página, las 6 políticas, working set, PFF, VSWS, UNIX/Solaris y Linux. Review Questions 8.1–8.12." />
+</CardGrid>
+
+## Plan de lectura (unas 6 horas en total)
+
+| Bloque | Qué leer | Tiempo | Objetivo |
+| :-: | --- | :-: | --- |
+| 1 | **Cap. 7** · §7.1–7.4 + apéndice 7A | 1 h 30 | Entender el problema: cómo repartir la memoria **sin** memoria virtual |
+| 2 | **Cap. 8** · §8.1 (hardware) | 1 h 15 | PTE, multinivel, invertida, TLB, tamaño de página, segmentación + paginación |
+| 3 | **Cap. 8** · §8.2 (políticas) | 1 h 30 | La parte **más densa**: reemplazo, conjunto residente, working set, limpieza y carga |
+| 4 | **Cap. 8** · §8.3–8.4 | 30 min | UNIX/Solaris y Linux: estructuras, dos manecillas, lazy buddy, split LRU, slab |
+| 5 | **Cap. 6** · §6.1–6.6 | 1 h | Deadlock (ya visto antes del parcial): repasar las listas y el banquero |
+| 6 | **Cap. 6** · §6.7–6.8 | 30 min | Tablas de mecanismos de UNIX y del kernel Linux |
+
+**Al terminar cada bloque**, responde las *Review Questions* de la página del capítulo **sin mirar** y después abre la solución. Si fallas una, vuelve a la sección del libro.
+
+:::caution[El orden importa]
+Lee el **cap. 7 antes que el 8**: el cap. 8 da por sabidas la paginación y la segmentación simples, y su tabla 8.2 compara justamente «simple» con «virtual». El cap. 6 va al final porque es repaso.
+:::
+
+## Las listas que el libro enumera
+
+Son las respuestas más probables a «mencione…» o «¿cuáles son…?».
+
+| Lista | Elementos |
+| --- | --- |
+| Requisitos de la gestión de memoria (§7.1) | relocalización · protección · compartición · organización lógica · organización física |
+| Condiciones de deadlock (§6.1) | exclusión mutua · hold and wait · no expropiación (**posible**) + espera circular (**existe**) |
+| Enfoques ante el deadlock (§6.1) | prevención · evitación · detección |
+| Restricciones de la evitación (§6.3) | máximo declarado antes · procesos independientes · recursos fijos · no terminar con recursos |
+| Recuperación (§6.4) | abortar todos · checkpoint y reinicio · abortar uno por uno · expropiar uno por uno |
+| Mecanismos de UNIX (§6.7) | pipes · mensajes · memoria compartida · semáforos · señales |
+| Mecanismos del kernel Linux (§6.8) | atómicas · spinlocks · semáforos · barreras · RCU |
+| Tipos de carga (7A) | absoluta · relocalizable · dinámica en ejecución |
+| Políticas del SO (tabla 8.4) | fetch · placement · reemplazo · conjunto residente · limpieza · control de carga |
+| Algoritmos básicos de reemplazo | óptimo · LRU · FIFO · clock |
+| Ventajas de la segmentación (§8.1) | estructuras que crecen · recompilar por separado · compartir · proteger |
+| A quién suspender (§8.2) | menor prioridad · el que falla · el último activado · el de conjunto residente más chico · el más grande · el de mayor ventana restante |
+| Estructuras de UNIX SVR4 (§8.3) | tabla de páginas · descriptor de bloque de disco · tabla de datos de frame · tabla de uso de swap |
+| Asignadores pequeños de Linux (§8.4) | SLAB (caché) · SLUB (simple) · SLOB (compacto) |
+
+## 14 preguntas de desarrollo con respuesta modelo
+
+Cada respuesta tiene el tamaño que se espera en un examen: 3 a 6 líneas con la justificación.
+
+<Solucion titulo="1 · ¿Por qué best-fit, pese a su nombre, suele ser el peor algoritmo de placement?">
+Porque siempre elige el hueco **más cercano** al tamaño pedido, y lo que sobra es un fragmento **mínimo**. Cada asignación desperdicia poco por sí sola, pero la memoria se llena rápido de fragmentos **demasiado pequeños para cualquier pedido**. El resultado es más fragmentación externa útil y **compactaciones más frecuentes**. First-fit suele ser el más simple, rápido y eficaz (§7.2).
+</Solucion>
+
+<Solucion titulo="2 · ¿Por qué la protección de memoria no se puede hacer al compilar ni en software?">
+- **Al compilar** no se sabe dónde quedará el programa (relocalización, swap) y muchas direcciones se **calculan en ejecución** (índices, punteros).
+- **El SO** no puede anticipar todas las referencias, y revisar cada programa de antemano sería prohibitivamente costoso.
+
+Por eso cada referencia se verifica **al ejecutarse**, y solo el **procesador** puede hacerlo a esa velocidad: con base y límite, la longitud del segmento o los bits de protección de la PTE (§7.1).
+</Solucion>
+
+<Solucion titulo="3 · Compare la fragmentación de las cuatro técnicas simples del cap. 7">
+| Técnica | Fragmentación |
+| --- | --- |
+| Particiones fijas | **interna** (el proceso es más chico que la partición) |
+| Particiones dinámicas | **externa** (huecos entre particiones), que obliga a compactar |
+| Paginación simple | solo **interna**, en la **última página** del proceso |
+| Segmentación simple | solo **externa**, aunque menor que con las dinámicas porque los trozos son más chicos |
+</Solucion>
+
+<Solucion titulo="4 · ¿Por qué en paginación se concatena y en segmentación se suma?">
+- **En paginación**, el frame mide $2^m$, así que su inicio es $k \cdot 2^m$: sus m bits bajos son cero. Sumar el offset de m bits equivale a **escribirlo al lado** del número de frame.
+- **En segmentación**, la base es **cualquier** dirección (los segmentos son de tamaño variable y se ubican donde haya hueco). Sus bits bajos no son cero, así que hay que **sumar**, y antes **comparar offset con longitud**.
+</Solucion>
+
+<Solucion titulo="5 · ¿Por qué el banquero no garantiza que habrá deadlock en un estado inseguro?">
+Porque el estado inseguro solo dice que **no existe** una secuencia que garantice que todos terminan **si todos piden su máximo**. Los procesos pueden liberar recursos antes de pedir más (el ejemplo de la figura 6.8b), y entonces el sistema vuelve a un estado seguro. La evitación **no predice** el deadlock: elimina la **posibilidad** negando los pedidos que llevarían a un estado inseguro (§6.3).
+</Solucion>
+
+<Solucion titulo="6 · ¿Por qué la espera circular es distinta de las otras tres condiciones?">
+- **Exclusión mutua, hold and wait y no expropiación** son **decisiones de política** del sistema. Si se cumplen las tres, existe una región fatal: el deadlock es **posible**.
+- **La espera circular** es una **circunstancia** que **puede ocurrir** según el orden de los pedidos. Cuando ocurre, ya se entró en la región fatal y el deadlock **existe**.
+
+Por eso las tres primeras son necesarias y las cuatro juntas son suficientes (§6.1, nota 1).
+</Solucion>
+
+<Solucion titulo="7 · ¿Qué ventajas tiene la evitación sobre la prevención y sobre la detección?">
+- **Frente a la prevención:** permite las tres condiciones necesarias y solo niega los pedidos peligrosos, así que es **menos restrictiva** y da **más concurrencia**.
+- **Frente a la detección:** no hay que **expropiar ni hacer rollback**, porque nunca se llega al deadlock.
+- **El precio:** declarar los máximos, procesos independientes, recursos fijos, no terminar con recursos, y el costo de correr el test de seguridad en cada pedido.
+</Solucion>
+
+<Solucion titulo="8 · ¿Por qué las tablas de páginas se guardan en memoria virtual?">
+Porque crecen con el espacio virtual. Por ejemplo, 2 GB con páginas de 512 B dan $2^{22}$ PTE **por proceso**, y tenerlas todas en memoria real sería inaceptable. Solo tiene que estar residente la parte con la PTE de lo que se ejecuta. Esto lleva a los **esquemas multinivel**, con una raíz siempre residente que mapea páginas de la tabla, y abre la posibilidad de un **doble page fault**: uno por la página de la tabla y otro por la página del dato (§8.1).
+</Solucion>
+
+<Solucion titulo="9 · Ventajas y desventajas de una página grande">
+**Ventajas:**
+- tablas más chicas;
+- la TLB cubre más memoria;
+- los discos transfieren mejor bloques grandes.
+
+**Desventajas:**
+- más fragmentación interna;
+- cada página contiene zonas lejos de la referencia reciente, así que la **localidad se debilita** y la tasa de fallos sube (hasta que la página se acerca al tamaño del proceso, punto P de la figura 8.10a).
+
+El tamaño interactúa con los frames asignados. Una salida es usar **varios tamaños de página**, aunque los SO comerciales suelen usar uno solo.
+</Solucion>
+
+<Solucion titulo="10 · ¿Por qué no existe la combinación asignación fija + reemplazo global?">
+- Con alcance **global**, la víctima puede pertenecer a **otro** proceso. El que falla gana un frame y el otro lo pierde, así que los tamaños **cambian**.
+- Eso contradice la asignación fija, que exige que **el número de frames de cada proceso no cambie**: la víctima tiene que ser del mismo proceso, es decir, el alcance debe ser **local** (tabla 8.5).
+</Solucion>
+
+<Solucion titulo="11 · ¿Por qué el working set es «esencialmente LRU» y por qué no se implementa tal cual?">
+- **Es LRU** porque saca del conjunto residente las páginas **no referenciadas en las últimas Δ referencias**, es decir, las usadas **hace más tiempo**.
+- **No se implementa tal cual** por tres razones:
+  1. el pasado no siempre predice el futuro;
+  2. medirlo exige **marcar el tiempo de cada referencia** y mantener colas ordenadas, lo cual es impráctico;
+  3. el Δ óptimo es desconocido y varía.
+
+Por eso se aproxima con **PFF** o **VSWS**, que miran la tasa de fallos o muestrean bits de uso (§8.2).
+</Solucion>
+
+<Solucion titulo="12 · ¿Por qué el page buffering permite usar FIFO sin perder tanto rendimiento?">
+La página reemplazada **no se descarta**: su entrada pasa a la lista de libres o a la de modificadas, y **sigue en memoria**. Si FIFO saca una página que se usa mucho, el siguiente acceso la **recupera** de esa lista casi gratis. Las listas actúan como una **caché de páginas**, y además las modificadas se escriben **en grupos** (VAX VMS, §8.2).
+</Solucion>
+
+<Solucion titulo="13 · ¿Qué causa el thrashing y cómo lo evita el control de carga?">
+- **La causa:** hay **demasiados procesos** residentes, sus conjuntos residentes quedan por debajo de su working set y fallan sin parar. La CPU espera al disco y su uso **se desploma** (figura 8.19).
+- **El control de carga baja el nivel de multiprogramación**, suspendiendo procesos con alguno de los seis criterios. Para decidir cuándo, puede usar:
+  - el working set o PFF, que lo traen implícito;
+  - el criterio **L = S** (tiempo entre fallos igual al tiempo de servicio de un fallo);
+  - el criterio del **50 %** de uso del dispositivo de paginación;
+  - la **velocidad del puntero del Clock**.
+</Solucion>
+
+<Solucion titulo="14 · ¿Por qué el kernel no usa la paginación normal para su propia memoria, y qué usa?">
+Porque pide muchos objetos **mucho más pequeños que una página** (proc, vnodes, buffers, estructuras zombie), y repartirlos de a una página sería un gran desperdicio.
+
+- **SVR4 y Solaris** usan el **lazy buddy**: posterga las fusiones mientras $L_i \le A_i$, porque la demanda por tamaño cambia lento y fusionar para luego volver a dividir es trabajo perdido.
+- **Linux** usa **slab** (SLAB, SLUB o SLOB) sobre páginas obtenidas del buddy (§8.3–8.4).
+</Solucion>
+
+## Dónde están los ejercicios
+
+El libro **y** los ejercicios del curso coinciden en varios puntos:
+
+| Del libro | En la web |
+| --- | --- |
+| Problema 8.1 (PTE con V/R/M; 1052, 2221 y 5499) | [Virtual Memory · P4](/final/ejercicios/memoria-virtual/) |
+| Problema 8.2 (A[64][64] por columnas) | [Virtual Memory · P5](/final/ejercicios/memoria-virtual/) |
+| Figura 8.14 (OPT, LRU, FIFO y Clock) | [Reemplazo](/final/memoria-virtual/reemplazo/) (simulador) |
+| Problema 6.5 (banquero) | [Cap. 6 § 6.3](/final/stallings/cap6/) |
+
+<Fuente archivos={['Stallings, Operating Systems 9e, caps. 6–8', 'sem_9_10/OSL-Indicaciones-Laboratorio_Calificado_3.pdf (distribución de puntaje y lectura recomendada)', 'Respuestas modelo propias, basadas en el texto del libro']} />

@@ -1,0 +1,330 @@
+---
+title: 'Stallings cap. 6 · Deadlock y starvation (§6.1–6.8)'
+description: 'Lo que dice el libro, sección por sección, sobre deadlock: recursos reutilizables y consumibles, grafo de asignación, las 3 + 1 condiciones, prevención, evitación (banquero), detección y recuperación, estrategia integrada, filósofos, mecanismos de UNIX y del kernel Linux. Con las Review Questions 6.1–6.7 resueltas y el problema 6.5 verificado.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+
+<EnSimple>
+Piensa en **cuatro autos en un cruce de cuatro vías**. Cada uno entra un poco y ocupa un cuadrante, pero para salir necesita el cuadrante que tiene el de al lado. Nadie retrocede, nadie cede: **nadie avanza nunca**. Eso es un deadlock. El capítulo responde tres preguntas: ¿qué tiene que pasar para que ocurra? (las condiciones), ¿cómo lo impido? (prevención y evitación) y ¿qué hago si ya pasó? (detección y recuperación).
+</EnSimple>
+
+:::tip[Cómo usar esta página]
+Las **4 preguntas teóricas del LC3 salen del libro** (5 puntos). Esta página sigue el orden de Stallings y marca con 📌 las listas que el libro enumera, porque son las que se preguntan tal cual. Al final están las *Review Questions* del capítulo resueltas. La práctica con código (filósofos, barbero, trylock) está en la sección A del menú.
+:::
+
+## 6.1 Principios del deadlock
+
+**Definición del libro:** el deadlock es el **bloqueo permanente** de un conjunto de procesos que compiten por recursos o se comunican entre sí. Cada proceso del conjunto espera un evento que **solo otro proceso bloqueado del mismo conjunto** puede producir. Es permanente porque ninguno de esos eventos ocurre jamás, y **no existe una solución eficiente en el caso general**.
+
+### El cruce de cuatro autos (figura 6.1)
+
+- **Deadlock potencial:** los cuatro llegan a la vez y todos respetan «cede al de tu derecha». Nadie entra, pero los recursos están **libres**: si uno decide avanzar, puede.
+- **Deadlock real:** los cuatro entran a la vez y cada uno toma un cuadrante. Ya nadie puede seguir.
+
+### Diagrama de progreso conjunto (figuras 6.2 y 6.3)
+
+- El eje x es el avance de P y el eje y el de Q. La ejecución es un camino que va hacia el noreste (en un uniprocesador, con tramos horizontales y verticales alternados).
+- Las zonas donde ambos necesitarían el mismo recurso son **regiones prohibidas**: el camino no puede entrar en ellas.
+- La **región fatal** es la zona desde la cual el deadlock es **inevitable**. En la figura 6.2 hay 6 caminos y los caminos **3 y 4** entran en ella.
+- **Que exista una región fatal depende de la lógica** de los procesos. **Que ocurra el deadlock depende además de la dinámica** de la ejecución.
+- **Figura 6.3:** si P suelta A antes de pedir B, **no puede haber deadlock** sin importar el orden de ejecución, porque P nunca tiene A y B a la vez.
+
+### Recursos reutilizables y consumibles 📌
+
+| | **Reutilizable** | **Consumible** |
+| --- | --- | --- |
+| Definición | Lo usa un proceso a la vez y **no se gasta** al usarlo: se pide y se devuelve | Se **crea** (produce) y se **destruye** (consume). Normalmente no hay límite de cuántos hay |
+| Ejemplos del libro | procesador, canales de E/S, memoria principal y secundaria, dispositivos, estructuras de datos (archivos, bases de datos, **semáforos**) | **interrupciones, señales, mensajes**, información en buffers de E/S |
+| Deadlock de ejemplo | P toma el disco D y pide la cinta T; Q toma T y pide D. Intercalado `p0 p1 q0 q1 p2 q2` | P1 hace `Receive(P2)` y luego `Send`; P2 hace `Receive(P1)` y luego `Send`. Si el receive **bloquea**, ninguno envía |
+
+**Ejemplo de memoria:** hay 200 KB. P1 pide 80 KB y luego 60 KB; P2 pide 70 KB y luego 80 KB. Si ambos llegan a su segundo pedido (80 + 70 = 150, quedan 50), hay deadlock. La mejor salida que propone el libro es la **memoria virtual** (cap. 8).
+
+### Grafo de asignación de recursos (Holt, figura 6.5)
+
+- Flecha **proceso → recurso**: lo pidió y aún no se lo dan.
+- Flecha **punto del recurso → proceso**: se lo dieron (cada punto es una instancia). En recursos consumibles, esa flecha indica que el proceso es el **productor**.
+- **6.5c:** una instancia de Ra y de Rb, P1 tiene Rb y pide Ra, P2 tiene Ra y pide Rb → **deadlock**.
+- **6.5d:** la misma forma, pero con **varias instancias** → **no hay deadlock**. Un ciclo con recursos de varias instancias **no basta**.
+
+### Las condiciones 📌
+
+| | Condición | Qué dice | Tipo |
+| :-: | --- | --- | --- |
+| 1 | **Exclusión mutua** | Solo un proceso usa el recurso a la vez | política |
+| 2 | **Hold and wait** (retención y espera) | Un proceso retiene lo que tiene mientras espera más | política |
+| 3 | **No expropiación** | No se le puede quitar un recurso a la fuerza | política |
+| 4 | **Espera circular** | Una cadena cerrada de procesos, cada uno con un recurso que pide el siguiente | **circunstancia** |
+
+- **1, 2 y 3 son necesarias pero no suficientes:** con ellas el deadlock es **posible** (existe la región fatal).
+- **Con la 4 el deadlock existe:** las cuatro juntas son **necesarias y suficientes**.
+- **La sutileza del libro (nota 1):** la 4 es distinta de las otras. Las tres primeras son **decisiones de política**, mientras que la espera circular es algo que **puede ocurrir** según el orden de pedidos y liberaciones. La espera circular es «irresoluble» justamente porque se cumplen las tres primeras.
+
+| Posibilidad de deadlock | Existencia de deadlock |
+| --- | --- |
+| exclusión mutua + no expropiación + hold and wait | las tres + **espera circular** |
+
+## 6.2 Prevención
+
+**Idea:** diseñar el sistema para que el deadlock sea **imposible**. Hay dos clases:
+- **Indirecta:** impedir una de las tres condiciones necesarias (1, 2 o 3).
+- **Directa:** impedir la espera circular (4).
+
+| Condición | Cómo se previene (libro) | Costo |
+| --- | --- | --- |
+| Exclusión mutua | **En general no se puede eliminar**: si el recurso la necesita, el SO la debe dar. Los archivos permiten varios lectores, pero aun así hay deadlock si varios quieren escribir | — |
+| Hold and wait | Pedir **todos los recursos de una vez** y bloquear hasta poder darlos todos juntos | Esperas largas, recursos ociosos retenidos, el proceso puede no saber todo lo que usará, y con módulos o hilos es difícil conocer todos los pedidos |
+| No expropiación | (a) Si a un proceso le niegan un pedido, **suelta lo que tiene** y lo vuelve a pedir junto con lo nuevo. (b) El SO **expropia** al otro proceso para que suelte (solo funciona si no hay dos procesos de igual prioridad) | Práctico solo con recursos cuyo **estado se guarda y restaura fácil**, como el procesador |
+| Espera circular | **Orden lineal** de los tipos de recurso: si tienes Ri, solo puedes pedir Rj con j &gt; i | Puede ser ineficiente: frena procesos y niega accesos sin necesidad |
+
+**Por qué funciona el orden lineal:** si A tiene Ri y pide Rj, y B tiene Rj y pide Ri, entonces i &lt; j y j &lt; i a la vez, lo cual es imposible.
+
+## 6.3 Evitación
+
+**Diferencia clave con la prevención:** la evitación **permite** las tres condiciones necesarias, pero decide **dinámicamente** si conceder cada pedido para no llegar nunca al punto de deadlock. Permite **más concurrencia** que la prevención y **exige conocer los pedidos futuros** (el máximo de cada proceso). El libro admite en una nota que el nombre confunde, porque en el fondo también «previene».
+
+Dos enfoques:
+1. **Denegar el inicio de un proceso** (*process initiation denial*): iniciar $P_{n+1}$ solo si $R_j \ge C_{(n+1)j} + \sum_i C_{ij}$ para todo j. Es poco óptimo porque supone el peor caso: que todos pidan su máximo **a la vez**.
+2. **Denegar la asignación de un recurso** (*resource allocation denial*): el **algoritmo del banquero** (Dijkstra, 1965).
+
+### Vectores y matrices
+
+- **Resource** R: el total de cada recurso.
+- **Available** V: lo que no está asignado.
+- **Claim** C: el máximo que declara cada proceso.
+- **Allocation** A: lo asignado ahora.
+- **Need** = C − A.
+
+**Relaciones:** $R_j = V_j + \sum_i A_{ij}$, $C_{ij} \le R_j$, $A_{ij} \le C_{ij}$.
+
+### Estado seguro y banquero
+
+- **Estado seguro:** existe **al menos una secuencia** en la que todos los procesos pueden terminar.
+- **Inseguro:** no existe ninguna.
+- **El banquero:** ante un pedido, (1) verifica que no supere lo declarado (si lo supera, es un error); (2) verifica que haya disponible (si no, suspende); (3) **simula** la asignación y corre el **test de seguridad**; si el nuevo estado es seguro concede, si no **restaura y suspende**.
+- **Ojo:** un estado inseguro **no es** un deadlock, solo tiene la **posibilidad**. La evitación no predice el deadlock con certeza: garantiza que **nunca** haya esa posibilidad.
+
+### Restricciones de la evitación 📌
+
+1. Hay que declarar **por adelantado** el máximo de cada proceso.
+2. Los procesos deben ser **independientes**: su orden de ejecución no puede estar restringido por sincronización.
+3. El número de recursos a repartir debe ser **fijo**.
+4. **Ningún proceso puede terminar mientras tiene recursos.**
+
+**Ventajas** que menciona el libro: no hace falta expropiar ni hacer *rollback* (como en la detección) y es menos restrictiva que la prevención.
+
+<Solucion titulo="Problema 6.5 del libro (banquero), resuelto y verificado">
+
+Hay 4 recursos (A = 15, B = 6, C = 9, D = 10) y 6 procesos:
+
+| Proceso | Allocation | Claim | **Need** = C − A |
+| :-: | :-: | :-: | :-: |
+| P0 | 2 0 2 1 | 9 5 5 5 | **7 5 3 4** |
+| P1 | 0 1 1 1 | 2 2 3 3 | **2 1 2 2** |
+| P2 | 4 1 0 2 | 7 5 4 4 | **3 4 4 2** |
+| P3 | 1 0 0 1 | 3 3 3 2 | **2 3 3 1** |
+| P4 | 1 1 0 0 | 5 2 2 1 | **4 1 2 1** |
+| P5 | 1 0 1 1 | 4 4 4 4 | **3 4 3 3** |
+
+**a) Available:** 15 − 9 = 6, 6 − 3 = 3, 9 − 4 = 5, 10 − 6 = 4, es decir **(6, 3, 5, 4)** ✔.
+
+**c) Estado seguro.** Una secuencia segura, con el vector de trabajo después de que termina cada proceso:
+
+| Termina | Work |
+| :-: | :-: |
+| (inicio) | 6 3 5 4 |
+| P1 | 6 4 6 5 |
+| P2 | 10 5 6 7 |
+| P0 | 12 5 8 8 |
+| P3 | 13 5 8 9 |
+| P4 | 14 6 8 9 |
+| P5 | 15 6 9 10 |
+
+**d) Pedido (3, 2, 3, 3) de P5.** No supera su Need (3 4 3 3) y cabe en Available. Simulándolo, Available queda en **(3, 1, 2, 1)**, y con eso **ningún** proceso puede completar su Need. El estado es inseguro, así que **se niega** y P5 se suspende.
+
+Verificado con un script que recorre el test de seguridad.
+
+</Solucion>
+
+## 6.4 Detección
+
+**Idea:** el extremo opuesto a la prevención. Se conceden los pedidos **siempre que se pueda** y, cada cierto tiempo, se busca la espera circular.
+
+- **¿Cada cuánto?** Revisar en **cada pedido** detecta temprano y es simple (los cambios son incrementales), pero **consume mucha CPU**.
+- **Algoritmo** (Coffman, 1971), con Allocation, Available y una matriz de pedidos **Q**:
+  1. **Marcar** los procesos cuya fila de Allocation es toda ceros (sin recursos no pueden estar en deadlock).
+  2. W = Available.
+  3. Buscar un proceso no marcado con su fila de Q ≤ W. Si no hay ninguno, terminar.
+  4. Marcarlo, hacer W = W + su fila de Allocation y volver al paso 3.
+  - **Hay deadlock si y solo si quedan procesos sin marcar.** Los no marcados son exactamente los que están en deadlock.
+- **Diferencia con el banquero:** la detección usa **Q (lo que piden ahora)**, mientras que el banquero usa **Need (lo máximo que podrían pedir)**. La detección **no previene** nada: solo dice si **ya** hay deadlock.
+
+### Recuperación 📌 (de menor a mayor sofisticación)
+
+1. **Abortar todos** los procesos en deadlock. Según el libro, es una de las soluciones más comunes, si no la más común.
+2. **Volver a un checkpoint** y reiniciarlos. Requiere *rollback* y el deadlock **puede repetirse**, aunque el no determinismo suele evitarlo.
+3. **Abortar uno por uno** hasta que se rompa, eligiendo por mínimo costo y **re-ejecutando la detección** tras cada aborto.
+4. **Expropiar recursos uno por uno**, también por costo; el proceso afectado se devuelve a un punto **anterior** a cuando obtuvo el recurso.
+
+**Criterios para elegir la víctima** (en 3 y 4), escogiendo el proceso con:
+- **menos** tiempo de CPU consumido;
+- **menos** salida producida;
+- **más** tiempo restante estimado (el libro dice que este dato es poco fiable);
+- **menos** recursos asignados;
+- **menor** prioridad.
+
+## 6.5 Estrategia integrada
+
+Ninguna estrategia sirve para todo, así que se propone (Howard, 1973):
+1. Agrupar los recursos en **clases**.
+2. Usar el **orden lineal** entre clases para prevenir la espera circular entre ellas.
+3. Dentro de cada clase, usar el método más apropiado.
+
+| Clase (en orden de asignación) | Estrategia sugerida |
+| --- | --- |
+| **Espacio de swap** | Prevención **pidiendo todo de una vez** (hold and wait), porque el máximo suele conocerse; también sirve la evitación |
+| **Recursos de proceso** (cintas, archivos) | **Evitación**, porque es razonable que declaren antes lo que usarán; o el orden de recursos |
+| **Memoria principal** | Prevención por **expropiación**: se hace swap del proceso a disco |
+| **Recursos internos** (canales de E/S) | Prevención por **orden de recursos** |
+
+## 6.6 Filósofos comensales
+
+Dijkstra (1971). Son 5 filósofos y 5 tenedores, y cada uno necesita **dos** para comer. Hay que garantizar exclusión mutua sin deadlock ni starvation. El libro dice que es un **caso de prueba estándar** para evaluar mecanismos de sincronización.
+
+| Solución del libro | Resultado |
+| --- | --- |
+| **Fig. 6.12:** cada uno toma el izquierdo y luego el derecho | **Deadlock**: todos toman el izquierdo a la vez |
+| **Fig. 6.13:** un **portero** (`room = 4`) que deja entrar a lo más 4 | **Sin deadlock ni starvation**: con 4 sentados, al menos uno tiene sus dos tenedores |
+| **Fig. 6.14:** **monitor** con `ForkReady[5]` y `fork[5]` | **Sin deadlock**: solo uno está en el monitor a la vez, así que el primero que entra toma izquierdo y derecho antes de que el vecino tome el suyo |
+
+El libro también propone, en broma, comprar 5 tenedores más o enseñarles a comer con uno. Las 8 versiones del curso, con su análisis de starvation, están en [Filósofos](/final/deadlock/filosofos/).
+
+## 6.7 Mecanismos de concurrencia de UNIX 📌
+
+**Pipes, mensajes y memoria compartida** sirven para **comunicar datos**. **Semáforos y señales** sirven para **disparar acciones** en otros procesos.
+
+| Mecanismo | Lo que dice el libro |
+| --- | --- |
+| **Pipe** | Buffer **circular** productor–consumidor (FIFO) de tamaño fijo. Si no hay espacio al escribir se bloquea, y también al leer más bytes de los que hay. El SO da **exclusión mutua**. **Sin nombre**: solo procesos relacionados; **con nombre**: cualquiera |
+| **Mensajes** | Bloque de bytes con un **tipo**; `msgsnd` y `msgrcv`, con una cola por proceso (un buzón). Se recibe en FIFO o **por tipo**. Se bloquea al enviar a una cola llena o leer de una vacía, pero **no** se bloquea si pide un tipo que no está |
+| **Memoria compartida** | **El IPC más rápido**: un bloque de memoria virtual común, al que se accede con instrucciones normales. Permisos de solo lectura o lectura y escritura por proceso. La exclusión mutua **no la da** el mecanismo: la ponen los procesos |
+| **Semáforos (System V)** | Generalizan semWait y semSignal: **varias operaciones a la vez** y valores **mayores que 1**, todo de forma **atómica**. Se crean **en conjuntos** (`semctl`, `sem_op`) |
+| **Señales** | Aviso de un evento **asíncrono**, como una interrupción pero **sin prioridades**. Es **un bit** en la tabla de procesos, así que **no se encolan**. Se procesa al despertar o al volver de una llamada al sistema. Respuesta: acción por defecto, *handler* o ignorarla |
+
+**Un semáforo de System V guarda:**
+- su valor;
+- el PID del último proceso que operó;
+- cuántos esperan que el valor **aumente**;
+- cuántos esperan que valga **cero**.
+
+**`sem_op`:**
+- **positivo:** suma y despierta a los que esperan que aumente;
+- **0:** si el valor es 0 sigue, si no espera a que sea 0;
+- **negativo con |op| ≤ valor:** suma (resta), y si queda en 0 despierta a los que esperaban cero;
+- **negativo con |op| &gt; valor:** se suspende hasta que aumente.
+
+**Señales de la tabla 6.1 que conviene reconocer:**
+
+| Señal | Qué indica |
+| --- | --- |
+| SIGINT (02) | interrupción |
+| SIGKILL (09) | matar el proceso |
+| SIGSEGV (11) | segmentation violation: acceso fuera del espacio virtual |
+| SIGPIPE (13) | escritura en un pipe sin lectores |
+| SIGALRM (14) | alarma |
+| SIGTERM (15) | terminación por software |
+| SIGUSR1/2 (16/17) | definidas por el usuario |
+| SIGCHLD (18) | murió un hijo |
+
+## 6.8 Mecanismos del kernel Linux 📌
+
+Linux tiene todo lo de UNIX y además **señales de tiempo real** (RT, de POSIX.1b), que se diferencian en tres cosas:
+1. se entregan **por prioridad**;
+2. **se pueden encolar** varias;
+3. pueden llevar un **valor** (un entero o un puntero).
+
+| Mecanismo | Idea | Lo que se pregunta |
+| --- | --- | --- |
+| **Operaciones atómicas** | **Enteras** sobre `atomic_t` y de **bitmap** sobre un bit cualquiera | Por qué existe el tipo `atomic_t`: nunca se usa sin protección, no admite operaciones no atómicas, el compilador no lo optimiza mal y oculta las diferencias de arquitectura. Uso típico: **contadores**. Es lo más simple; lo demás se construye encima |
+| **Spinlock** | Un entero: si vale 0 se pone en 1 y se entra; si no, se **gira** comprobándolo | Es **espera activa**. Conviene si la espera es **menor que unos dos cambios de contexto**. Variantes: plain, `_irq` (deshabilita interrupciones locales), `_irqsave` (además guarda su estado), `_bh` (deshabilita las *bottom halves*) |
+| **Spinlock en un uniprocesador** | | Sin expropiación del kernel **desaparece al compilar**; con expropiación se vuelve **habilitar o deshabilitar interrupciones**; en multiprocesador sí prueba la variable |
+| **Spinlock de lectores–escritores** | Contador de lectores de **24 bits** + bandera | (0, 1) libre; (0, 0) un escritor; (n, 0) n lectores; (n, 1) inválido. **Favorece a los lectores** |
+| **Semáforos del kernel** | **Binarios** (MUTEX), **contadores** y de **lectores–escritores**. `down` y `up` = semWait y semSignal | Más eficientes que los de usuario y **no accesibles** por llamadas al sistema. `down` (sueño no interrumpible), `down_interruptible` (lo despierta una señal y devuelve `-EINTR`), `down_trylock` (no bloquea). Los de lectores–escritores solo duermen de forma no interrumpible |
+| **Barreras de memoria** | Impiden que el compilador o la CPU **reordenen** accesos | `rmb` (lecturas), `wmb` (escrituras), `mb` (ambas), `barrier()` (solo el **compilador**); `smp_*` (barrera real en SMP, solo de compilador en UP). `a = 1; b = 1` se puede reordenar, `a = 1; b = a` no |
+| **RCU** (read-copy-update, 2002) | Los **lectores no toman lock**. El escritor **copia**, modifica y cambia el **puntero** de forma atómica | API de 6 funciones: `rcu_read_lock/unlock`, `rcu_dereference`, `rcu_assign_pointer`, `synchronize_rcu` (bloquea) y `call_rcu` (con un *callback*). Ideal con **muchas lecturas y pocas escrituras** |
+
+Más detalle y ejemplos en [Mecanismos de UNIX y Linux](/final/deadlock/mecanismos-kernel/).
+
+## Términos clave del capítulo
+
+banker's algorithm · circular wait · consumable resource · deadlock · deadlock avoidance · deadlock detection · deadlock prevention · fatal region · hold and wait · joint progress diagram · memory barrier · message · mutual exclusion · pipe · preemption · resource allocation graph · reusable resource · safe state · spinlock · starvation · unsafe state
+
+## Review Questions 6.1–6.7 (resueltas)
+
+<Solucion titulo="6.1 · Ejemplos de recursos reutilizables y consumibles">
+- **Reutilizables:** procesador, canales de E/S, memoria principal y secundaria, dispositivos, archivos, bases de datos y semáforos.
+- **Consumibles:** interrupciones, señales, mensajes e información en buffers de E/S.
+</Solucion>
+
+<Solucion titulo="6.2 · Las tres condiciones que deben estar presentes para que el deadlock sea posible">
+Exclusión mutua, hold and wait y no expropiación.
+</Solucion>
+
+<Solucion titulo="6.3 · Las cuatro condiciones que crean un deadlock">
+Las tres anteriores más la **espera circular**: una cadena cerrada de procesos en la que cada uno retiene un recurso que necesita el siguiente. Las cuatro juntas son necesarias y suficientes.
+</Solucion>
+
+<Solucion titulo="6.4 · ¿Cómo se previene hold and wait?">
+Exigiendo que el proceso pida **todos** sus recursos a la vez y bloqueándolo hasta que se le puedan dar todos juntos.
+
+**Desventajas:**
+- esperas largas;
+- recursos asignados que nadie usa;
+- el proceso puede no saber de antemano lo que necesitará.
+</Solucion>
+
+<Solucion titulo="6.5 · Dos formas de prevenir la no expropiación">
+1. Si a un proceso que retiene recursos le niegan un pedido, debe **liberar** los que tiene y volver a pedirlos junto con el nuevo.
+2. Si un proceso pide un recurso que tiene otro, el SO **expropia** a ese otro y lo obliga a liberarlo (solo funciona si no hay dos procesos con la misma prioridad).
+
+Ambas son prácticas solo con recursos cuyo estado se puede guardar y restaurar, como el procesador.
+</Solucion>
+
+<Solucion titulo="6.6 · ¿Cómo se previene la espera circular?">
+Definiendo un **orden lineal** de los tipos de recurso: quien tiene un recurso de tipo Ri solo puede pedir tipos posteriores a Ri. Un ciclo exigiría i &lt; j y j &lt; i a la vez.
+</Solucion>
+
+<Solucion titulo="6.7 · Diferencia entre evitación, detección y prevención">
+- **Prevención:** el sistema se diseña para que **no se pueda cumplir** una de las condiciones. Es estática y conservadora.
+- **Evitación:** se permiten las condiciones, pero **cada pedido** se analiza y solo se concede si el estado resultante es seguro. Requiere conocer los máximos.
+- **Detección:** se concede **siempre que se pueda**, y periódicamente el SO busca deadlocks y, si encuentra uno, **actúa para romperlo** (recuperación).
+</Solucion>
+
+## Autoevaluación del capítulo
+
+<Quiz
+	client:visible
+	id="stal-cap6"
+	titulo="Cap. 6 según el libro"
+	preguntas={[
+		{ q: 'Según Stallings, ¿qué diferencia a la espera circular de las otras tres condiciones?', opts: ['Es la única que se puede prevenir', 'Las otras tres son decisiones de política; la espera circular es una circunstancia que puede ocurrir según el orden de pedidos y liberaciones', 'Es la única necesaria', 'Solo aparece con recursos consumibles'], ok: 1, why: 'Nota 1 de §6.1: «Items 1 through 3 are policy decisions, while item 4 is a circumstance…».' },
+		{ q: 'En el cruce de cuatro autos, si todos respetan la regla de ceder al de la derecha y nadie entra, el libro dice que es…', opts: ['un deadlock real', 'un deadlock potencial: los recursos están libres y cualquiera podría avanzar', 'starvation', 'livelock'], ok: 1 },
+		{ q: 'Un grafo de asignación tiene un ciclo, pero los recursos tienen varias instancias. Entonces…', opts: ['siempre hay deadlock', 'puede no haber deadlock (figura 6.5d)', 'nunca hay deadlock', 'es un estado inseguro'], ok: 1 },
+		{ q: '¿Cuál NO es una restricción de la evitación de deadlock según el libro?', opts: ['Declarar el máximo por adelantado', 'Procesos independientes, sin restricciones de sincronización', 'Número fijo de recursos', 'Los recursos deben ser expropiables'], ok: 3, why: 'La cuarta restricción real es que ningún proceso termine mientras retiene recursos.' },
+		{ q: 'Un estado inseguro…', opts: ['es un deadlock', 'tiene la posibilidad de deadlock, pero no lo es', 'no puede volver a ser seguro', 'solo existe con un recurso'], ok: 1, why: 'Fig. 6.8b: si P1 suelta recursos antes de volver a necesitarlos, el sistema vuelve a un estado seguro.' },
+		{ q: 'En la estrategia integrada, ¿qué se sugiere para la memoria principal?', opts: ['Evitación con el banquero', 'Prevención por expropiación (swap del proceso a disco)', 'Pedir todo de una vez', 'Orden de recursos'], ok: 1 },
+		{ q: 'La solución de filósofos con monitor (figura 6.14) no tiene deadlock porque…', opts: ['usa un portero de 4 sillas', 'solo un proceso está en el monitor a la vez, así que toma izquierdo y derecho sin que el vecino se interponga', 'los filósofos son asimétricos', 'usa trylock'], ok: 1 },
+		{ q: 'Las señales UNIX estándar no se pueden encolar porque…', opts: ['tienen prioridades', 'cada tipo de señal es un solo bit en la tabla de procesos', 'las bloquea el kernel', 'se envían por pipe'], ok: 1 },
+		{ q: 'El IPC más rápido de UNIX según el libro es…', opts: ['el pipe', 'los mensajes', 'la memoria compartida', 'las señales'], ok: 2, why: 'Y su exclusión mutua la deben poner los propios procesos.' },
+		{ q: 'Un spinlock en un uniprocesador con la expropiación del kernel deshabilitada…', opts: ['gira igual que en SMP', 'se elimina al compilar porque no se necesita', 'se vuelve un semáforo', 'deshabilita las bottom halves'], ok: 1 },
+		{ q: 'El spinlock de lectores–escritores con contador n > 0 y bandera 0 significa…', opts: ['libre', 'un escritor', 'n lectores', 'estado inválido'], ok: 2 },
+		{ q: '`barrier()` en Linux…', opts: ['impide reordenar al compilador y a la CPU', 'impide reordenar solo al compilador', 'solo las lecturas', 'solo en SMP'], ok: 1 },
+		{ q: 'En RCU, ¿qué hace el escritor?', opts: ['Toma un spinlock y escribe en el lugar', 'Copia el recurso, modifica la copia, cambia el puntero de forma atómica y libera la versión vieja cuando ningún lector la usa', 'Espera a que no haya lectores con down_write', 'Envía una señal RT'], ok: 1 },
+		{ q: 'down_interruptible devuelve -EINTR cuando…', opts: ['el semáforo está libre', 'una señal despierta al hilo antes del up', 'el contador llega a cero', 'hay deadlock'], ok: 1 },
+	]}
+/>
+
+<Fuente archivos={['Stallings, Operating Systems 9e, cap. 6, §6.1–6.8 y sección 6.13 (Key Terms y Review Questions)', 'Indicaciones del LC3: lectura recomendada', 'Problema 6.5 resuelto y verificado con un script propio']} />

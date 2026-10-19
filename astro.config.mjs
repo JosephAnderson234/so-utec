@@ -79,6 +79,16 @@ export default defineConfig({
 								{ label: 'Virtual Memory (6)', slug: 'final/ejercicios/memoria-virtual' },
 							],
 						},
+						{
+							label: 'F · Libro: Stallings (teóricas)',
+							badge: { text: 'libro', variant: 'note' },
+							items: [
+								{ label: 'Plan de lectura y desarrollo', slug: 'final/stallings' },
+								{ label: 'Cap. 6 · Deadlock (§6.1–6.8)', slug: 'final/stallings/cap6' },
+								{ label: 'Cap. 7 · Gestión de memoria', slug: 'final/stallings/cap7' },
+								{ label: 'Cap. 8 · Memoria virtual (§8.1–8.4)', slug: 'final/stallings/cap8' },
+							],
+						},
 						{ label: 'Repaso y simulacro del LC3', slug: 'final/repaso', badge: { text: 'LC3', variant: 'caution' } },
 						{ label: 'LC3 · peor escenario (difícil)', slug: 'final/lc3-peor-escenario', badge: { text: 'difícil', variant: 'danger' } },
 					],
