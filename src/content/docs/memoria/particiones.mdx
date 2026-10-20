@@ -5,10 +5,21 @@ description: 'Tema nuevo (06 · Memory): requisitos de la gestión de memoria, p
 
 import BuddySim from '../../../components/sim/BuddySim.tsx';
 import PlacementSim from '../../../components/sim/PlacementSim.tsx';
+import EnSimple from '../../../components/EnSimple.astro';
 import Quiz from '../../../components/Quiz.tsx';
 import Fuente from '../../../components/Fuente.astro';
 
 ## Requisitos de la gestión de memoria (Stallings cap. 7)
+
+<EnSimple titulo="En simple: el problema">
+La RAM es como un **estacionamiento** y los procesos son **autos** que llegan y se van. El SO es el encargado del estacionamiento y tiene que resolver:
+- **dónde** estaciona cada auto (y que pueda volver a otro lugar mañana: **relocalización**);
+- que ningún auto **choque** al de al lado (**protección**);
+- que dos autos puedan **compartir** algo, como un remolque, sin romper lo anterior (**compartición**);
+- que el auto venga por **partes con reglas distintas** (cabina, maletero) (**organización lógica**);
+- que, si no caben todos, algunos esperen **en la calle** (el disco) y entren cuando haya sitio (**organización física**).
+</EnSimple>
+
 
 | Requisito | Por qué |
 | --- | --- |
@@ -21,6 +32,15 @@ import Fuente from '../../../components/Fuente.astro';
 ## Particionamiento (sin memoria virtual)
 
 ### Particiones fijas
+
+<EnSimple titulo="En simple: casilleros de tamaño fijo">
+Imagina **casilleros** de un gimnasio, ya construidos. Si tu mochila es chica y te toca un casillero grande, el espacio sobrante **no lo puede usar nadie**.
+
+**Ejemplo trivial:** partición de **8 MB**, proceso de **3 MB** → se pierden **5 MB** dentro de la partición. Eso es la **fragmentación interna** (el desperdicio queda *dentro* de lo asignado).
+
+Y si hay 7 casilleros, como mucho hay **7 procesos** a la vez, aunque sean diminutos.
+</EnSimple>
+
 - **De igual tamaño:** da igual cuál usar. Si todas están ocupadas por procesos no listos, se hace *swap out*.
 - **De distinto tamaño:** se asigna la partición **más pequeña que alcance**, con una cola por partición o una cola única.
 - ✘ El número de particiones limita el grado de multiprogramación. ✘ Los trabajos pequeños desperdician espacio: **fragmentación interna**. ✘ Un programa demasiado grande necesita *overlays*.
@@ -33,6 +53,15 @@ import Fuente from '../../../components/Fuente.astro';
 - IBM OS/**MFT** (*Multiprogramming with a Fixed number of Tasks*). Hoy está prácticamente en desuso.
 
 ### Particiones dinámicas (OS/MVT de IBM)
+
+<EnSimple titulo="En simple: estacionamiento sin líneas pintadas">
+Ahora no hay casilleros: cada auto ocupa **exactamente** lo que mide. No se desperdicia nada al entrar… pero cuando los autos **se van**, quedan **huecos** de tamaños raros entre los que siguen estacionados.
+
+**Ejemplo trivial:** quedan dos huecos libres, uno de **4 MB** y otro de **6 MB**. Llega un proceso de **8 MB**. En total hay 10 MB libres, **pero no cabe**, porque ningún hueco por sí solo mide 8. Eso es la **fragmentación externa** (el desperdicio está *fuera*, entre los procesos).
+
+La **compactación** es pedir a todos los autos que se corran hacia un lado para juntar los huecos. Funciona, pero mientras tanto nadie trabaja (cuesta CPU).
+</EnSimple>
+
 - Cada proceso recibe **exactamente** lo que pide.
 - Con el tiempo aparecen **huecos** pequeños entre procesos: **fragmentación externa**.
 - **Paso a paso (fig. 7.4), con 56 MB libres:** entra P1 (20 MB) y quedan 36; entra P2 (14) y quedan 22; entra P3 (18) y queda un hueco de **4**. Todos quedan bloqueados, así que se hace *swap out* de P2 (se liberan 14). Entra P4 (8) y queda un hueco de **6**. La memoria termina **salpicada de huecos inútiles** (4 MB, 6 MB): fragmentación externa.
@@ -46,6 +75,14 @@ import Fuente from '../../../components/Fuente.astro';
 
 ## Algoritmos de placement
 
+<EnSimple titulo="En simple: ¿en qué hueco lo pongo?">
+Hay varios huecos libres y llega un proceso. **Ejemplo trivial:** huecos, en orden desde el inicio de la memoria, de **5, 12 y 8 MB**. Llega un proceso de **7 MB**.
+- **First-fit** (el primero que sirva): el de 5 no alcanza, así que usa el de **12** y sobra un hueco de 5.
+- **Best-fit** (el más justo): usa el de **8** y sobra un hueco de **1 MB**, una «astilla» que casi nunca le sirve a nadie. Por eso best-fit suele ser **peor** de lo que su nombre promete.
+- **Next-fit** (el primero que sirva, pero empezando desde donde quedó la última vez): depende de dónde quedó el puntero.
+</EnSimple>
+
+
 | Algoritmo | Elige | Comentario |
 | --- | --- | --- |
 | **Best-fit** | el hueco **más ajustado** | deja astillas diminutas e inútiles; en la práctica suele ser el peor |
@@ -57,6 +94,18 @@ import Fuente from '../../../components/Fuente.astro';
 <PlacementSim client:visible />
 
 ## Buddy system
+
+<EnSimple titulo="En simple: partir una barra de chocolate">
+Tienes una barra de chocolate y solo puedes partirla **por la mitad**, y cada mitad otra vez por la mitad. Das a cada persona el **trozo más chico que le alcance**. Cuando dos mitades «hermanas» (*buddies*) quedan libres, se vuelven a **pegar**.
+
+**Ejemplo trivial:** memoria de **64 KB** y alguien pide **10 KB**.
+1. 64 es demasiado grande → se parte en dos de 32.
+2. 32 sigue siendo grande → uno de los 32 se parte en dos de 16.
+3. 16 alcanza (la mitad, 8, ya no alcanza) → se entrega un bloque de **16 KB**.
+
+Se pierden 16 − 10 = **6 KB** dentro del bloque (fragmentación interna), pero liberar y juntar bloques es muy rápido.
+</EnSimple>
+
 
 Es un compromiso entre particiones fijas y dinámicas. Los bloques tienen tamaño $2^K$ con $L \le K \le U$: $2^L$ es el bloque mínimo y $2^U$ es toda la memoria.
 
@@ -71,6 +120,16 @@ En el árbol binario, si dos buddies son hojas, al menos uno está asignado; si 
 <BuddySim client:visible />
 
 ## Relocalización (diapositiva «Important about relocation»)
+
+<EnSimple titulo="En simple: «tercera puerta desde la entrada»">
+El programa no sabe en qué parte de la RAM va a quedar. Por eso sus direcciones son **relativas**, como decir «tercera puerta desde la entrada del pasillo», y no «puerta 5203».
+
+**Ejemplo trivial:** el proceso quedó en la partición que empieza en **5000** (registro base = 5000, y mide 1000, así que el límite es 1000).
+- El programa pide la dirección **200** → 200 es menor que el límite, así que se accede a 5000 + 200 = **5200**.
+- Pide la **1500** → 1500 supera el límite → **error**: intenta salirse de su partición.
+- Si mañana el SO lo mueve a la partición que empieza en **9000**, la misma dirección 200 apunta a **9200**. El programa no cambió nada: **solo cambió la base**.
+</EnSimple>
+
 
 1. **Particiones fijas con una cola por partición:** el proceso vuelve **siempre a la misma partición**, así que basta un **cargador relocalizador** simple que reemplaza las referencias relativas por absolutas **al cargar**.
 2. **Particiones iguales, o desiguales con cola única, y particiones dinámicas:** un proceso puede volver a **otra** partición tras un swap, así que las direcciones no pueden fijarse al cargar.
@@ -87,6 +146,15 @@ En los casos 2 y 3 hace falta traducir **en tiempo de ejecución**:
 **Hardware (fig. 7.8):** al pasar a Running se cargan los registros **base** y **límite (bounds)**. Cada dirección relativa se **suma** a la base y la dirección absoluta se **compara** con el límite; si se pasa, hay una interrupción al SO. Esto resuelve **relocalización** (mover un proceso es solo cambiar la base) **y protección** a la vez, con el costo mínimo de hacerlo en hardware.
 
 ## De programa a proceso: carga y enlace (apéndice 7A)
+
+<EnSimple titulo="En simple: armar un mueble">
+- **Compilar** es fabricar cada pieza (cada `.c` produce un `.o`).
+- **Enlazar** es atornillar las piezas entre sí: tu `main` llama a `printf`, y el enlazador conecta esa llamada con donde de verdad está `printf`.
+- **Cargar** es llevar el mueble armado a la casa y ponerlo en un lugar concreto de la RAM.
+
+La pregunta de fondo es **cuándo se decide la dirección real**: si se decide temprano (al compilar), el programa solo puede ir en un lugar; si se decide tarde (al ejecutar, con base y límite), se puede mover cuando haga falta.
+</EnSimple>
+
 
 **Carga (*loading*):**
 - **Absoluta:** siempre en la misma dirección, y las direcciones se resuelven al compilar. No se puede mover.

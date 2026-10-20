@@ -5,6 +5,7 @@ description: Cálculo de bits, entradas y tamaño de la tabla de páginas (E1 20
 
 import PagingCalc from '../../../components/sim/PagingCalc.tsx';
 import TlbEat from '../../../components/sim/TlbEat.tsx';
+import EnSimple from '../../../components/EnSimple.astro';
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
@@ -14,6 +15,18 @@ La diapositiva de memoria de 2026-II termina en segmentación («more about page
 :::
 
 ## Paginación simple (Stallings §7.3)
+
+<EnSimple titulo="En simple: un libro cortado en hojas iguales">
+Cortas el programa en **hojas del mismo tamaño** (páginas) y la RAM en **casillas del mismo tamaño** (marcos). Cada hoja va en **cualquier** casilla libre, aunque no estén juntas. Una **lista** (la tabla de páginas) dice en qué casilla quedó cada hoja.
+
+**Ejemplo trivial con números decimales** (en la realidad son potencias de 2, pero la idea es la misma): páginas de **100** posiciones.
+- La dirección **250** es la página **2** (250 ÷ 100) y el offset **50** (el resto).
+- La tabla dice que la página 2 está en el marco **7**.
+- Física = 7 × 100 + 50 = **750**.
+
+Fíjate: el offset (los dos últimos dígitos, «50») **no cambia**. Solo se reemplaza el número de página por el de marco. Con potencias de 2 pasa lo mismo, pero con bits en lugar de dígitos.
+</EnSimple>
+
 
 La memoria física se divide en **marcos** (*frames*) pequeños y de tamaño fijo, y cada proceso en **páginas** del **mismo** tamaño. Un proceso ocupa marcos **no contiguos**, cualesquiera que estén libres.
 
@@ -40,6 +53,16 @@ $$
 
 ## La entrada de la tabla (PTE)
 
+<EnSimple titulo="En simple: la ficha de cada página">
+Cada fila de la tabla es una **ficha** con datos de una página:
+- **¿Dónde está?** El número de marco.
+- **¿Está en RAM ahora?** El bit **P** (si es 0, hay que traerla del disco).
+- **¿La modificaste?** El bit **M** (si no la tocaste, al sacarla no hace falta guardarla).
+- **¿La usaste hace poco?** El bit **R** (sirve para decidir a quién sacar).
+- **¿Qué se puede hacer con ella?** Los permisos de lectura, escritura y ejecución.
+</EnSimple>
+
+
 | Campo | Para qué |
 | --- | --- |
 | **P / V** (presente o válido) | ¿la página está en RAM? Si no, se produce un **page fault** |
@@ -51,6 +74,19 @@ $$
 Normalmente el **número de página** (n bits) es **más largo** que el **número de marco** (m bits): n > m, porque un proceso puede tener más páginas que marcos haya en la RAM.
 
 ## Tablas grandes: multinivel e invertidas
+
+<EnSimple titulo="En simple: el índice de un libro en dos niveles">
+Una tabla de páginas de un solo nivel tiene **una fila por cada página posible**, aunque el proceso no use casi ninguna. Es como imprimir una guía telefónica con **todos** los números posibles, aunque la mayoría no exista.
+
+**Multinivel** es como **edificio → piso → oficina**: primero un índice chico (los pisos), y solo se crean las hojas de los pisos que de verdad se usan.
+
+**Ejemplo trivial** (32 bits, páginas de 4 KB, PTE de 4 B):
+- **Un nivel:** 2²⁰ filas × 4 B = **4 MB de tabla por proceso**, siempre, aunque el programa sea diminuto.
+- **Dos niveles (10 | 10 | 12):** cada tabla de segundo nivel cubre 1024 páginas × 4 KB = 4 MB de memoria. Un proceso que usa 2 MB necesita la raíz (**4 KB**) más **una** tabla de segundo nivel (**4 KB**) = **8 KB**, en lugar de 4 MB.
+
+La **tabla invertida** da vuelta la pregunta: en vez de «¿dónde está cada página de cada proceso?» guarda «¿**quién ocupa cada marco**?», como la lista de asientos de un cine. Si la RAM tiene 8 marcos, la tabla tiene **8 filas**, haya los procesos que haya.
+</EnSimple>
+
 
 **El problema:** la tabla es proporcional al **espacio virtual**. En una VAX: 2 GB con páginas de 512 B dan $2^{22}$ PTE **por proceso**. Por eso las tablas se guardan en **memoria virtual** (también se paginan) y se usan jerarquías.
 
@@ -66,6 +102,20 @@ Normalmente el **número de página** (n bits) es **más largo** que el **númer
 
 ## TLB (Translation Lookaside Buffer)
 
+<EnSimple titulo="En simple: los favoritos del navegador">
+Buscar en la tabla de páginas cuesta un acceso extra a memoria **cada vez**. La **TLB** es una libretita con las últimas traducciones usadas, como los **favoritos** del navegador: si está ahí, no buscas.
+
+**Ejemplo trivial:** leer la TLB cuesta **10 ns** y la RAM **100 ns**, con una tabla de un nivel.
+- **Sin TLB:** 100 (leer la tabla) + 100 (leer el dato) = **200 ns** por acceso.
+- **Con TLB y 90 % de aciertos:**
+  - si acierta: 10 + 100 = 110 ns;
+  - si falla: 10 + 100 + 100 = 210 ns;
+  - en promedio: 0.9 × 110 + 0.1 × 210 = **120 ns**.
+
+Casi se recupera la velocidad de la RAM sola, gracias a la **localidad**: el programa repite las mismas páginas una y otra vez.
+</EnSimple>
+
+
 Sin ayuda, cada referencia virtual cuesta **dos accesos** a memoria (la PTE y el dato), es decir, **duplica** el tiempo. El **TLB** es una **caché de PTEs** recientes.
 
 1. Se busca la página en el TLB. En un **hit**, se obtiene el marco y la dirección real al instante.
@@ -77,6 +127,14 @@ El TLB solo contiene **algunas** entradas, así que **no se puede indexar** por 
 <TlbEat client:visible />
 
 ## Tamaño de página: el compromiso
+
+<EnSimple titulo="En simple: cajas de mudanza">
+- **Cajas chicas:** se aprovecha mejor el espacio (poca fragmentación interna), pero necesitas **muchas** cajas y una lista larguísima para saber qué hay en cada una (tabla grande).
+- **Cajas grandes:** pocas cajas y lista corta, pero cada caja trae cosas que no necesitabas (más desperdicio y, a veces, más fallos).
+
+Por eso no hay un tamaño perfecto: 4 KB es el compromiso típico.
+</EnSimple>
+
 
 | Página **pequeña** | Página **grande** |
 | --- | --- |

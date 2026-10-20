@@ -30,6 +30,10 @@ SVR4 tiene **dos esquemas** separados:
 | **Tabla de datos de frames** (*pfdata*) | frame físico (indexada por nº de frame) | estado de la página (en swap, en el ejecutable o con DMA en curso) · **contador de referencias** (procesos que la usan) · dispositivo y bloque de la copia · punteros a la lista libre y a la cola hash |
 | **Tabla de uso de swap** | dispositivo de swap (una entrada por página del dispositivo) | contador de PTE que apuntan a esa página en disco · identificador |
 
+<EnSimple titulo="En simple: fotocopiar solo cuando alguien escribe">
+Después de un `fork`, padre e hijo **comparten el mismo cuaderno** en lugar de fotocopiarlo entero. Solo cuando uno de los dos quiere **escribir** en una hoja, se fotocopia **esa hoja** para él. Si el hijo hace `exec` enseguida, casi no se fotocopió nada.
+</EnSimple>
+
 **Copy on write** (COW) es lo que hace barato a `fork()`:
 1. Padre e hijo **comparten** los frames, marcados como de solo lectura y con el bit COW.
 2. Cuando uno de los dos **escribe**, se produce un fallo de protección y el kernel **recién entonces** copia esa página.
@@ -37,6 +41,15 @@ SVR4 tiene **dos esquemas** separados:
 Si el hijo hace `exec` enseguida, casi no se copia nada (ver [fork](/procesos/fork/)).
 
 ### El reloj de dos manecillas (fig. 8.21)
+
+<EnSimple titulo="En simple: el que pega stickers y el que pasa después">
+Dos empleados recorren las estanterías, uno detrás del otro:
+1. El **primero** pega un sticker de «¿alguien usa esto?» en cada producto (pone el bit de referencia en 0).
+2. El **segundo**, un rato después, revisa: si alguien **quitó el sticker** (el producto se usó), lo deja; si el sticker **sigue ahí**, nadie lo usó y lo retira.
+
+Mientras menos espacio libre queda, **más rápido** caminan los dos.
+</EnSimple>
+
 
 El reemplazo usa la **tabla de frames**. Los frames libres están en una lista; cuando bajan de un umbral, el kernel «roba» frames. El algoritmo es un Clock refinado con **dos manecillas** que recorren la lista de páginas elegibles (no bloqueadas):
 
@@ -59,6 +72,11 @@ Con **un** puntero, el tiempo entre apagar el bit y volver a revisarlo es **una 
 </Solucion>
 
 ### Asignador del kernel: *lazy buddy*
+
+<EnSimple titulo="En simple: no volver a pegar el chocolate">
+En el buddy normal, cuando dos mitades quedan libres se **pegan** enseguida. Pero si al segundo alguien pide otra vez una mitad, hay que **volver a partir**. El *lazy buddy* («buddy perezoso») deja algunas mitades **sin pegar**, porque probablemente las vuelvan a pedir pronto. Solo las une cuando sobran demasiadas.
+</EnSimple>
+
 
 El kernel crea y destruye **objetos pequeños** todo el tiempo: buffers de rutas, buffers de STREAMS, estructuras `proc`, vnodes, zombies. Paginar para eso sería ineficiente.
 
@@ -114,6 +132,13 @@ Para leer y escribir bloques contiguos eficientemente, Linux mantiene grupos de 
 5. Las víctimas salen de la lista **inactiva**, con un criterio tipo **LRU**.
 
 ### Memoria del kernel: slab
+
+<EnSimple titulo="En simple: un organizador de tornillos">
+El buddy entrega **páginas enteras** (4 KB), pero el kernel pide todo el tiempo **objetos chiquitos** (64 bytes, 128 bytes…). Darle una página entera a cada uno sería como usar una caja de mudanza para guardar un tornillo.
+
+**Slab** es un **organizador con cajoncitos de tamaño fijo**: toma una página y la divide en muchos huecos del mismo tamaño para un tipo de objeto. Pedir y devolver un objeto es tomar o dejar un cajoncito.
+</EnSimple>
+
 
 La base es el asignador de páginas (buddy), pero su unidad mínima es **una página**. Para trozos pequeños y de tamaños raros, Linux usa **slab** dentro de páginas ya asignadas. En x86 los trozos son de 32, 64, 128, 252, 508, 2040 o 4080 bytes, con **una lista por tamaño**.
 

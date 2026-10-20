@@ -32,6 +32,15 @@ Por eso se habla de **memoria real** (la RAM) y **memoria virtual** (lo que ve c
 
 ## Localidad: por qué no colapsa
 
+<EnSimple titulo="En simple: cocinar en una zona de la cocina">
+Cuando cocinas no usas toda la cocina: usas la tabla, el cuchillo y la olla que tienes al lado, una y otra vez. Los programas hacen lo mismo:
+- **Localidad temporal:** lo que usaste recién lo vuelves a usar pronto (la variable `i` de un `for`).
+- **Localidad espacial:** lo que está al lado también lo vas a usar (`a[0]`, `a[1]`, `a[2]`…).
+
+Por eso basta con tener en RAM **pocas páginas**: las de la «zona» actual.
+</EnSimple>
+
+
 Si cada referencia cayera en una página distinta, el sistema pasaría todo el tiempo trayendo páginas del disco. Eso se llama **thrashing** (hiperpaginación): el procesador está ocupado intercambiando páginas en vez de ejecutar instrucciones.
 
 No pasa gracias al **principio de localidad**: las referencias de un proceso se **agrupan**. Durante un intervalo, el programa usa unas pocas páginas: un bucle, una función, un arreglo. Así el SO puede **adivinar** qué páginas van a hacer falta pronto.
@@ -42,6 +51,14 @@ No pasa gracias al **principio de localidad**: las referencias de un proceso se 
 | **Software del SO** para mover páginas entre disco y RAM | las políticas de la [página siguiente](/final/memoria-virtual/reemplazo/) |
 
 ## La PTE cuando la memoria es virtual
+
+<EnSimple titulo="En simple: tres preguntas por página">
+Con memoria virtual, la ficha de cada página responde:
+- **P: ¿está en el escritorio (RAM)?** Si es 0, hay que ir a buscarla a la estantería (disco): **fallo de página**.
+- **M: ¿la rayaste?** Si sí, antes de devolverla hay que guardar los cambios en el disco. Si no, se descarta sin más: el disco ya tiene una copia idéntica.
+- **R: ¿la miraste hace poco?** Sirve para decidir qué devolver cuando el escritorio está lleno.
+</EnSimple>
+
 
 Con paginación simple, la tabla solo decía «la página k está en el frame f». Con memoria virtual, la entrada necesita **bits de control**:
 
@@ -67,6 +84,15 @@ Con paginación simple, la tabla solo decía «la página k está en el frame f�
 Las fórmulas y la calculadora están en [Paginación § multinivel](/memoria/paginacion/#tablas-grandes-multinivel-e-invertidas).
 
 ## TLB: la caché de traducciones
+
+<EnSimple titulo="En simple: el orden en que se pregunta">
+1. ¿Está la traducción en la **TLB** (los favoritos)? → listo, en un paso.
+2. Si no, se mira la **tabla de páginas** en RAM. ¿P = 1? → se arma la dirección y se anota en la TLB para la próxima.
+3. Si P = 0 → **fallo de página**: el SO va al disco.
+
+Cada paso es mucho más lento que el anterior: TLB en nanosegundos, RAM en ~100 ns, disco en **milisegundos**, es decir, decenas de miles de veces más lento.
+</EnSimple>
+
 
 Cada referencia a memoria virtual podría costar **dos accesos**: uno para leer la PTE y otro para el dato. Con tablas de k niveles, son k + 1. La **TLB** (*Translation Lookaside Buffer*) es una caché pequeña y **asociativa** con las PTE usadas hace poco.
 
@@ -100,6 +126,15 @@ Los tamaños típicos son 4 KB (x86), 8 KB (UltraSPARC) y las **páginas grandes
 
 ## Segmentación con memoria virtual, y combinada
 
+<EnSimple titulo="En simple: un cuaderno con secciones, cada una en hojas sueltas">
+La versión **combinada** junta lo mejor de ambas:
+- el programador ve **secciones con sentido** (código, datos, pila), como en la segmentación;
+- cada sección se guarda en **hojas iguales** (páginas), así que no quedan huecos raros en la RAM.
+
+Para traducir se pregunta dos veces: primero «¿qué sección?» (tabla de segmentos), y luego «¿qué hoja de esa sección?» (la tabla de páginas de esa sección).
+</EnSimple>
+
+
 - **Segmentación sola:** cada entrada de la tabla de segmentos también lleva un bit **P** y un bit **M**. Sirve para estructuras que crecen, para compilar módulos por separado, para compartir y para proteger.
 - **Segmentación + paginación** (Stallings §8.1, «Combined Paging and Segmentation»):
   - El programador ve **segmentos**.
@@ -109,6 +144,18 @@ Los tamaños típicos son 4 KB (x86), 8 KB (UltraSPARC) y las **páginas grandes
   - Lo usaba x86 en modo protegido. Linux de 64 bits deja la segmentación casi apagada (ver [Segmentación § procesadores modernos](/memoria/segmentacion/#segmentación-en-procesadores-modernos)).
 
 ## Paginación por demanda y el page fault paso a paso
+
+<EnSimple titulo="En simple: el fallo de página como pedido a bodega">
+Estás en la caja de una tienda y el producto no está en el mostrador (P = 0):
+1. **Avisas** al encargado (trap al SO) y el cliente espera (el proceso queda bloqueado).
+2. El encargado revisa que el producto **exista** en el catálogo. Si no existe, se cancela la venta (*segmentation fault*).
+3. Si el mostrador está lleno, **retira** algo (la víctima). Si ese algo estaba abierto o modificado (M = 1), primero lo **guarda** en bodega.
+4. **Trae** el producto de la bodega (el disco). Mientras tanto atiende a otro cliente (otro proceso).
+5. Anota que ya está en el mostrador (P = 1) y el cliente **repite la compra** (se reinicia la instrucción).
+
+Que un programa nuevo tenga muchos fallos al principio es normal: el mostrador empieza vacío.
+</EnSimple>
+
 
 **Paginación por demanda** (*demand paging*): una página se trae a RAM **solo cuando se referencia por primera vez**. El proceso arranca con casi nada cargado y acumula fallos al inicio; después la localidad los vuelve raros.
 

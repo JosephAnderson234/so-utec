@@ -4,10 +4,20 @@ description: 'Tema nuevo: direcciones lógicas vs físicas, MMU, registro de rel
 ---
 
 import SegmentTranslator from '../../../components/sim/SegmentTranslator.tsx';
+import EnSimple from '../../../components/EnSimple.astro';
 import Quiz from '../../../components/Quiz.tsx';
 import Fuente from '../../../components/Fuente.astro';
 
 ## Dirección lógica vs física
+
+<EnSimple titulo="En simple: tu dirección vs el GPS">
+- La dirección **lógica** es la que usa el programa, como «el tercer cajón de *mi* escritorio». No dice dónde está el escritorio.
+- La dirección **física** es la ubicación real en la RAM, como las coordenadas GPS.
+- La **MMU** es el traductor que, en cada acceso, convierte una en la otra.
+
+Gracias a eso, dos programas pueden usar ambos «la dirección 100» sin pisarse: cada uno tiene **su propio** escritorio.
+</EnSimple>
+
 
 - **Lógica (virtual):** la genera la CPU; es lo que ve el programa.
 - **Física:** la que ve la unidad de memoria.
@@ -16,6 +26,15 @@ import Fuente from '../../../components/Fuente.astro';
 Cada proceso (y el kernel) tiene su propio **espacio de direcciones**. La **MMU** traduce de la vista de la CPU a la vista de la memoria. Con traducción, **la protección es fácil**: si A ni siquiera puede nombrar los datos de B, no puede dañarlos. Además, todos los programas pueden enlazarse en la misma región virtual.
 
 ## MMU con registro de relocalización
+
+<EnSimple titulo="En simple: una suma y una comparación">
+**Ejemplo trivial:** base = **1000**, límite = **300**.
+- El programa pide la **250** → 250 es menor que 300 → física = 1000 + 250 = **1250**. ✅
+- Pide la **400** → 400 no es menor que 300 → **trampa al SO** (el proceso intentó salirse de su zona). ❌
+
+Cambiar de proceso es solo cargar **otra base y otro límite**.
+</EnSimple>
+
 
 El esquema más simple es un **registro base** (llamado registro de relocalización), que se suma a cada dirección, más un **registro límite** para la protección:
 
@@ -26,6 +45,26 @@ $$
 Si no se cumple, se genera una trampa al SO. MS-DOS en 8086 usaba 4 registros de este tipo (CS, DS, SS y ES). En un cambio de contexto, el SO carga la base y el límite del nuevo proceso, que forman parte del PCB.
 
 ## Segmentación
+
+<EnSimple titulo="En simple: un cuaderno con secciones de distinto tamaño">
+En vez de tratar al programa como un solo bloque, se lo divide en **partes con sentido**: código, datos, pila… Cada parte (**segmento**) va en su propio lugar de la RAM y tiene su **propio tamaño**.
+
+Una dirección es ahora un par **(segmento, offset)**: «sección 1, posición 50».
+
+**Ejemplo trivial** con esta tabla de segmentos:
+
+| Segmento | Base | Límite |
+| --- | --- | --- |
+| 0 (código) | 1000 | 500 |
+| 1 (datos) | 3000 | 200 |
+
+- (1, 50) → 50 es menor que 200 → física = 3000 + 50 = **3050**. ✅
+- (0, 499) → física = 1000 + 499 = **1499**. ✅
+- (1, 250) → 250 supera el límite 200 → **segmentation fault**. ❌
+
+Como los segmentos miden distinto, al irse y llegar procesos quedan **huecos** entre ellos: fragmentación **externa**, igual que en las particiones dinámicas.
+</EnSimple>
+
 
 El programa se ve como un conjunto de **segmentos lógicos** de tamaño variable (código, datos, stack, compartido…). Cada dirección es un par **(segmento, offset)** y hay una **tabla de segmentos** con `(base, límite, permisos)` por entrada.
 

@@ -52,6 +52,16 @@ Se marcan con un bit de bloqueo en la tabla de frames o en la PTE.
 
 ### Los cuatro algoritmos básicos
 
+<EnSimple titulo="En simple: un ejemplo de cinco referencias">
+**3 marcos** y las referencias **1 2 3 1 4**. Las tres primeras llenan los marcos; el 1 acierta. Cuando llega el **4**, hay que sacar a alguien:
+- **FIFO** saca la que **llegó primero**: la **1**… ¡aunque la acabas de usar!
+- **LRU** saca la que **lleva más tiempo sin usarse**: la **2** (el 1 se usó recién y el 3 después del 2).
+- **OPT** mira el **futuro**: saca la que se vuelva a usar más tarde, o nunca. Si después vienen «1 3», sacaría la 2.
+
+Por eso FIFO suele ser malo: no le importa si la página se está usando, solo cuándo llegó.
+</EnSimple>
+
+
 | Algoritmo | Expulsa… | Costo | Comentario |
 | --- | --- | --- | --- |
 | **OPT** (óptimo, Belady) | la página cuya **próxima referencia está más lejos** en el futuro | imposible de implementar | sirve de **referencia** para medir a los demás: produce el mínimo de fallos |
@@ -73,6 +83,15 @@ Se marcan con un bit de bloqueo en la tabla de frames o en la PTE.
 
 ### Clock con bit de modificado (Clock mejorado)
 
+<EnSimple titulo="En simple: tarjeta amarilla y segunda oportunidad">
+**Clock** es como un árbitro que recorre las páginas en círculo:
+- si la página fue usada hace poco (u = 1), le muestra una **tarjeta amarilla** (u = 0) y la deja seguir;
+- si ya tenía tarjeta amarilla (u = 0), la **expulsa**.
+
+El **Clock mejorado** además prefiere expulsar páginas **que no se modificaron** (m = 0), porque echarlas no cuesta escribir nada en el disco.
+</EnSimple>
+
+
 Si además se considera el bit **M**, expulsar una página **sin modificar** es más barato, porque no hay que escribirla al disco. Hay cuatro clases:
 
 | Clase | u | m | Significado | Preferencia |
@@ -91,6 +110,13 @@ Lo usaba el Macintosh.
 
 ### La anomalía de Belady
 
+<EnSimple titulo="En simple: más espacio, más fallos (solo con FIFO)">
+Lo lógico sería que con **más marcos** haya **menos** fallos. Con FIFO no siempre: con la cadena `A B C D A B E A B C D E` hay **9 fallos con 3 marcos** y **10 con 4**.
+
+Pasa porque FIFO decide por orden de llegada, y ese orden cambia según cuántos marcos haya. LRU y OPT **nunca** tienen la anomalía: lo que guardan con 3 marcos siempre está incluido en lo que guardan con 4.
+</EnSimple>
+
+
 Lo esperable es que con **más frames** haya **menos o los mismos** fallos. **FIFO puede violar esto.** Con la cadena del ejercicio P2 (`A B C D A B E A B C D E`):
 
 | Frames | FIFO | Clock | LRU | OPT |
@@ -107,6 +133,13 @@ Con LRU, las páginas en memoria con n frames son siempre **las n referenciadas 
 </Solucion>
 
 ### Page buffering
+
+<EnSimple titulo="En simple: la papelera de reciclaje">
+La página expulsada no se borra de inmediato: va a una **papelera de reciclaje** (una lista en RAM). Si al rato la vuelves a necesitar, la **recuperas de la papelera** sin ir al disco. Recién cuando hace falta el espacio de verdad, se vacía la papelera.
+
+Así hasta un algoritmo simple como FIFO se vuelve bastante bueno.
+</EnSimple>
+
 
 Es una forma de compensar lo malo de FIFO **sin** pagar lo que cuesta LRU (la usaba VAX/VMS).
 

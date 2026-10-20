@@ -28,6 +28,15 @@ Con menos frames por proceso caben **más procesos** en RAM, así que hay más p
 
 ## Alcance del reemplazo: local o global
 
+<EnSimple titulo="En simple: ¿le quito a quién pidió o a cualquiera?">
+Tu escritorio está lleno y necesitas un libro más.
+- **Local:** devuelves uno **de tu propio** escritorio. Tu espacio no cambia.
+- **Global:** devuelves uno de **cualquier** escritorio, incluso el de un compañero. Tú creces y él se achica.
+
+Global es más simple y flexible, pero puede perjudicar a un compañero que necesitaba ese libro.
+</EnSimple>
+
+
 - **Local:** la víctima sale del **mismo proceso** que causó el fallo.
 - **Global:** la víctima puede ser **cualquier** página no bloqueada de la memoria.
 
@@ -41,6 +50,17 @@ Con menos frames por proceso caben **más procesos** en RAM, así que hay más p
 **Variable + local** necesita una estrategia para decidir **cuántos** frames dar. Ahí entra el working set.
 
 ## Working set
+
+<EnSimple titulo="En simple: lo que tienes sobre la mesa">
+El **working set** son las páginas que el proceso usó en **los últimos Δ accesos**: lo que tiene «sobre la mesa» ahora.
+
+**Ejemplo trivial:** referencias **A B A C D**.
+- Con **Δ = 2** (los 2 últimos accesos: C D) → `W = {C, D}`.
+- Con **Δ = 4** (los 4 últimos: B A C D) → `W = {A, B, C, D}`.
+
+La regla: un proceso solo se ejecuta si su working set **cabe completo** en la RAM. Si no cabe, va a pasar el tiempo trayendo páginas.
+</EnSimple>
+
 
 **Definición** (Denning): $W(t, \Delta)$ es el conjunto de páginas referenciadas en las **últimas Δ referencias** (unidades de tiempo virtual), mirando hacia atrás desde el instante t.
 
@@ -95,6 +115,15 @@ Con menos frames por proceso caben **más procesos** en RAM, así que hay más p
 
 ## Política de limpieza
 
+<EnSimple titulo="En simple: lavar los platos">
+Las páginas modificadas son **platos sucios**: antes de reutilizarlos hay que lavarlos (escribirlos al disco).
+- **Por demanda:** lavas el plato **justo cuando lo necesitas**. El que espera la comida espera también el lavado (dos E/S).
+- **Precleaning:** lavas **todo de antemano**, en tandas. Pero quizá ensucies otra vez un plato que ya lavaste (E/S desperdiciada).
+
+El punto medio es el **page buffering**: lavar en tandas solo lo que ya está apartado para salir.
+</EnSimple>
+
+
 ¿**Cuándo** se escribe al disco una página **modificada**?
 
 | Política | Cuándo | Problema |
@@ -105,6 +134,13 @@ Con menos frames por proceso caben **más procesos** en RAM, así que hay más p
 **Mejor solución: page buffering.** Las páginas reemplazadas van a dos listas, **modificadas** y **no modificadas**. Las modificadas se escriben **en lotes** y pasan a la lista de no modificadas. De ahí se pueden **recuperar** si se vuelven a referenciar, o se **reutilizan** sus frames si se pierden.
 
 ## Control de carga y thrashing
+
+<EnSimple titulo="En simple: demasiada gente en la cocina">
+Con **pocos cocineros**, la cocina está ociosa. Al agregar más, se produce más… hasta que son **tantos** que no caben, se estorban y pasan el tiempo pidiéndose los utensilios. La producción **se desploma**.
+
+Eso es el **thrashing**: demasiados procesos, cada uno con muy pocos marcos, y la CPU casi solo espera al disco. La solución es **sacar a algunos** (suspender procesos) hasta que los demás tengan espacio suficiente.
+</EnSimple>
+
 
 El **nivel de multiprogramación** es el número de procesos residentes en RAM.
 
