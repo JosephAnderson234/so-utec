@@ -1,0 +1,413 @@
+---
+title: 'Scheduling + page replacement (hoja sem. 11)'
+description: 'Los 3 ejercicios de page replacement de la hoja de repaso: FIFO, LRU, OPT y Clock con la cadena A–E, y su combinación con Round Robin y con prioridad. Tablas completas, programa en C y simulador.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Quiz from '../../../components/Quiz.tsx';
+import PageReplacement from '../../../components/sim/PageReplacement.tsx';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+
+<EnSimple>
+Estos ejercicios juntan dos decisiones del SO. El **scheduler** decide **en qué orden** corren los procesos, y como cada unidad de CPU hace un acceso a memoria, ese orden produce la **cadena global de referencias**. Después, el algoritmo de **reemplazo** decide qué página sale cuando los frames están llenos. Cambiar el scheduler cambia la cadena, y con eso cambian los page faults, aunque los procesos sean los mismos.
+</EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Simular FIFO, LRU, OPT y Clock mostrando los frames después de cada referencia.',
+		'Construir la secuencia global de referencias a partir del Gantt de RR o de prioridad.',
+		'Contar los page faults <strong>por proceso</strong> y decir qué páginas quedan cargadas.',
+		'Explicar por qué el orden de ejecución cambia el número de fallos.',
+	]}
+	prerrequisitos={[
+		{ t: 'Reemplazo: OPT, LRU, FIFO y Clock (teoría y escalera)', href: '/final/memoria-virtual/reemplazo/' },
+		{ t: 'Algoritmos de scheduling a mano', href: '/lab4/algoritmos/' },
+	]}
+	perfiles={['simulador', 'examen']}
+/>
+
+:::caution[Convenciones (escríbelas en tu respuesta)]
+- Se cuentan **todos** los fallos, incluidos los de arranque con frames vacíos.
+- Un frame vacío se llena **sin expulsar a nadie**, en orden: frame 0, 1, 2.
+- **Clock** (lo pide la hoja): los bits de uso empiezan en 0 y el puntero en el **primer frame**. Al cargar una página, su bit pasa a 1 y el puntero avanza al siguiente frame. En un **acierto**, el bit pasa a 1 y el puntero **no se mueve**.
+- **OPT:** si dos páginas no se vuelven a usar, saco la del frame de menor número (cualquiera da el mismo número de fallos).
+:::
+
+## Ejercicio 1: los cuatro algoritmos con la misma cadena
+
+Cadena `A B C A D B E A C D B E`, con 3 frames inicialmente vacíos.
+
+<Predice pregunta="Antes de simular, ordena de menos a más fallos: FIFO, LRU, OPT y Clock. ¿Crees que LRU le gana a FIFO?">
+
+OPT siempre es el mínimo (**7**), pero **LRU pierde contra FIFO**: 11 contra 10. La cadena repite un ciclo de 5 páginas con solo 3 frames, y LRU siempre expulsa justo la que se va a usar pronto. Clock da 10, igual que FIFO. «LRU aproxima a OPT» vale con localidad, no siempre.
+
+</Predice>
+
+<PageReplacement client:visible preset="lab4" />
+
+<Practica nivel={1} titulo="Resuelto: FIFO (10 fallos)">
+
+| Ref. | A | B | C | A | D | B | E | A | C | D | B | E |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| f0 | A | A | A | A | **D** | D | D | D | **C** | C | C | **E** |
+| f1 | | B | B | B | B | B | **E** | E | E | **D** | D | D |
+| f2 | | | C | C | C | C | C | **A** | A | A | **B** | B |
+| Fallo | ✗ | ✗ | ✗ | | ✗ | | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Sale | | | | | A | | B | C | D | E | A | C |
+
+**10 fallos.** Quedan cargadas **E, D, B**. FIFO saca siempre la que **entró** hace más tiempo, aunque se acabe de usar: en el paso 5 sale A, que se había usado en el paso 4.
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: LRU">
+
+Las primeras 6 columnas ya están resueltas. Completa las otras 6.
+
+| Ref. | A | B | C | A | D | B | E | A | C | D | B | E |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| f0 | A | A | A | A | A | A | ? | ? | ? | ? | ? | ? |
+| f1 | | B | B | B | **D** | D | ? | ? | ? | ? | ? | ? |
+| f2 | | | C | C | C | **B** | ? | ? | ? | ? | ? | ? |
+| Fallo | ✗ | ✗ | ✗ | | ✗ | ✗ | | | | | | |
+
+<Solucion titulo="Comparar">
+
+| Ref. | E | A | C | D | B | E |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: |
+| f0 | **E** | E | E | **D** | D | D |
+| f1 | D | **A** | A | A | **B** | B |
+| f2 | B | B | **C** | C | C | **E** |
+| Sale | A | D | B | E | A | C |
+
+**11 fallos**: solo acierta en la 4.ª referencia. Quedan **D, B, E**. En la 5.ª (D) sale **B**, no C: B se usó en la 2.ª y C en la 3.ª, y A se acaba de usar.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: OPT y Clock">
+
+Haz las dos tablas y escribe los fallos y las páginas finales de cada una. Para Clock, marca con * los bits de uso y escribe dónde queda el puntero.
+
+<Solucion titulo="Comparar: OPT (7 fallos)">
+
+| Ref. | A | B | C | A | D | B | E | A | C | D | B | E |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| f0 | A | A | A | A | A | A | A | A | **C** | C | **B** | B |
+| f1 | | B | B | B | B | B | **E** | E | E | E | E | E |
+| f2 | | | C | C | **D** | D | D | D | D | D | D | D |
+| Fallo | ✗ | ✗ | ✗ | | ✗ | | ✗ | | ✗ | | ✗ | |
+| Sale | | | | | C | | B | | A | | C | |
+
+En la 5.ª referencia (D), lo próximo que viene es B, E, **A**, **C**…: C es la que se usa más tarde, así que sale C. Quedan **B, E, D**.
+
+</Solucion>
+
+<Solucion titulo="Comparar: Clock (10 fallos)">
+
+El * marca u = 1. «Puntero» es el frame al que apunta **después** de la referencia.
+
+| Ref. | f0 | f1 | f2 | Fallo | Puntero | Qué pasó |
+| :-: | --- | --- | --- | :-: | :-: | --- |
+| A | A* | | | ✗ | f1 | f0 vacío |
+| B | A* | B* | | ✗ | f2 | f1 vacío |
+| C | A* | B* | C* | ✗ | f0 | f2 vacío; el puntero da la vuelta |
+| A | A* | B* | C* | | f0 | acierto: u ya era 1, el puntero no se mueve |
+| D | **D*** | B | C | ✗ | f1 | apaga A, B y C, vuelve a f0 (ahora u = 0) y saca **A** |
+| B | D* | B* | C | | f1 | acierto: u de B = 1 |
+| E | D* | B | **E*** | ✗ | f0 | apaga B; f2 tiene C con u = 0 → sale **C** |
+| A | D | **A*** | E* | ✗ | f2 | apaga D; f1 tiene B con u = 0 → sale **B** |
+| C | **C*** | A* | E | ✗ | f1 | apaga E; f0 tiene D con u = 0 → sale **D** |
+| D | C* | A | **D*** | ✗ | f0 | apaga A; f2 tiene E con u = 0 → sale **E** |
+| B | C | **B*** | D* | ✗ | f2 | apaga C; f1 tiene A con u = 0 → sale **A** |
+| E | **E*** | B* | D | ✗ | f1 | apaga D; f0 tiene C con u = 0 → sale **C** |
+
+**10 fallos.** Quedan **E, B, D**: el mismo conjunto que FIFO, pero en otros frames y con otros bits.
+
+</Solucion>
+</Practica>
+
+**Resumen del ejercicio 1** (verificado con un script y con el programa en C de abajo):
+
+| Algoritmo | Fallos | Quedan cargadas |
+| --- | :-: | --- |
+| FIFO | 10 | E, D, B |
+| LRU | 11 | D, B, E |
+| OPT | **7** | B, E, D |
+| Clock | 10 | E, B, D |
+
+Con más frames, FIFO baja 12 → 12 → 10 → 7 → 5 (de 1 a 5 frames) y LRU 12 → 12 → 11 → 9 → 5: en esta cadena no hay anomalía de Belady.
+
+<Solucion titulo="El ejercicio 1 implementado en C (la hoja dice «implemente»)">
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+#define FRAMES 3
+
+char refs[] = "ABCADBEACDBE";
+
+int find(char *fr, char p) {
+    for (int i = 0; i < FRAMES; i++)
+        if (fr[i] == p)
+            return i;
+    return -1;
+}
+
+void show(char r, int hit, char *fr, int *bit) {
+    printf("%c %s |", r, hit ? "hit " : "FAIL");
+    for (int i = 0; i < FRAMES; i++) {
+        if (fr[i] == 0)
+            printf(" -");
+        else if (bit)
+            printf(" %c%s", fr[i], bit[i] ? "*" : " ");
+        else
+            printf(" %c", fr[i]);
+    }
+    printf("\n");
+}
+
+int fifo(void) {
+    char fr[FRAMES] = {0};
+    int next = 0, faults = 0, n = strlen(refs);
+    for (int k = 0; k < n; k++) {
+        int hit = find(fr, refs[k]) != -1;
+        if (!hit) {
+            fr[next] = refs[k];
+            next = (next + 1) % FRAMES;
+            faults++;
+        }
+        show(refs[k], hit, fr, NULL);
+    }
+    return faults;
+}
+
+int lru(void) {
+    char fr[FRAMES] = {0};
+    int last[FRAMES] = {0}, faults = 0, n = strlen(refs);
+    for (int k = 0; k < n; k++) {
+        int j = find(fr, refs[k]);
+        int hit = j != -1;
+        if (!hit) {
+            j = find(fr, 0);
+            if (j == -1) {
+                j = 0;
+                for (int i = 1; i < FRAMES; i++)
+                    if (last[i] < last[j])
+                        j = i;
+            }
+            fr[j] = refs[k];
+            faults++;
+        }
+        last[j] = k;
+        show(refs[k], hit, fr, NULL);
+    }
+    return faults;
+}
+
+int opt(void) {
+    char fr[FRAMES] = {0};
+    int faults = 0, n = strlen(refs);
+    for (int k = 0; k < n; k++) {
+        int hit = find(fr, refs[k]) != -1;
+        if (!hit) {
+            int j = find(fr, 0);
+            if (j == -1) {
+                int far = -1;
+                for (int i = 0; i < FRAMES; i++) {
+                    int d = n;
+                    for (int m = k + 1; m < n; m++)
+                        if (refs[m] == fr[i]) {
+                            d = m;
+                            break;
+                        }
+                    if (d > far) {
+                        far = d;
+                        j = i;
+                    }
+                }
+            }
+            fr[j] = refs[k];
+            faults++;
+        }
+        show(refs[k], hit, fr, NULL);
+    }
+    return faults;
+}
+
+int clock_alg(void) {
+    char fr[FRAMES] = {0};
+    int use[FRAMES] = {0}, ptr = 0, faults = 0, n = strlen(refs);
+    for (int k = 0; k < n; k++) {
+        int j = find(fr, refs[k]);
+        int hit = j != -1;
+        if (hit) {
+            use[j] = 1;
+        } else {
+            while (fr[ptr] != 0 && use[ptr] == 1) {
+                use[ptr] = 0;
+                ptr = (ptr + 1) % FRAMES;
+            }
+            fr[ptr] = refs[k];
+            use[ptr] = 1;
+            ptr = (ptr + 1) % FRAMES;
+            faults++;
+        }
+        show(refs[k], hit, fr, use);
+    }
+    return faults;
+}
+
+int main(void) {
+    printf("== FIFO\n");
+    printf("fallos = %d\n\n", fifo());
+    printf("== LRU\n");
+    printf("fallos = %d\n\n", lru());
+    printf("== OPT\n");
+    printf("fallos = %d\n\n", opt());
+    printf("== CLOCK (* = bit de uso en 1)\n");
+    printf("fallos = %d\n", clock_alg());
+    return 0;
+}
+```
+
+Notas de diseño:
+
+- **FIFO** no necesita marcas de tiempo: como los frames se llenan en orden y siempre se reemplaza en el siguiente, basta un índice circular `next`.
+- **LRU** guarda en `last[j]` la última referencia de cada frame.
+- **Clock** reutiliza el mismo puntero para llenar los frames vacíos.
+
+La ejecución de prueba imprime `fallos = 10`, `11`, `7` y `10`, con las mismas tablas de arriba.
+
+</Solucion>
+
+## Ejercicio 2: Round Robin + FIFO
+
+P1 accede a `A, B, A, C` y P2 a `D, E, D, F`, **una referencia por unidad de CPU**. RR con q = 2, ambos llegan en t = 0 y P1 va primero. Hay 3 frames compartidos y FIFO.
+
+<Practica nivel={2} titulo="Complétalo: primero el Gantt, después la cadena global">
+
+El Gantt es P1 0–2 · P2 2–4 · P1 4–6 · P2 6–8. ¿Cuál es la cadena global? Simúlala con FIFO.
+
+<Solucion titulo="Comparar">
+
+Cadena global: **A B** (P1) · **D E** (P2) · **A C** (P1) · **D F** (P2).
+
+| Ref. | A | B | D | E | A | C | D | F |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| Proceso | P1 | P1 | P2 | P2 | P1 | P1 | P2 | P2 |
+| f0 | A | A | A | **E** | E | E | **D** | D |
+| f1 | | B | B | B | **A** | A | A | **F** |
+| f2 | | | D | D | D | **C** | C | C |
+| Fallo | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Sale | | | | A | B | D | E | A |
+
+**8 fallos de 8 referencias: P1 = 4, P2 = 4.** Quedan **D, F, C**. Cada proceso, solo, tendría 3 fallos y 1 acierto (la página que repite). Intercalados, con 3 frames para 6 páginas distintas, cada uno **expulsa** la página que el otro está por reutilizar: A sale justo antes de que P1 la vuelva a pedir, y D justo antes de que P2 la pida. Es un **thrashing** en miniatura.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: ¿y con q = 4?">
+
+<Solucion titulo="Comparar">
+
+Con q = 4 cada proceso corre entero: la cadena es `A B A C D E D F`. FIFO: A ✗, B ✗, A ✓, C ✗, D ✗ (sale A), E ✗ (sale B), D ✓, F ✗ (sale C) → **6 fallos** (P1 = 3, P2 = 3). Un quantum más grande **mantiene la localidad** de cada proceso. Es uno de los costos ocultos de cambiar de proceso muy seguido.
+
+</Solucion>
+</Practica>
+
+<PageReplacement client:visible preset="lab4rr" />
+
+## Ejercicio 3: prioridad + LRU, comparado con FCFS
+
+Todos llegan en t = 0. Prioridad **no expropiativa**, **número mayor = más prioridad**. 3 frames y LRU.
+
+| Proceso | Prioridad | Referencias |
+| :-: | :-: | --- |
+| P1 | 2 | A, B, A |
+| P2 | 3 | C, D, C |
+| P3 | 1 | E, A, E |
+
+<Practica nivel={3} titulo="Solo: orden, cadena global, fallos y páginas finales, con prioridad y con FCFS">
+
+<Solucion titulo="Comparar: con prioridad (5 fallos)">
+
+Orden: **P2 (3) → P1 (2) → P3 (1)**. Cadena: `C D C · A B A · E A E`.
+
+| Ref. | C | D | C | A | B | A | E | A | E |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| Proc. | P2 | P2 | P2 | P1 | P1 | P1 | P3 | P3 | P3 |
+| f0 | C | C | C | C | C | C | **E** | E | E |
+| f1 | | D | D | D | **B** | B | B | B | B |
+| f2 | | | | A | A | A | A | A | A |
+| Fallo | ✗ | ✗ | | ✗ | ✗ | | ✗ | | |
+| Sale | | | | | D | | C | | |
+
+**5 fallos** (P2 = 2, P1 = 2, P3 = 1). Quedan **E, B, A**. Cuando entra B, el LRU es **D** (usada en la 2.ª referencia), no C (usada en la 3.ª). Cuando entra E, el LRU es C. P3 tiene **un solo fallo** porque encuentra A ya cargada por P1.
+
+</Solucion>
+
+<Solucion titulo="Comparar: con FCFS P1, P2, P3 (6 fallos)">
+
+Cadena: `A B A · C D C · E A E`.
+
+| Ref. | A | B | A | C | D | C | E | A | E |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| f0 | A | A | A | A | A | A | **E** | E | E |
+| f1 | | B | B | B | **D** | D | D | **A** | A |
+| f2 | | | | C | C | C | C | C | C |
+| Fallo | ✗ | ✗ | | ✗ | ✗ | | ✗ | ✗ | |
+| Sale | | | | | B | | A | D | |
+
+**6 fallos** (2 por proceso). Quedan **E, A, C**.
+
+**Comparación:** con prioridad, P1 (que usa A) corre **justo antes** de P3 (que también usa A), así que A sigue cargada. Con FCFS, entre P1 y P3 corre P2, que llena la memoria con C y D y hace que A sea expulsada: P3 falla en A. **El orden de ejecución cambia la localidad de la cadena global.**
+
+</Solucion>
+</Practica>
+
+<PageReplacement client:visible preset="lab4prio" />
+
+<Errores
+	errores={[
+		{ mal: 'Simular cada proceso por separado con 3 frames propios.', bien: 'Los frames son <strong>compartidos</strong>: arma primero la cadena global según el Gantt.' },
+		{ mal: 'En FIFO, sacar la página usada hace más tiempo.', bien: 'Eso es LRU. FIFO saca la que <strong>entró</strong> hace más tiempo, aunque se acabe de usar.' },
+		{ mal: 'En Clock, mover el puntero en un acierto.', bien: 'Un acierto solo pone u = 1. El puntero se mueve únicamente cuando busca una víctima.' },
+		{ mal: 'Olvidar que una página cargada por otro proceso cuenta como acierto.', bien: 'En el ej. 3, P3 acierta en A porque P1 la dejó en memoria (si las páginas son compartidas, como supone la hoja).' },
+		{ mal: 'Dar solo el número de fallos.', bien: 'La hoja pide además las páginas finales y el contenido de los frames después de <strong>cada</strong> referencia.' },
+	]}
+/>
+
+<Quiz
+	client:visible
+	id="lab4-pr"
+	preguntas={[
+		{ q: 'Cadena A B C A D B E A C D B E con 3 frames: ¿cuántos fallos da OPT?', opts: ['6', '7', '9', '10'], ok: 1 },
+		{ q: 'En esa misma cadena, ¿quién tiene más fallos?', opts: ['FIFO', 'LRU', 'Clock', 'OPT'], ok: 1 },
+		{ q: 'En el ej. 2 (RR q = 2 + FIFO), los fallos totales son…', opts: ['6', '7', '8', '4'], ok: 2 },
+		{ q: 'En el ej. 3 con prioridad, ¿en qué orden corren?', opts: ['P1, P2, P3', 'P2, P1, P3', 'P3, P1, P2', 'P2, P3, P1'], ok: 1 },
+		{ q: 'Al aumentar el quantum en el ej. 2, los fallos…', opts: ['suben', 'bajan, porque cada proceso aprovecha su localidad', 'no cambian', 'dependen de Belady'], ok: 1 },
+	]}
+/>
+
+<Feynman
+	consigna="Explica por qué dos procesos que, cada uno solo, tendrían pocos page faults, pueden tener muchos cuando el scheduler los intercala con un quantum chico."
+	claves={[
+		'Los frames son compartidos: la suma de las páginas que usan ambos supera lo que cabe.',
+		'Con un quantum chico, cada proceso vuelve a la CPU después de que el otro cargó sus páginas.',
+		'Con FIFO o LRU, las páginas del que esperaba son las más viejas y salen justo antes de que las vuelva a necesitar.',
+		'Un quantum mayor, o menos procesos a la vez (control de carga), devuelve la localidad.',
+	]}
+	trampa="culpar solo al algoritmo de reemplazo. El problema aparece porque el conjunto de trabajo de ambos procesos juntos no cabe en los frames, y cambiar a otro algoritmo no lo arregla."
+/>
+
+<Dominio client:visible id="lab4-pr" />
+
+<Fuente archivos={['sem_11/Sem11-OSL-Ejercicios_Repaso.pdf (Page Replacement, ej. 1–3)', 'Soluciones propias: verificadas con un script, con el programa en C y con el simulador']} />

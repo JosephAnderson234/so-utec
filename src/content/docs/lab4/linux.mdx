@@ -1,0 +1,234 @@
+---
+title: 'MLFQ, O(1) y CFS: el scheduler de Linux'
+description: 'Colas multinivel y con realimentación, balanceo entre núcleos, el scheduler O(1) y el Completely Fair Scheduler (vruntime, árbol rojo-negro y nice), con la traza CFS/MLFQ de la sem. 12 explicada y verificada paso a paso.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Quiz from '../../../components/Quiz.tsx';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+
+<EnSimple>
+**MLFQ** es una fila con varias ventanillas por categoría: todos empiezan en la ventanilla rápida, con turnos cortos; si tu trámite no cabe en un turno, te mandan a una ventanilla más lenta con turnos más largos. Así los trámites cortos (los procesos interactivos) se resuelven rápido sin que nadie tenga que adivinar cuánto dura cada uno. **CFS**, el scheduler de Linux, hace otra cosa: lleva una **libreta** con cuánto tiempo de CPU recibió cada proceso y siempre atiende al que **menos recibió**. Si un proceso estuvo dormido esperando una tecla, recibió poco, y cuando despierta es el primero.
+</EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Describir una cola multinivel y una MLFQ con sus 5 parámetros, y simular una MLFQ a mano.',
+		'Explicar el scheduler O(1) de Linux: 140 niveles y las colas <em>active</em> y <em>expired</em>.',
+		'Explicar CFS: qué es <code>vruntime</code>, por qué se usa un árbol rojo-negro y cómo influye el <code>nice</code>.',
+		'Seguir la traza CFS/MLFQ de la sem. 12 y predecir el próximo paso.',
+	]}
+	prerrequisitos={[{ t: 'Algoritmos a mano (RR y prioridad)', href: '/lab4/algoritmos/' }]}
+	perfiles={['visual', 'simulador', 'feynman']}
+/>
+
+## Colas multinivel (MLQ)
+
+La cola de listos se **parte** en varias colas, cada una con su algoritmo. Por ejemplo, la de primer plano (interactivos) con **RR** y la de fondo (batch) con **FCFS**. El proceso queda **fijo** en su cola. Entre colas hay que decidir también:
+
+- **Prioridad fija:** primero se atiende toda la cola de primer plano y después la de fondo. Hay riesgo de **starvation**.
+- **Reparto de tiempo:** cada cola recibe una fracción de la CPU, por ejemplo **80 %** para primer plano con RR y **20 %** para fondo con FCFS.
+
+## Colas multinivel con realimentación (MLFQ)
+
+Ahora el proceso **puede moverse** entre colas, y así se implementa también el **aging**. Una MLFQ queda definida por **5 parámetros**:
+
+1. el número de colas;
+2. el algoritmo de cada cola;
+3. cuándo **subir** (promover) un proceso;
+4. cuándo **bajarlo** (degradar);
+5. en qué cola **entra** un proceso nuevo o que vuelve de una E/S.
+
+**Ejemplo de las diapositivas:** Q0 es RR con 8 ms, Q1 es RR con 16 ms y Q2 es FCFS. Un trabajo nuevo entra a Q0; si no termina en 8 ms, baja a Q1; si no termina en 16 ms más, baja a Q2. Una cola inferior solo se atiende si las superiores están vacías.
+
+**Por qué favorece a los IO-bound:** un proceso interactivo usa la CPU un instante y se bloquea antes de agotar el quantum, así que **no baja** y sigue en la cola rápida. Uno CPU-bound agota quantum tras quantum y se hunde. MLFQ **aprende** el tipo de proceso por su historia, sin conocer las ráfagas por adelantado.
+
+<Predice pregunta="En la MLFQ de las diapositivas llegan sin parar procesos interactivos nuevos a Q0. ¿Qué le pasa a un proceso largo que ya bajó a Q2? ¿Cuál de los 5 parámetros lo arregla?">
+
+**Starvation:** Q2 solo corre cuando Q0 y Q1 están vacías, y eso no ocurre nunca. Se arregla con el parámetro 3, **cuándo promover**: por ejemplo, subir a Q0 a cualquier proceso que lleve más de cierto tiempo esperando (es aging). Stallings propone lo mismo para su *feedback*: promover a un proceso que espera demasiado en su cola.
+
+</Predice>
+
+## Varias CPUs: balanceo de carga
+
+Con multiprocesadores simétricos (SMP) hay que mantener **todas** las CPUs ocupadas:
+
+- **Push migration:** una tarea periódica revisa la carga de cada CPU y **empuja** procesos de las sobrecargadas a las libres.
+- **Pull migration:** una CPU desocupada **jala** un proceso que espera en otra.
+
+El *hyperthreading* (varios hilos por núcleo) aprovecha los *memory stalls*: mientras un hilo espera un dato de memoria, el otro avanza.
+
+## Linux O(1) (antes de 2.6.23)
+
+| Idea | Detalle |
+| --- | --- |
+| Parecido a MLFQ | **140 niveles** de prioridad: **0–99** de tiempo real/kernel y **100–139** de usuario |
+| Todo en O(1) | elegir, insertar y quitar no dependen del número de procesos |
+| Active / expired | en cada nivel hay una cola *active* y otra *expired*; el que agota su quantum pasa a *expired*; cuando *active* se vacía, se **intercambian los punteros** |
+| RR dentro de cada cola | con quanta distintos según el nivel |
+| Heurísticas | sube la prioridad a los IO-bound y a los que sufren starvation; muchas reglas *ad hoc* |
+
+Antes de eso (Linux 2.4) la cola de listos **no estaba ordenada**: insertar era O(1), pero elegir exigía recorrerla entera, O(n), con un único lock. En multinúcleo, ese lock generaba mucha contención.
+
+## CFS (Linux 2.6.23 en adelante)
+
+- Cada tarea lleva su **`vruntime`**: el tiempo de CPU que recibió, ponderado por su prioridad.
+- **Siguiente tarea = la de menor `vruntime`.**
+- Las tareas listas de **cada núcleo** están en un **árbol rojo-negro** ordenado por `vruntime`. La siguiente es el **nodo más a la izquierda**. Insertar y quitar cuestan **O(log N)**.
+- Una tarea **nueva** recibe el `vruntime` **mínimo** del árbol: corre pronto, pero no acapara la CPU, porque en seguida otra tendrá el mínimo.
+- No hay quantum fijo: se calcula una **target latency** (el intervalo en el que cada tarea debería correr al menos una vez) que crece si hay muchas tareas.
+- Hay **clases de scheduling** con prioridad entre ellas: primero tiempo real y después la clase normal (CFS).
+- Un árbol **por núcleo** evita la contención de locks entre núcleos, pero obliga a **balancear** la carga.
+
+**El ejemplo clásico:** un render de video y un procesador de texto empiezan con `vruntime` 0. El render acumula `vruntime` sin parar; el editor casi no, porque pasa bloqueado esperando el teclado. Cuando llega una tecla, el editor despierta como el nodo más a la izquierda y **corre de inmediato**. CFS favorece a los interactivos **sin heurísticas** especiales.
+
+### Prioridades con `nice`
+
+`nice` va de **−20** (más prioridad) a **+19** (menos). Cada tarea tiene un **peso** (la tabla `prio_to_weight`: nice 0 = **1024**, nice 1 = 820, nice 5 = 335, nice −5 = 3121…) y el `vruntime` crece así:
+
+$$
+\Delta vruntime = \Delta exec \times \frac{1024}{peso}
+$$
+
+- **nice = 0:** el `vruntime` crece igual que el tiempo real.
+- **nice < 0:** crece **más lento** (peso mayor), así que la tarea sigue siendo «la más a la izquierda» por más tiempo y recibe más CPU.
+- **nice > 0:** crece **más rápido**, y recibe menos CPU.
+
+Cada nivel de nice cambia la CPU en **≈ 10 %** (multiplicador ≈ 1.25 entre niveles).
+
+<Practica nivel={2} titulo="Complétalo: dos tareas CPU-bound, nice 0 y nice 1">
+
+Pesos: 1024 y 820. A largo plazo cada una recibe CPU **en proporción a su peso**. La de nice 0 recibe 1024 / (1024 + 820) = ? y la de nice 1, ?
+
+<Solucion titulo="Comparar">
+
+1024 / 1844 ≈ **55.5 %** y 820 / 1844 ≈ **44.5 %**. La diferencia relativa es 1024/820 ≈ **1.25**: el «10 % por nivel» del comentario del kernel (−10 % para una, +10 % para la otra, ≈ 25 % de distancia entre ambas).
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: ¿cuánto sube el vruntime en 10 ms de CPU?">
+
+Calcula Δvruntime para una tarea con nice 5 (peso 335) y otra con nice −5 (peso 3121).
+
+<Solucion titulo="Comparar">
+
+- nice 5: 10 × 1024 / 335 ≈ **30.6 ms** virtuales. Avanza tres veces más rápido que el reloj, así que pronto deja de ser la menor.
+- nice −5: 10 × 1024 / 3121 ≈ **3.3 ms** virtuales. Puede correr unas tres veces más antes de que otra la alcance.
+
+</Solucion>
+</Practica>
+
+Las diapositivas cierran con **EEVDF**, el reemplazo de CFS (Linux 6.6 en adelante), sin entrar en detalle.
+
+## La traza CFS/MLFQ de la sem. 12, explicada
+
+Los datos iniciales que se deducen de la traza (la suma de lo ejecutado por cada tarea) son:
+
+| Tarea | `vruntime` inicial | Ráfaga total |
+| :-: | :-: | :-: |
+| T1 | 10 | 15 ms |
+| T2 | 5 | 10 ms |
+| T3 | 15 | 20 ms |
+| T4 | 8 | 12 ms |
+| T5 | 20 | 25 ms |
+
+**CFS con time slice de 5 ms** y nice 0 en todas (el `vruntime` sube lo mismo que el tiempo ejecutado). Reproduje los 17 pasos con un script y coinciden exactamente con el PDF **si los empates se resuelven por el número de tarea más bajo**:
+
+| Paso | Elige (vruntime) | Corre | vruntime nuevo / le queda | Reloj |
+| :-: | :-: | :-: | --- | :-: |
+| 1 | T2 (5) | 5 | 10 / 5 | 5 |
+| 2 | T4 (8) | 5 | 13 / 7 | 10 |
+| 3 | **T1** (10) — empata con T2 (10) | 5 | 15 / 10 | 15 |
+| 4 | T2 (10) | 5 | **T2 termina** | 20 |
+| 5 | T4 (13) | 5 | 18 / 2 | 25 |
+| 6 | **T1** (15) — empata con T3 (15) | 5 | 20 / 5 | 30 |
+| 7 | T3 (15) | 5 | 20 / 15 | 35 |
+| 8 | T4 (18) | **2** | **T4 termina** | 37 |
+| 9 | **T1** (20) — empata con T3 y T5 (20) | 5 | **T1 termina** | 42 |
+| 10 | T3 (20) | 5 | 25 / 10 | 47 |
+| 11 | T5 (20) | 5 | 25 / 20 | 52 |
+| 12–14 | T3 y T5 se alternan | | **T3 termina** en el paso 14 | 67 |
+| 15–17 | solo queda T5 | 5 + 5 + 5 | **T5 termina** | 82 |
+
+Fines: **T2 = 20, T4 = 37, T1 = 42, T3 = 67, T5 = 82** (82 = 15 + 10 + 20 + 12 + 25, la suma de las ráfagas).
+
+<Predice pregunta="En el paso 6, T1 y T3 tienen ambas vruntime 15. T3 está en el árbol desde el inicio y T1 fue reinsertada en el paso 3. ¿Cuál debería elegir el kernel real? ¿Y cuál elige la traza?">
+
+**La traza elige T1** (desempate por nombre). En el kernel real, una clave igual se inserta **a la derecha** de las que ya estaban (`entity_before` usa `<` estricto), así que el nodo más a la izquierda sería **T3**, que llegó al árbol primero. La traza es una **simplificación didáctica**: el orden final cambia un poco, pero la idea (siempre el menor `vruntime`) es la misma. **En el examen, declara cómo desempatas.**
+
+</Predice>
+
+**MLFQ con Q0 = 8 ms, Q1 = 16 ms y Q2 = 32 ms.** Ojo: en la traza las tareas **no empiezan todas en Q0** (T2 y T4 están en Q0, T1 en Q1, T3 y T5 en Q2). Es una situación inicial dada, distinta de la regla «toda tarea nueva entra a Q0»: lee bien el enunciado.
+
+| Paso | Cola | Corre | Qué pasa | Reloj |
+| :-: | :-: | --- | --- | :-: |
+| 1 | Q0 | T2, 8 ms | le quedan 2 → **baja a Q1** (detrás de T1) | 8 |
+| 2 | Q0 | T4, 8 ms | le quedan 4 → **baja a Q1** | 16 |
+| 3 | Q1 | T1, 15 ms | cabe en 16 → **termina** | 31 |
+| 4 | Q1 | T2, 2 ms | termina | 33 |
+| 5 | Q1 | T4, 4 ms | termina | 37 |
+| 6 | Q2 | T3, 20 ms | cabe en 32 → termina | 57 |
+| 7 | Q2 | T5, 25 ms | termina | 82 |
+
+<Practica nivel={4} titulo="Variante: la misma MLFQ, pero con las 5 tareas entrando a Q0 (orden T1, T2, T3, T4, T5)">
+
+Simula a mano. ¿Quién termina primero ahora?
+
+<Solucion titulo="Comparar (verificado con un script)">
+
+**Ronda en Q0 (8 ms cada una):** T1 0–8 · T2 8–16 · T3 16–24 · T4 24–32 · T5 32–40. Nadie cabe en 8, así que todas bajan a Q1. Les quedan T1 7, T2 2, T3 12, T4 4 y T5 17.
+
+**Q1 (16 ms):** T1 40–47 (termina) · T2 47–49 (termina) · T3 49–61 (termina) · T4 61–65 (termina) · T5 65–81 (le queda 1, baja a Q2).
+
+**Q2:** T5 81–82.
+
+**T1 termina primero (47)** y T5 sigue último (82). Comparado con la traza, T2 termina en 49 en vez de 33: al entrar todos en Q0, los largos también reciben su turno rápido antes de que los cortos terminen.
+
+</Solucion>
+</Practica>
+
+<Errores
+	errores={[
+		{ mal: 'Decir que CFS usa un quantum fijo como RR.', bien: 'Usa una target latency dividida según los pesos; elige siempre el menor <code>vruntime</code>.' },
+		{ mal: 'Decir que con nice negativo el <code>vruntime</code> crece más rápido.', bien: 'Crece <strong>más lento</strong> (peso mayor), por eso la tarea recibe más CPU.' },
+		{ mal: 'Decir que una tarea nueva empieza con <code>vruntime</code> 0.', bien: 'Recibe el mínimo del árbol; con 0 acapararía la CPU hasta alcanzar a las demás.' },
+		{ mal: 'Pensar que en MLFQ el proceso queda fijo en su cola.', bien: 'Eso es la cola multinivel <strong>sin</strong> realimentación. En MLFQ baja al agotar su quantum y puede subir por aging.' },
+		{ mal: 'Creer que O(1) significa que el scheduler es rápido «en general».', bien: 'Significa que elegir, insertar y quitar no dependen del número de procesos: hay 140 colas y un bitmap.' },
+	]}
+/>
+
+<Quiz
+	client:visible
+	id="lab4-linux"
+	preguntas={[
+		{ q: 'CFS elige la tarea…', opts: ['de mayor prioridad estática', 'con menor vruntime (la más a la izquierda del árbol)', 'que llegó primero', 'con menor ráfaga restante'], ok: 1 },
+		{ q: '¿Qué estructura usa CFS para las tareas listas?', opts: ['una cola FIFO', 'un árbol rojo-negro por núcleo', '140 listas', 'un heap global'], ok: 1 },
+		{ q: 'Una tarea con nice = +5 comparada con una de nice = 0…', opts: ['tiene un vruntime que crece más lento', 'tiene un vruntime que crece más rápido', 'nunca corre', 'corre en tiempo real'], ok: 1 },
+		{ q: 'En el scheduler O(1), cuando la cola active se vacía…', opts: ['se recalculan todas las prioridades una por una', 'se intercambian los punteros de active y expired', 'se reinicia el sistema', 'se pasa a FCFS'], ok: 1 },
+		{ q: 'Un proceso interactivo en una MLFQ tiende a…', opts: ['bajar a la cola más lenta', 'quedarse en las colas altas porque se bloquea antes de agotar su quantum', 'sufrir starvation', 'pasar a tiempo real'], ok: 1 },
+		{ q: 'Una CPU desocupada que toma un proceso de otra CPU hace…', opts: ['push migration', 'pull migration', 'aging', 'context switch'], ok: 1 },
+	]}
+/>
+
+<Feynman
+	consigna="Explica por qué CFS no necesita una regla especial para favorecer a los procesos interactivos, mientras que el scheduler O(1) sí la tenía."
+	claves={[
+		'O(1) asignaba prioridades y tenía que <strong>adivinar</strong> con heurísticas quién era IO-bound para subirle la prioridad.',
+		'CFS mide lo que cada tarea <strong>recibió</strong> (<code>vruntime</code>). Una tarea que duerme no acumula <code>vruntime</code>.',
+		'Al despertar tiene el menor <code>vruntime</code>, queda a la izquierda del árbol y corre de inmediato.',
+		'El favoritismo sale solo de la regla «el que menos recibió, primero».',
+	]}
+	trampa="decir que CFS «detecta» a los interactivos. No detecta nada: es un efecto de llevar la cuenta de la CPU recibida."
+/>
+
+<Dominio client:visible id="lab4-linux" />
+
+<Fuente archivos={['sem_12/Sema12_11-OST-Scheduling.pdf (diap. 48–64)', 'sem_12/Trace_Visualized.pdf', 'Reconstrucción de la traza y la variante MLFQ: propias, verificadas con un script']} />

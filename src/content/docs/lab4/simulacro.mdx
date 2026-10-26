@@ -1,0 +1,275 @@
+---
+title: 'Simulacro del Lab 4'
+description: 'Un simulacro con el formato oficial del Laboratorio Calificado 4: 1 pregunta de código (5 pts), 2 de análisis (10 pts) y 3 teóricas (5 pts), con soluciones verificadas y una pauta para corregirte.'
+---
+
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+
+:::caution[Cómo hacerlo]
+- **Cronométrate:** 50 minutos para el código y después unos 40 para análisis y teoría.
+- Sin apuntes, en papel y en tu editor, igual que el día del lab.
+- **No abras ninguna solución** hasta terminar todo. Después corrige con la pauta del final.
+- Este simulacro es **propio**: imita el formato de la hoja de indicaciones, no son preguntas oficiales.
+:::
+
+## Parte 1 · Código (5 pts, máximo 50 min)
+
+Modifica `base-scheduler.c` para implementar **Round Robin con llegadas** y `QUANTUM = 2`, con estos procesos (la prioridad no se usa):
+
+| Proceso | Prioridad | Llegada | Ráfaga |
+| :-: | :-: | :-: | :-: |
+| A | 2 | 0 | 5 |
+| B | 4 | 1 | 3 |
+| C | 1 | 2 | 1 |
+| D | 3 | 4 | 2 |
+| E | 5 | 6 | 4 |
+
+Requisitos:
+
+1. Imprime cada turno con el formato de `run()`: `t=X -> t=Y | nombre (k units)`.
+2. Los procesos que llegan durante un turno entran a la cola **antes** que el proceso que acaba de agotar su quantum.
+3. Si un proceso necesita menos que el quantum, la CPU pasa al siguiente sin consumir el sobrante.
+4. Al final imprime, por proceso, el **instante de fin**, el **waiting time** y el **response time**, y el promedio de ambos.
+
+<Solucion titulo="Solución (compilada con gcc -Wall -Wextra y probada)">
+
+```c
+#include <stdio.h>
+
+#define N 5
+#define QUANTUM 2
+
+typedef struct {
+    char name[20];
+    int priority;
+    int arrival;
+    int burst;
+    int remaining;
+    int first;
+    int completion;
+} Task;
+
+Task tasks[N] = {
+    {"A", 2, 0, 5, 5, -1, 0},
+    {"B", 4, 1, 3, 3, -1, 0},
+    {"C", 1, 2, 1, 1, -1, 0},
+    {"D", 3, 4, 2, 2, -1, 0},
+    {"E", 5, 6, 4, 4, -1, 0}
+};
+
+int current_time = 0;
+int queue[64];
+int head = 0, tail = 0, next = 0;
+
+void push(int i) { queue[tail++ % 64] = i; }
+int pop(void) { return queue[head++ % 64]; }
+int empty(void) { return head == tail; }
+
+void run(Task *task, int slice) {
+    if (slice <= 0 || slice > task->remaining)
+        return;
+    if (task->first == -1)
+        task->first = current_time;
+    printf("t=%d -> t=%d | %s (%d units)\n", current_time, current_time + slice,
+           task->name, slice);
+    task->remaining -= slice;
+    current_time += slice;
+    if (task->remaining == 0)
+        task->completion = current_time;
+}
+
+void admit(void) {
+    while (next < N && tasks[next].arrival <= current_time)
+        push(next++);
+}
+
+void schedule(void) {
+    int done = 0;
+    admit();
+    while (done < N) {
+        if (empty()) {
+            printf("t=%d -> t=%d | IDLE\n", current_time, tasks[next].arrival);
+            current_time = tasks[next].arrival;
+            admit();
+            continue;
+        }
+        int i = pop();
+        int slice = tasks[i].remaining < QUANTUM ? tasks[i].remaining : QUANTUM;
+        run(&tasks[i], slice);
+        admit();
+        if (tasks[i].remaining > 0)
+            push(i);
+        else
+            done++;
+    }
+}
+
+int main(void) {
+    schedule();
+    double wt = 0, rt = 0;
+    printf("Proc  Fin  WT  RT\n");
+    for (int i = 0; i < N; i++) {
+        int w = tasks[i].completion - tasks[i].arrival - tasks[i].burst;
+        int r = tasks[i].first - tasks[i].arrival;
+        wt += w;
+        rt += r;
+        printf("%-4s %4d %3d %3d\n", tasks[i].name, tasks[i].completion, w, r);
+    }
+    printf("Promedio WT = %.2f | Promedio RT = %.2f\n", wt / N, rt / N);
+    return 0;
+}
+```
+
+**Salida real:**
+
+```text
+t=0 -> t=2 | A (2 units)
+t=2 -> t=4 | B (2 units)
+t=4 -> t=5 | C (1 units)
+t=5 -> t=7 | A (2 units)
+t=7 -> t=9 | D (2 units)
+t=9 -> t=10 | B (1 units)
+t=10 -> t=12 | E (2 units)
+t=12 -> t=13 | A (1 units)
+t=13 -> t=15 | E (2 units)
+Proc  Fin  WT  RT
+A      13   8   0
+B      10   6   1
+C       5   2   2
+D       9   3   3
+E      15   5   4
+Promedio WT = 4.80 | Promedio RT = 2.00
+```
+
+**Pauta (5 pts):**
+
+| Puntos | Criterio |
+| :-: | --- |
+| 1 | compila sin errores y termina (sin bucles infinitos) |
+| 1.5 | orden de turnos correcto, incluidas las llegadas antes de la reinserción |
+| 0.5 | el último turno de cada proceso dura solo lo que le quedaba |
+| 1.5 | fin, waiting y response correctos por proceso |
+| 0.5 | promedios correctos |
+
+Esta pauta es una estimación propia, no la rúbrica oficial.
+
+</Solucion>
+
+## Parte 2 · Análisis (10 pts)
+
+### Pregunta 1 (5 pts)
+
+Con los **mismos 5 procesos** de la parte 1:
+
+a) Dibuja el Gantt de **SRTF** y calcula la espera promedio.
+b) Dibuja el Gantt de **prioridad no expropiativa** (número **mayor** = más prioridad) y calcula la espera promedio.
+c) Compara SRTF, prioridad y el RR de la parte 1. ¿Cuál conviene si el objetivo es el **response time**? ¿Y la espera promedio? Justifica.
+
+<Solucion titulo="Solución">
+
+**a) SRTF:** A 0–1 · B 1–2 (en t = 1, B tiene 3 contra los 4 que le quedan a A) · C 2–3 (1 < 2) · B 3–5 (en t = 4 llega D con 2, y B tiene 1) · D 5–7 · A 7–11 (en t = 7, A y E tienen 4; gana A, que llegó antes) · E 11–15.
+
+Esperas: A 6, B 1, C 0, D 1, E 5 → **2.6**.
+
+**b) Prioridad no expropiativa:** A 0–5 (es la única en t = 0) · en t = 5 están B (4), C (1) y D (3) → **B** 5–8 · en t = 8 ya llegó E (5) → **E** 8–12 · **D** 12–14 · **C** 14–15.
+
+Esperas: A 0, B 4, C 12, D 8, E 2 → **5.2**.
+
+**c)**
+
+| | Espera promedio | Response promedio |
+| --- | :-: | :-: |
+| SRTF | **2.6** | **1.2** |
+| Prioridad no exp. | 5.2 | 5.2 |
+| RR q = 2 | 4.8 | 2.0 |
+
+En este conjunto, SRTF gana en ambas métricas porque conoce las ráfagas. En la práctica no se conocen, y RR logra un response bajo **sin** conocerlas. Prioridad castiga a C (ráfaga 1, espera 12) solo por su prioridad baja. Si no hay información de las ráfagas y el sistema es interactivo, **RR**; si se conocen, **SRTF**, con el riesgo de starvation de los largos.
+
+</Solucion>
+
+### Pregunta 2 (5 pts)
+
+Dos procesos comparten **3 frames** inicialmente vacíos. Cada unidad de CPU hace un acceso. **RR con q = 2**, ambos llegan en t = 0 y P1 va primero.
+
+| Proceso | Referencias |
+| :-: | --- |
+| P1 | A, B, C, A |
+| P2 | D, A, E, D |
+
+a) Escribe la secuencia global de referencias.
+b) Simula **LRU** y **Clock** (bits en 0, puntero en el primer frame). Da los fallos **por proceso**, los totales y las páginas que quedan.
+c) ¿Por qué LRU tiene menos fallos que Clock aquí?
+
+<Solucion titulo="Solución (verificada con un script)">
+
+**a)** P1 0–2 · P2 2–4 · P1 4–6 · P2 6–8 → `A B · D A · C A · E D` (P1, P1, P2, P2, P1, P1, P2, P2).
+
+**b) LRU:**
+
+| Ref. | A | B | D | A | C | A | E | D |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| Proc. | P1 | P1 | P2 | P2 | P1 | P1 | P2 | P2 |
+| f0 | A | A | A | A | A | A | A | A |
+| f1 | | B | B | B | **C** | C | C | **D** |
+| f2 | | | D | D | D | D | **E** | E |
+| Fallo | ✗ | ✗ | ✗ | | ✗ | | ✗ | ✗ |
+
+**6 fallos** (P1 = 3, P2 = 3). Quedan **A, D, E**.
+
+**Clock** (puntero después de cada referencia):
+
+| Ref. | f0 | f1 | f2 | Fallo | Puntero | Qué pasó |
+| :-: | --- | --- | --- | :-: | :-: | --- |
+| A | A* | | | ✗ | f1 | |
+| B | A* | B* | | ✗ | f2 | |
+| D | A* | B* | D* | ✗ | f0 | |
+| A | A* | B* | D* | | f0 | acierto |
+| C | **C*** | B | D | ✗ | f1 | apaga todo, da la vuelta y saca **A** |
+| A | C* | **A*** | D | ✗ | f2 | B tiene u = 0 → sale B |
+| E | C* | A* | **E*** | ✗ | f0 | D tiene u = 0 → sale D |
+| D | **D*** | A | E | ✗ | f1 | apaga C, A y E, da la vuelta y saca **C** |
+
+**7 fallos** (P1 = 4, P2 = 3). Quedan **D, A, E**.
+
+**c)** A es la página **más usada** (por los dos procesos). En la referencia C, LRU sabe que A se usó **justo antes** y saca B. Clock tiene **todos** los bits en 1 y, al dar la vuelta completa, se comporta como FIFO: saca A, que se vuelve a pedir en la referencia siguiente. Con todos los bits en 1, Clock pierde la información de recencia y degenera en FIFO.
+
+</Solucion>
+
+## Parte 3 · Teóricas (5 pts)
+
+<Predice titulo="Teórica 1 (desarrollo)" pregunta="Explica la diferencia entre la planificación de <strong>largo</strong>, <strong>mediano</strong> y <strong>corto</strong> plazo, y di cuál de ellas se ejecuta con más frecuencia y por qué.">
+
+- **Largo plazo:** decide si se **admite** un nuevo proceso, y con eso controla el grado de multiprogramación. Se ejecuta poco (cuando termina un trabajo o la CPU está ociosa).
+- **Mediano plazo:** parte del **swapping**: decide qué procesos están, parcial o totalmente, en memoria principal.
+- **Corto plazo (dispatcher):** decide qué proceso **listo** usa la CPU. Es el **más frecuente**, porque se invoca en cada interrupción de reloj o de E/S, en cada syscall y en cada señal (Stallings §9.1).
+
+</Predice>
+
+<Predice titulo="Teórica 2 (desarrollo)" pregunta="¿Qué problema de Round Robin con procesos IO-bound resuelve <strong>Virtual Round Robin</strong>, y cómo?">
+
+En RR, un proceso IO-bound usa solo una parte de su quantum, se bloquea por E/S y, al volver, va **al final** de la cola de listos; mientras tanto, los CPU-bound usan sus quanta completos. Los CPU-bound reciben más CPU de la que les toca, la E/S rinde poco y la varianza del response time crece. **VRR** agrega una **cola auxiliar FCFS** para los que vuelven de una E/S, con **preferencia** sobre la cola principal. Quien sale de ella corre solo **el resto** de su quantum (el quantum menos lo que ya usó). Según Stallings, es más justo que RR.
+
+</Predice>
+
+<Predice titulo="Teórica 3 (alternativa múltiple)" pregunta="En CFS, una tarea con nice = −5 y otra con nice = 0 son CPU-bound. ¿Cuál afirmación es correcta? (a) Las dos reciben la misma CPU porque CFS es «completamente justo». (b) El vruntime de la de nice −5 crece más lento, por eso recibe más CPU. (c) El vruntime de la de nice −5 crece más rápido. (d) La de nice −5 se ejecuta en la clase de tiempo real.">
+
+**(b).** Δvruntime = Δexec × 1024 / peso, y el peso de nice −5 (3121) es mayor que el de nice 0 (1024). Su `vruntime` crece unas 3 veces más lento, así que sigue siendo «la más a la izquierda» por más tiempo. «Justo» en CFS significa proporcional al peso, no partes iguales.
+
+</Predice>
+
+## Después del simulacro: corrige como tutor
+
+Por cada punto perdido, busca el **primer paso** que hiciste mal y clasifícalo:
+
+| Tipo de error | Señal | Qué repasar |
+| --- | --- | --- |
+| **Conceptual** | confundiste SJF con SRTF, waiting con response, o el sentido de la prioridad | [Teoría](/lab4/teoria/) y los «Errores que cuestan puntos» de [Algoritmos](/lab4/algoritmos/) |
+| **Procedimental** | sabías la regla, pero desordenaste la cola de RR o te olvidaste del IDLE | los peldaños 2 y 3 de [Algoritmos](/lab4/algoritmos/) |
+| **De código** | se colgó, no compiló o imprimió mal un caso borde | los Detectives y la lista «Antes de enviar» de [Código](/lab4/codigo/) |
+| **De interpretación** | leíste mal el enunciado (quién va primero, el quantum, la convención) | subraya los supuestos al leer y escríbelos en tu respuesta |
+
+Después marca tu nivel en cada página (📈) para que el [panel de repaso](/lab4/#tu-panel-de-repaso) te las vuelva a mostrar.
+
+<Fuente archivos={['Formato: sem_12/OSL-Indicaciones-Laboratorio_Calificado_4.pdf', 'Preguntas, soluciones y pauta: propias, verificadas con un script y con el programa en C']} />

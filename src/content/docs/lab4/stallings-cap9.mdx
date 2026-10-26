@@ -1,0 +1,299 @@
+---
+title: 'Stallings cap. 9 · Planificación en monoprocesador'
+description: 'Lo que dice el capítulo 9 de Stallings (la lectura oficial para las teóricas del Lab 4): tipos de planificación, criterios, prioridades, FCFS, RR, VRR, SPN, SRT, HRRN, feedback, comparación de rendimiento, fair-share y UNIX tradicional. Con las Review Questions 9.1–9.11 y los problemas 9.1, 9.2 y 9.16 resueltos.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Quiz from '../../../components/Quiz.tsx';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+
+<EnSimple>
+Stallings divide la planificación en tres **niveles de tiempo**. El de **largo plazo** decide quién **entra** al sistema (como el portero de una discoteca), el de **mediano plazo** decide quién se queda **en memoria** y quién se va a swap (como mandar a alguien a esperar afuera un rato) y el de **corto plazo** decide quién usa la CPU **ahora** (quién baila). El capítulo es casi entero sobre el de corto plazo: qué criterios hay y cómo se comporta cada algoritmo con el mismo ejemplo de 5 procesos.
+</EnSimple>
+
+:::tip[Qué entra del cap. 9]
+La hoja del Lab 4 recomienda el **capítulo 9** para las 3 teóricas (5 pts), que «podrán incluir preguntas de desarrollo». Las secciones son **9.1** (tipos), **9.2** (algoritmos, comparación y fair-share) y **9.3** (UNIX tradicional). Las fórmulas de colas de §9.2 son para entender la idea: no hace falta memorizarlas.
+:::
+
+<Objetivos
+	objetivos={[
+		'Diferenciar la planificación de largo, mediano y corto plazo, y decir cuándo actúa cada una.',
+		'Clasificar los criterios en orientados al usuario o al sistema, y relacionados o no con el rendimiento.',
+		'Definir FCFS, RR, VRR, SPN, SRT, HRRN y feedback con su función de selección y su modo de decisión.',
+		'Responder de memoria las Review Questions 9.1–9.11 y resolver los problemas tipo 9.1, 9.2 y 9.16.',
+	]}
+	prerrequisitos={[{ t: 'Algoritmos a mano', href: '/lab4/algoritmos/' }]}
+	perfiles={['feynman', 'examen']}
+/>
+
+:::tip[Cómo leer el capítulo sin que se te olvide]
+1. **Antes** de cada sección, lee solo su título y escribe una pregunta que creas que responde (por ejemplo, «¿por qué FCFS perjudica a los IO-bound?»).
+2. Lee la sección **buscando esa respuesta**.
+3. **Cierra** la página y escribe la idea central en dos líneas.
+4. Al final, responde las **Review Questions sin mirar** y recién después abre cada respuesta.
+:::
+
+## 9.1 Tipos de planificación
+
+| Tipo | Decide | Frecuencia | Efecto |
+| --- | --- | --- | --- |
+| **Largo plazo** | si se **admite** un nuevo proceso | baja | controla el **grado de multiprogramación** |
+| **Mediano plazo** | si un proceso pasa a estar (parcial o totalmente) **en memoria**; es parte del **swapping** | media | también controla la multiprogramación |
+| **Corto plazo** (**dispatcher**) | qué proceso **listo** se ejecuta | **muy alta** | rendimiento visible para el usuario |
+| E/S | qué petición atiende un dispositivo | | se ve en el cap. 11 |
+
+El de **largo plazo** decide **cuándo** admitir (si hay más procesos, a cada uno le toca menos CPU; se invoca cuando un trabajo termina o cuando la CPU está ociosa demasiado tiempo) y **a quién** (FCFS, o por prioridad, duración esperada o requisitos de E/S, buscando una **mezcla** de procesos CPU-bound e IO-bound). En sistemas interactivos se admite a todos los usuarios autorizados hasta la saturación.
+
+El de **corto plazo** se invoca ante cualquier evento que pueda bloquear al proceso actual o permitir expropiarlo: **interrupciones de reloj**, **interrupciones de E/S**, **llamadas al sistema** y **señales** (por ejemplo, de semáforos).
+
+## 9.2 Criterios
+
+Dos ejes: **usuario o sistema** y **rendimiento o no**.
+
+| | Relacionado con el rendimiento | Otros |
+| --- | --- | --- |
+| **Usuario** | **turnaround** (envío → fin; útil para batch), **response time** (envío → inicio de la respuesta; el crítico en interactivos), **deadlines** | **predictability**: el mismo trabajo tarda y cuesta lo mismo sin importar la carga |
+| **Sistema** | **throughput** (procesos por unidad de tiempo), **utilización** del procesador | **fairness** (sin starvation), **respetar prioridades**, **balancear recursos** |
+
+Los criterios **compiten**: un buen response time exige cambiar de proceso a menudo, y eso suma overhead y baja el throughput.
+
+### Prioridades
+
+Hay varias colas de listos, RQ0, RQ1, …, en orden **descendente** de prioridad, y se elige de la más alta que no esté vacía. **Convención del libro:** como en UNIX, un **valor menor es una prioridad mayor** (Windows usa la convención opuesta). El problema es la **starvation** de los de baja prioridad; la solución es que la prioridad cambie con la **edad** o la historia del proceso.
+
+:::caution[Ojo con la convención]
+Stallings: valor menor = más prioridad. La **hoja de ejercicios del lab** y el framework: valor **mayor** = más prioridad. Si una teórica pregunta por el libro, responde con la convención del libro y **dilo**.
+:::
+
+### Las políticas (tabla 9.3)
+
+Términos: **w** = tiempo esperando hasta ahora, **e** = tiempo ejecutado hasta ahora, **s** = tiempo de servicio total (incluye e).
+
+- **FCFS:** max[w]. No expropiativo. Rinde mucho mejor con procesos largos que con cortos (en el ejemplo W, X, Y, Z, el proceso Y, de 1 unidad, tiene **Tr/Ts = 100**) y **favorece a los CPU-bound** sobre los IO-bound, con lo que los dispositivos de E/S pueden quedar ociosos. Solo no es atractivo; combinado con prioridades (una cola FCFS por nivel) sí.
+- **Round Robin (time slicing):** expropia con una interrupción de reloj periódica. Con un quantum **muy corto** hay mucho overhead; la guía es que q sea **un poco mayor que una interacción típica**. Si q supera al proceso más largo, **degenera en FCFS**. Su debilidad: los IO-bound usan poco su quantum y vuelven tarde, y los CPU-bound se llevan más CPU de la que les toca.
+- **Virtual Round Robin (VRR):** agrega una **cola auxiliar FCFS** para los procesos que vuelven de una E/S. Esa cola tiene **preferencia** sobre la principal, y quien sale de ella corre solo **lo que le quedaba** de su quantum. Es más justo con los IO-bound.
+- **SPN (Shortest Process Next):** min[s], no expropiativo. Mejora el response time global, pero aumenta su **variabilidad** (baja la predictibilidad), hay que **estimar s** y puede haber **starvation** de los largos.
+- **SRT (Shortest Remaining Time):** min[s − e], expropia **al llegar** un proceso. No penaliza a los cortos como FCFS ni genera interrupciones extra como RR, pero debe registrar los tiempos de servicio transcurridos. Mejor turnaround que SPN.
+- **HRRN:** max[(w + s)/s], no expropiativo. Favorece a los cortos, pero la espera sube R y los largos terminan pasando: **no hay starvation**.
+- **Feedback (multinivel):** si **no se conocen** las duraciones, se penaliza a quien **lleva más tiempo ejecutando**. Un proceso nuevo entra a RQ0 y en cada expropiación baja un nivel; en la última cola, RR. Una variante da **q = 2<sup>i</sup>** en RQi para que los largos no se estiren tanto. Aun así puede haber starvation, y se corrige **promoviendo** a quien espera mucho.
+
+### Estimar la ráfaga
+
+Promedio simple: $S_{n+1} = \frac{1}{n}\sum_{i=1}^{n} T_i$. Promedio exponencial: $S_{n+1} = \alpha T_n + (1-\alpha) S_n$. Con α = 0.8 casi todo el peso está en las **4 últimas** observaciones; con α = 0.2 se reparte en unas **8**. Un α alto reacciona rápido a los cambios, pero se vuelve «nervioso» ante picos breves.
+
+### Comparación de rendimiento
+
+- **Teoría de colas:** para **cualquier** disciplina que elija **sin mirar** el tiempo de servicio, $T_r/T_s = 1/(1-\rho)$, donde ρ es la utilización. Una prioridad que no depende de la duración da el **mismo** turnaround promedio que FCFS, con o sin expropiación.
+- **Prioridad según la duración (dos clases):** el promedio global mejora poco, pero los **cortos** mejoran mucho (más todavía con expropiación) y los **largos** empeoran.
+- **Simulación** (50 000 procesos, ρ = 0.8): FCFS es muy desfavorable con los cortos (un tercio de los procesos tiene Tr/Ts > 10); RR con q = 1 da Tr/Ts ≈ 5 para casi todos; SPN es mejor que RR salvo para los más cortos; SRT es mejor que SPN salvo para el 7 % más largo; HRRN queda entre FCFS y SPN; FB funciona muy bien con los cortos.
+
+### Fair-share scheduling (FSS)
+
+Planifica por **grupos** de procesos (un usuario o un departamento), no por proceso suelto. Cada grupo tiene un peso $W_k$ y la prioridad del proceso j del grupo k es:
+
+$$
+P_j(i) = Base_j + \frac{CPU_j(i)}{2} + \frac{GCPU_k(i)}{4 \times W_k}
+$$
+
+donde $CPU_j(i) = CPU_j(i-1)/2$ y $GCPU_k(i) = GCPU_k(i-1)/2$ (un valor menor es más prioridad). En la fig. 9.16, A está en un grupo y B y C en otro, ambos con peso 0.5: el orden resulta A, B, A, C, A, B…, y **A recibe el 50 %**, igual que B y C **juntos**.
+
+## 9.3 UNIX tradicional
+
+Feedback multinivel con **RR en cada cola** y expropiación cada **1 segundo**. La prioridad se recalcula cada segundo:
+
+$$
+CPU_j(i) = \frac{CPU_j(i-1)}{2}, \qquad P_j(i) = Base_j + \frac{CPU_j(i)}{2} + nice_j
+$$
+
+El reloj interrumpe **60 veces por segundo** e incrementa el contador del proceso que corre. Las **bandas** de prioridad base son, de mayor a menor: **swapper**, control de dispositivos de bloque, manipulación de archivos, control de dispositivos de caracteres y **procesos de usuario**. El uso reciente de CPU **penaliza a los CPU-bound** y favorece a los IO-bound.
+
+<Practica nivel={2} titulo="Complétalo: la fig. 9.17 (A, B y C con base 60, sin nice)">
+
+En el segundo 0 corre A, y su contador llega a 60. Al recalcular: $CPU_A = 60/2 = 30$ y $P_A = 60 + 30/2 = 75$. B y C siguen con prioridad 60. ¿Quién corre en el segundo 1? ¿Y cuánto valen las prioridades al final del segundo 1?
+
+<Solucion titulo="Comparar">
+
+Corre **B** (60 < 75; empata con C y gana el primero). Al final del segundo 1: $CPU_A = 30/2 = 15$ → $P_A = 60 + 7 = 67$ (división entera); $CPU_B = 60/2 = 30$ → $P_B = 75$; $P_C = 60$. En el segundo 2 corre **C**. El patrón es A, B, C, A, B, C…: con procesos CPU-bound iguales, el decaimiento reparte la CPU como un RR.
+
+</Solucion>
+</Practica>
+
+## Review Questions 9.1–9.11
+
+<Solucion titulo="9.1 Describe brevemente los tres tipos de planificación del procesador.">
+
+**Largo plazo:** decide si se agrega un nuevo proceso al conjunto de procesos activos (controla el grado de multiprogramación). **Mediano plazo:** decide si un proceso pasa a estar parcial o totalmente en memoria principal; es parte del swapping. **Corto plazo:** decide cuál de los procesos listos ejecuta el procesador; es el dispatcher y el que más seguido corre.
+
+</Solucion>
+
+<Solucion titulo="9.2 ¿Cuál es normalmente el requisito de rendimiento crítico en un SO interactivo?">
+
+El **response time**, o tiempo de respuesta.
+
+</Solucion>
+
+<Solucion titulo="9.3 ¿Cuál es la diferencia entre turnaround time y response time?">
+
+**Turnaround** es el intervalo entre el envío de un proceso y su **fin**: incluye la ejecución y todas las esperas, y es la medida adecuada para batch. **Response time** es el intervalo entre el envío de una petición y el **inicio** de la respuesta: el proceso puede empezar a responder mientras sigue trabajando, así que refleja mejor lo que percibe el usuario interactivo.
+
+</Solucion>
+
+<Solucion titulo="9.4 En planificación de procesos, ¿un valor de prioridad bajo representa una prioridad baja o alta?">
+
+Depende del sistema. En **UNIX** y en muchos otros, y en la convención del libro, un valor **bajo** es prioridad **alta**. Algunos, como **Windows**, usan lo contrario. (En el lab, el número **mayor** es más prioridad: decláralo siempre.)
+
+</Solucion>
+
+<Solucion titulo="9.5 ¿Cuál es la diferencia entre planificación expropiativa y no expropiativa?">
+
+**No expropiativa:** el proceso en ejecución sigue hasta que **termina** o **se bloquea** (E/S o servicio del SO). **Expropiativa:** el SO puede interrumpirlo y pasarlo a listo, al llegar un proceso nuevo, cuando una interrupción desbloquea a otro o periódicamente por reloj. La expropiativa tiene más overhead, pero evita que un proceso monopolice la CPU.
+
+</Solucion>
+
+<Solucion titulo="9.6 Define brevemente FCFS.">
+
+Cuando el proceso actual deja de ejecutar, se elige el que lleva **más tiempo en la cola de listos** (max[w]). No es expropiativo.
+
+</Solucion>
+
+<Solucion titulo="9.7 Define brevemente Round Robin.">
+
+Se genera una **interrupción de reloj** periódica. En cada una, el proceso que corre vuelve a la cola de listos y se elige el siguiente en orden FCFS. Cada proceso recibe una **porción de tiempo** (time slicing).
+
+</Solucion>
+
+<Solucion titulo="9.8 Define brevemente SPN (shortest process next).">
+
+Política **no expropiativa** que elige el proceso con el **menor tiempo de procesamiento esperado**. Los procesos cortos se adelantan a los largos.
+
+</Solucion>
+
+<Solucion titulo="9.9 Define brevemente SRT (shortest remaining time).">
+
+Versión **expropiativa** de SPN: siempre se elige el proceso con **menor tiempo restante esperado**. Cuando llega uno con menos tiempo restante que el actual, lo expropia.
+
+</Solucion>
+
+<Solucion titulo="9.10 Define brevemente HRRN (highest response ratio next).">
+
+Cuando el proceso actual termina o se bloquea, se elige el listo con mayor **R = (w + s)/s** (w = espera, s = servicio esperado). Favorece a los cortos, pero la espera hace crecer R, así que los largos no sufren starvation.
+
+</Solucion>
+
+<Solucion titulo="9.11 Define brevemente feedback scheduling.">
+
+Expropiativa por quantum y con **prioridades dinámicas**. Un proceso entra a RQ0 y, cada vez que es expropiado, baja a la cola siguiente. En cada cola, FCFS, y en la última, RR. Así se favorece a los cortos **sin conocer** sus duraciones, penalizando a los que llevan más tiempo ejecutando.
+
+</Solucion>
+
+## Problemas resueltos (soluciones propias, verificadas)
+
+<Practica nivel={3} titulo="Problema 9.16: cinco trabajos que llegan juntos">
+
+Duraciones A = 15, B = 9, C = 3, D = 6, E = 12 minutos; prioridades 6, 3, 7, 9, 4 (valor **menor** = más prioridad). Turnaround de cada uno y promedio para: (a) RR con q = 1, (b) prioridad, (c) FCFS en orden A–E y (d) SJF.
+
+<Solucion titulo="Comparar">
+
+| | A | B | C | D | E | Promedio |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: |
+| (a) RR q = 1 | 45 | 35 | 13 | 26 | 42 | **32.2** |
+| (b) Prioridad: B, E, A, C, D | 36 | 9 | 39 | 45 | 21 | **30.0** |
+| (c) FCFS | 15 | 24 | 27 | 33 | 45 | **28.8** |
+| (d) SJF: C, D, B, E, A | 45 | 18 | 3 | 9 | 30 | **21.0** |
+
+**Cómo se llega a RR:** en cada vuelta corren todos los que quedan, 1 minuto cada uno. C termina en la 3.ª vuelta (t = 13); D en la 6.ª (t = 26); B en la 9.ª (t = 35); E en la 12.ª (t = 42) y A al final (t = 45). SJF da el menor promedio, como predice el problema 9.3.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Problema 9.1: SRT, prioridad no expropiativa y RR (q = 30 ms)">
+
+P1 (50 ms, prioridad 4, llega en 0), P2 (20, 1, llega en 20), P3 (100, 3, llega en 40), P4 (40, 2, llega en 60). Valor menor = más prioridad. Espera promedio de cada política.
+
+<Solucion titulo="Comparar (unidad de 10 ms, como el ejemplo del libro)">
+
+| Política | Gantt (×10 ms) | Esperas P1/P2/P3/P4 (ms) | Promedio |
+| --- | --- | --- | :-: |
+| FCFS | P1 0–5 · P2 5–7 · P3 7–17 · P4 17–21 | 0 / 30 / 30 / 110 | **42.5 ms** |
+| SRT | P1 0–2 · P2 2–4 · P1 4–7 · P4 7–11 · P3 11–21 | 20 / 0 / 70 / 10 | **25 ms** |
+| Prioridad no exp. | P1 0–5 · P2 5–7 · P4 7–11 · P3 11–21 | 0 / 30 / 70 / 10 | **27.5 ms** |
+| RR q = 30 ms | P1 0–3 · P2 3–5 · P1 5–7 · P3 7–10 · P4 10–13 · P3 13–16 · P4 16–17 · P3 17–21 | 20 / 10 / 70 / 70 | **42.5 ms** |
+
+En SRT, P2 expropia a P1 en t = 20 ms (20 < 30 restantes). En prioridad, P1 no es expropiado aunque P2 llegue con prioridad 1, porque es no expropiativa.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Problema 9.2: la tabla 9.5 con otro conjunto">
+
+A (llega 0, servicio 3), B (1, 5), C (3, 2), D (9, 5), E (12, 5). Calcula el instante de fin y el turnaround promedio de cada política.
+
+<Solucion titulo="Comparar (verificado con el simulador; RR y FB con la convención del libro)">
+
+| Política | Fin A, B, C, D, E | Tr promedio | Tr/Ts promedio |
+| --- | --- | :-: | :-: |
+| FCFS | 3, 8, 10, 15, 20 | 6.2 | 1.74 |
+| RR q = 1 | 6, 11, 8, 18, 20 | 7.6 | 1.98 |
+| RR q = 4 | 3, 10, 9, 19, 20 | 7.2 | 1.88 |
+| SPN | 3, 10, 5, 15, 20 | 5.6 | 1.32 |
+| SRT | 3, 10, 5, 15, 20 | 5.6 | 1.32 |
+| HRRN | 3, 8, 10, 15, 20 | 6.2 | 1.74 |
+| FB q = 1 | 7, 16, 6, 19, 20 | 8.6 | 2.09 |
+| FB q = 2<sup>i</sup> | 4, 10, 8, 18, 20 | 7.0 | 1.81 |
+
+Aquí SRT coincide con SPN: ninguna llegada encuentra en ejecución a un proceso con más tiempo restante que el recién llegado. HRRN coincide con FCFS: en t = 8 el único listo es C. En FB, si no hay nadie más listo, el proceso **no baja** de cola (es lo que hace Stallings en la fig. 9.5).
+
+</Solucion>
+</Practica>
+
+<Predice titulo="Pregunta de desarrollo" pregunta="«¿Qué tipo de proceso favorece un scheduler de colas multinivel con realimentación: uno CPU-bound o uno IO-bound? Explica.» (problema 9.14). Responde en 4 líneas antes de abrir.">
+
+Favorece a los **IO-bound**. Un proceso IO-bound usa la CPU poco tiempo y se bloquea **antes de agotar su quantum**, así que no es expropiado y **no baja** de cola: se mantiene en las colas de mayor prioridad. Un CPU-bound agota su quantum una y otra vez y va bajando a colas de menor prioridad. Así, sin conocer las duraciones, el scheduler aprende de la historia de cada proceso.
+
+</Predice>
+
+<Errores
+	errores={[
+		{ mal: 'Decir que el scheduler de mediano plazo elige quién usa la CPU.', bien: 'Decide quién está en memoria (swapping). La CPU la asigna el de corto plazo.' },
+		{ mal: 'Definir response time como el tiempo hasta que el proceso termina.', bien: 'Es hasta que la respuesta <strong>empieza</strong>. Hasta el fin es el turnaround.' },
+		{ mal: 'Afirmar que RR es siempre mejor que FCFS.', bien: 'RR trata peor a los IO-bound (motivo de VRR) y con q grande es igual a FCFS. Con q chico, el overhead baja el throughput.' },
+		{ mal: 'Decir que HRRN puede causar starvation.', bien: 'La espera hace crecer R hasta que el proceso es elegido.' },
+		{ mal: 'Decir que la prioridad mejora el turnaround promedio frente a FCFS.', bien: 'Si la prioridad no depende de la duración, el promedio es el mismo (teoría de colas).' },
+	]}
+/>
+
+<Quiz
+	client:visible
+	id="lab4-stallings9"
+	preguntas={[
+		{ q: '¿Qué scheduler controla el grado de multiprogramación al admitir nuevos procesos?', opts: ['corto plazo', 'mediano plazo', 'largo plazo', 'de E/S'], ok: 2 },
+		{ q: 'Según Stallings, el requisito crítico en un sistema interactivo es…', opts: ['throughput', 'response time', 'utilización', 'predictability'], ok: 1 },
+		{ q: 'En VRR, los procesos que vuelven de una E/S…', opts: ['van al final de la cola principal', 'van a una cola auxiliar con preferencia y usan lo que les quedaba de quantum', 'reciben un quantum doble', 'bajan de prioridad'], ok: 1 },
+		{ q: 'La función de selección de SRT es…', opts: ['max[w]', 'min[s]', 'min[s − e]', 'max[(w + s)/s]'], ok: 2 },
+		{ q: 'En UNIX tradicional, la prioridad de un proceso…', opts: ['es fija', 'empeora con el uso reciente de CPU, que decae a la mitad cada segundo', 'solo depende del nice', 'mejora cuanto más CPU usa'], ok: 1 },
+		{ q: 'En fair-share, si dos grupos tienen peso 0.5 y uno tiene 1 proceso y el otro 2…', opts: ['cada proceso recibe 1/3', 'el proceso solo recibe 50 % y los otros dos 25 % cada uno', 'el grupo grande recibe 2/3', 'depende del nice'], ok: 1 },
+		{ q: '¿Cuál de estas políticas NO necesita estimar el tiempo de servicio?', opts: ['SPN', 'SRT', 'HRRN', 'Feedback'], ok: 3 },
+	]}
+/>
+
+<Feynman
+	consigna="Explica, como en una pregunta de desarrollo, por qué feedback penaliza «el tiempo ya ejecutado» en vez del «tiempo que falta», y qué problema introduce."
+	claves={[
+		'SPN, SRT y HRRN necesitan <strong>estimar</strong> el tiempo de servicio, que a menudo no se conoce.',
+		'Feedback usa algo que sí se conoce: cuánto lleva ejecutando. Cada expropiación lo baja de cola.',
+		'Los cortos terminan en las colas altas y los largos se hunden, así que se favorece a los cortos sin estimar nada.',
+		'Problema: los largos pueden sufrir starvation si llegan cortos sin parar. Se mitiga con q = 2<sup>i</sup> y promoviendo a quien espera mucho.',
+	]}
+	trampa="decir que feedback «conoce» qué procesos son cortos. No lo sabe: lo deduce de su historia."
+/>
+
+<Dominio client:visible id="stallings-9" />
+
+<Fuente archivos={['Stallings, Operating Systems 9e, cap. 9 (§9.1–9.3, tablas 9.1–9.6, fig. 9.16–9.17, Review Questions y problemas)', 'Respuestas y problemas: soluciones propias, verificadas con un script']} />

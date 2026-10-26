@@ -1,0 +1,306 @@
+---
+title: 'Algoritmos a mano: Gantt y métricas'
+description: 'FCFS, SJF, SRTF, prioridad, Round Robin y HRRN: cómo simular cada uno a mano, sus convenciones de desempate, sus ventajas y defectos, con escalera de práctica y un simulador verificado.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Quiz from '../../../components/Quiz.tsx';
+import SchedulerSim from '../../../components/sim/SchedulerSim.tsx';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Detective from '../../../components/tutor/Detective.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+
+<EnSimple>
+Todos los algoritmos responden la misma pregunta, **«de los que están listos ahora, ¿a quién atiendo?»**, y solo cambian dos cosas: **el criterio** (quién llegó primero, quién tiene el trámite más corto, quién tiene más prioridad, a quién le toca el turno) y **si puedes interrumpir** al que está siendo atendido. Para resolverlos a mano, avanza en el tiempo y en cada instante de decisión pregúntate: ¿quién está **listo**?, ¿cuál gana según el criterio?, ¿hasta cuándo corre?
+</EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Dibujar el Gantt de FCFS, SJF, SRTF, prioridad (expropiativa o no), RR y HRRN con llegadas distintas y CPU inactiva.',
+		'Calcular turnaround, waiting y response por proceso y en promedio.',
+		'Aplicar y <strong>declarar</strong> las convenciones: desempates, sentido de la prioridad y orden de la cola en RR.',
+		'Comparar algoritmos con la tabla de Stallings y elegir uno para un escenario, justificando.',
+	]}
+	prerrequisitos={[{ t: 'Teoría: criterios y cuándo decide el scheduler', href: '/lab4/teoria/' }]}
+	perfiles={['simulador', 'laboratorio', 'debate', 'examen']}
+/>
+
+## El método para cualquier algoritmo
+
+1. Escribe la tabla de procesos: **llegada, ráfaga** y, si hay, **prioridad**.
+2. Pon **t = 0**. Mientras quede alguien sin terminar:
+   - **¿Quién está listo?** Los que ya llegaron (llegada ≤ t) y no terminaron. Si no hay nadie, la CPU queda **IDLE** hasta la próxima llegada.
+   - **¿Quién gana?** Según el criterio del algoritmo. Si hay empate, el que **llegó primero**; si llegaron juntos, el de **menor índice** (P1 antes que P2).
+   - **¿Hasta cuándo corre?** No expropiativo: hasta terminar. RR: hasta el quantum o hasta terminar. SRTF y prioridad expropiativa: hasta terminar **o** hasta la próxima llegada, y ahí vuelves a decidir.
+3. Con el Gantt, calcula **fin**, **turnaround = fin − llegada**, **waiting = turnaround − ráfaga** y **response = primer inicio − llegada**.
+
+:::caution[Las tres convenciones que tienes que escribir en tu respuesta]
+1. **Sentido de la prioridad.** La hoja de ejercicios del lab y el framework (`MAX_PRIORITY 10`) usan **número mayor = más prioridad**. Las diapositivas de teoría y Stallings usan **número menor = más prioridad**. Lee el enunciado y **escríbelo** al inicio.
+2. **Desempate:** el que llegó primero; después, el de menor índice. La hoja dice «use el criterio general para resolver empates»: este es el criterio general.
+3. **RR:** los procesos que **llegan durante un turno** entran a la cola **antes** que el que acaba de agotar su quantum (lo dice la hoja, ej. 6). Si llegan justo en el instante en que vence el quantum, también entran antes; así lo hace Stallings en su tabla 9.5.
+:::
+
+## Simulador
+
+Ingresa los procesos y cambia el algoritmo. Abajo de la tabla, «Por qué eligió cada proceso» explica cada decisión. **Úsalo para corregir tus Gantt, no para hacerlos**: primero a mano, después compara.
+
+<SchedulerSim client:visible preset="hoja" />
+
+## FCFS (First-Come, First-Served)
+
+Se atiende por orden de llegada y **sin interrumpir**. Es lo más simple y no causa starvation, pero sufre el **efecto convoy**: un proceso largo delante de varios cortos los hace esperar a todos.
+
+<Practica nivel={1} titulo="Resuelto: el convoy de las diapositivas">
+
+Ráfagas P1 = 24, P2 = 3, P3 = 3, todos llegan en 0.
+
+| Orden | Gantt | Esperas | Promedio |
+| --- | --- | --- | :-: |
+| P1, P2, P3 | P1 0–24 · P2 24–27 · P3 27–30 | 0, 24, 27 | **17** |
+| P2, P3, P1 | P2 0–3 · P3 3–6 · P1 6–30 | 6, 0, 3 | **3** |
+
+Los mismos procesos, solo reordenados, pasan de 17 a 3. **Lección:** FCFS castiga a los cortos que llegan detrás de un largo, y por la misma razón castiga a los IO-bound que esperan detrás de un CPU-bound.
+
+</Practica>
+
+## SJF (Shortest Job First, no expropiativo)
+
+Cuando la CPU queda libre, se elige el listo con **menor ráfaga** y corre hasta terminar, **aunque llegue uno más corto**. Para procesos que llegan juntos, SJF es **óptimo** en espera promedio (Stallings, problema 9.3), pero hay que **conocer** la ráfaga y los largos pueden sufrir **starvation**.
+
+<Predice pregunta="En la hoja de ejercicios (ej. 7), P1 llega en 0 con ráfaga 7 y P3 llega en 4 con ráfaga 2. Con SJF no expropiativo, ¿P3 interrumpe a P1?">
+
+**No.** En t = 0 solo existe P1, así que lo elige y lo deja correr hasta t = 7. Recién ahí compara a los listos (P2 = 3, P3 = 2, P4 = 4) y elige a P3. Gantt: **P1 0–7 · P3 7–9 · P2 9–12 · P4 12–16**, con espera promedio **4.25** (FIFO da 4.5). Si P3 interrumpiera a P1, sería **SRTF**.
+
+</Predice>
+
+<Detective titulo="el ejemplo de SJF de las diapositivas" sintoma="La diapositiva 33 da una tabla con <strong>llegadas 0, 2, 4 y 5</strong> (ráfagas 6, 8, 7 y 3) y un Gantt que <strong>empieza con P4 en t = 0</strong>, con espera promedio 7. Pero P4 llega en t = 5." pista="¿Puede ejecutarse en t = 0 un proceso que todavía no llegó? ¿Con qué supuesto sí sale el Gantt de la diapositiva?">
+
+El Gantt y el promedio 7 **solo son correctos si todos llegan en t = 0**: P4 0–3 · P1 3–9 · P3 9–16 · P2 16–24, con esperas 3, 16, 9 y 0. La diapositiva parece mezclar la tabla de un ejemplo con llegadas con el Gantt de otro donde todos llegan en 0.
+
+**Con las llegadas reales** (0, 2, 4, 5), SJF no expropiativo da: P1 0–6 (es el único listo); en t = 6 están listos P2 (8), P3 (7) y P4 (3), así que P4 6–9, P3 9–16 y P2 16–24. Esperas: P1 0, P2 14, P3 5, P4 1. **Promedio 5.** Lo verifiqué con el simulador y con un script.
+
+**Moraleja para el examen:** antes de copiar un patrón, comprueba que cada proceso **ya llegó** en el instante en que lo pones a correr.
+
+</Detective>
+
+## SRTF (Shortest Remaining Time First)
+
+Es la versión **expropiativa** de SJF: en cada **llegada** se compara la ráfaga **restante** del que corre con la de los recién llegados, y si alguien tiene menos, le quita la CPU. Da el menor promedio de espera, pero hay más cambios de contexto y los largos pueden sufrir starvation.
+
+<Practica nivel={1} titulo="Resuelto: el ejemplo de las diapositivas">
+
+P1 (0, 8), P2 (1, 4), P3 (2, 9), P4 (3, 5).
+
+| t | Listos (restante) | Decisión |
+| :-: | --- | --- |
+| 0 | P1 (8) | P1 corre |
+| 1 | P1 (7), P2 (4) | 4 < 7 → **P2 expropia** a P1 |
+| 2 | P1 (7), P2 (3), P3 (9) | sigue P2 |
+| 3 | P1 (7), P2 (2), P3 (9), P4 (5) | sigue P2 |
+| 5 | P1 (7), P3 (9), P4 (5) | P2 terminó → P4 |
+| 10 | P1 (7), P3 (9) | P4 terminó → P1 |
+| 17 | P3 (9) | P1 terminó → P3, hasta 26 |
+
+Esperas: P1 = (17 − 0) − 8 = 9, P2 = 0, P3 = (26 − 2) − 9 = 15, P4 = (10 − 3) − 5 = 2. **Promedio 26/4 = 6.5**, como dicen las diapositivas.
+
+</Practica>
+
+## Prioridad
+
+Se elige el listo de **mayor prioridad**. Puede ser no expropiativa (la de la hoja de ejercicios) o expropiativa (si llega alguien más prioritario, quita la CPU). SJF es un caso particular: la prioridad es la inversa de la ráfaga. **Problema:** starvation de los de baja prioridad. **Solución:** **aging**, que sube la prioridad de un proceso cuanto más tiempo espera.
+
+<Practica nivel={2} titulo="Complétalo: el ejemplo de las diapositivas (número menor = más prioridad)">
+
+Todos llegan en 0: P1 (ráfaga 10, prioridad 3), P2 (1, 1), P3 (2, 4), P4 (1, 5), P5 (5, 2).
+
+El orden empieza **P2 (prioridad 1) 0–1 · P5 (prioridad 2) 1–6**. Completa el resto y calcula la espera promedio.
+
+<Solucion titulo="Comparar">
+
+P1 6–16 · P3 16–18 · P4 18–19. Esperas: P1 6, P2 0, P3 16, P4 18, P5 1 → **41/5 = 8.2**, como en la diapositiva. Fíjate en que P4, con ráfaga 1, espera 18: un proceso cortísimo pero de baja prioridad lo pasa muy mal.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: los 5 procesos de base-scheduler.c con prioridad no expropiativa (número mayor = más prioridad)">
+
+| Proceso | Prioridad | Llegada | Ráfaga |
+| :-: | :-: | :-: | :-: |
+| P1 | 3 | 0 | 7 |
+| P2 | 1 | 2 | 3 |
+| P3 | 4 | 4 | 2 |
+| P4 | 2 | 5 | 4 |
+| P5 | 5 | 8 | 5 |
+
+<Solucion titulo="Comparar (verificado con el programa en C)">
+
+P1 0–7 (es el único en t = 0) · en t = 7 están P2 (1), P3 (4), P4 (2) → **P3** 7–9 · en t = 9 ya llegó P5 (5) → **P5** 9–14 · **P4** 14–18 · **P2** 18–21.
+
+| | P1 | P2 | P3 | P4 | P5 | Promedio |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: |
+| Turnaround | 7 | 19 | 5 | 13 | 6 | **10.0** |
+| Waiting | 0 | 16 | 3 | 9 | 1 | **5.8** |
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: el mismo conjunto, pero con prioridad expropiativa">
+
+¿Qué cambia si un proceso más prioritario que llega **interrumpe** al que corre?
+
+<Solucion titulo="Comparar">
+
+P1 0–4 · **P3 expropia** en 4 (4 > 3) y corre 4–6 · P1 6–8 · **P5 expropia** en 8 (5 > 3) y corre 8–13 · P1 13–14 · P4 14–18 · P2 18–21. Waiting promedio **6.4** (sube respecto de 5.8), pero P3 y P5, los más prioritarios, esperan **0**. Expropiar no mejora el promedio: mejora a **los prioritarios**.
+
+</Solucion>
+</Practica>
+
+## Round Robin (RR)
+
+Cada proceso corre como mucho un **quantum** q y, si no termina, vuelve **al final** de la cola. Con n procesos listos, ninguno espera más de **(n − 1)·q** para su próximo turno. Es el algoritmo de Selfie.
+
+- **q muy grande** → RR se vuelve **FCFS**.
+- **q muy chico** → demasiados cambios de contexto (*overhead*). La regla de las diapositivas: el **80 %** de las ráfagas de CPU deberían ser más cortas que q. Típicamente q = 10–100 ms, y un cambio de contexto cuesta menos de 10 µs.
+- En promedio da **más turnaround** que SJF, pero **mejor response time**.
+
+<Practica nivel={1} titulo="Resuelto: ejercicio 10 de la hoja (q = 2, todos en t = 0)">
+
+P1 = 5, P2 = 2, P3 = 4.
+
+| Turno | Intervalo | Corre | Restantes P1 / P2 / P3 | Cola después |
+| :-: | :-: | :-: | :-: | --- |
+| 1 | 0–2 | P1 | 3 / 2 / 4 | P2, P3, P1 |
+| 2 | 2–4 | P2 | 3 / **0** / 4 | P3, P1 |
+| 3 | 4–6 | P3 | 3 / 0 / 2 | P1, P3 |
+| 4 | 6–8 | P1 | 1 / 0 / 2 | P3, P1 |
+| 5 | 8–10 | P3 | 1 / 0 / **0** | P1 |
+| 6 | 10–11 | P1 | **0** / 0 / 0 | |
+
+Fines: P2 = 4, P3 = 10, P1 = 11. El último turno de P1 dura **1**, no 2: si un proceso termina antes del quantum, la CPU pasa al siguiente **sin consumir el sobrante**.
+
+</Practica>
+
+<Practica nivel={3} titulo="Solo: ejercicio 6 de la hoja, RR con llegadas y q = 3 (los 5 procesos de base-scheduler.c)">
+
+Usa la tabla del peldaño anterior de prioridad (ignora la prioridad). Escribe la cola **después de cada turno**.
+
+<Solucion titulo="Comparar (verificado con el programa en C)">
+
+| Intervalo | Corre | Llegan durante el turno | Cola al terminar el turno |
+| --- | :-: | --- | --- |
+| 0–3 | P1 (le quedan 4) | P2 (t = 2) | P2, **P1** |
+| 3–6 | P2 (termina) | P3 (4), P4 (5) | P1, P3, P4 |
+| 6–9 | P1 (le queda 1) | P5 (8) | P3, P4, **P5, P1** |
+| 9–11 | P3 (termina) | | P4, P5, P1 |
+| 11–14 | P4 (le queda 1) | | P5, P1, P4 |
+| 14–17 | P5 (le quedan 2) | | P1, P4, P5 |
+| 17–18 | P1 (termina) | | P4, P5 |
+| 18–19 | P4 (termina) | | P5 |
+| 19–21 | P5 (termina) | | |
+
+La clave está en las filas 1 y 3: **los que llegaron entran antes** que el proceso que vuelve. Waiting promedio **7.0**, turnaround promedio **11.2**.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: ¿qué pasa con q = 10 en el mismo conjunto?">
+
+<Solucion titulo="Comparar">
+
+Ninguna ráfaga supera 10, así que nadie es expropiado: el resultado es **idéntico a FCFS** (P1 0–7, P2 7–10, P3 10–12, P4 12–16, P5 16–21). Es la afirmación «q grande → FCFS» con números.
+
+</Solucion>
+</Practica>
+
+## HRRN (Highest Response Ratio Next)
+
+Es no expropiativo. Cuando la CPU queda libre, se elige el listo con mayor **razón de respuesta**:
+
+$$
+R = \frac{w + s}{s}
+$$
+
+donde $w$ es lo que lleva esperando y $s$ su ráfaga. Favorece a los cortos (s chico), pero quien espera mucho sube su R y **termina pasando**: no hay starvation. Es el punto medio entre FCFS (favorece a los largos) y SPN (favorece a los cortos).
+
+<Practica nivel={2} titulo="Complétalo: Stallings tabla 9.4 con HRRN">
+
+A (0, 3), B (2, 6), C (4, 4), D (6, 5), E (8, 2). A corre 0–3 y B 3–9 (en t = 3 es el único listo). En **t = 9** están listos C, D y E. Calcula sus R y decide.
+
+<Solucion titulo="Comparar">
+
+En t = 9: R(C) = (5 + 4)/4 = **2.25**, R(D) = (3 + 5)/5 = 1.6, R(E) = (1 + 2)/2 = 1.5 → **C** 9–13. En t = 13: R(D) = (7 + 5)/5 = 2.4, R(E) = (5 + 2)/2 = **3.5** → **E** 13–15, y D 15–20. Turnaround promedio **8.0**, como en la tabla 9.5 del libro.
+
+</Solucion>
+</Practica>
+
+## Comparación (Stallings, tabla 9.3)
+
+| | FCFS | RR | SPN (= SJF) | SRT (= SRTF) | HRRN | Feedback |
+| --- | --- | --- | --- | --- | --- | --- |
+| Elige | max[w] | turno | min[s] | min[s − e] | max[(w + s)/s] | por colas |
+| Expropia | no | sí, al vencer q | no | sí, al llegar alguien | no | sí, al vencer q |
+| Throughput | no se enfatiza | bajo si q es chico | alto | alto | alto | no se enfatiza |
+| Response | puede ser alto | bueno para cortos | bueno para cortos | bueno | bueno | no se enfatiza |
+| Overhead | mínimo | mínimo | puede ser alto | puede ser alto | puede ser alto | puede ser alto |
+| Efecto | penaliza cortos e IO-bound | justo | penaliza largos | penaliza largos | buen balance | favorece IO-bound |
+| Starvation | no | no | posible | posible | no | posible |
+
+(w = tiempo esperando, e = tiempo ya ejecutado, s = ráfaga total.)
+
+Con el ejemplo de Stallings (A–E de arriba), el turnaround promedio da: FCFS **8.60**, RR q = 1 **10.80**, RR q = 4 **10.00**, SPN **7.60**, SRT **7.20**, HRRN **8.00**. Comprobé que el simulador de esta página da exactamente los valores de la tabla 9.5.
+
+<Predice titulo="Debate: ¿qué algoritmo pondrías?" pregunta="Elige y justifica para: (1) un servidor de procesamiento por lotes nocturno donde se conoce la duración de cada trabajo; (2) un sistema interactivo con muchos usuarios escribiendo; (3) un sistema donde llegan trabajos cortos sin parar y hay unos pocos muy largos que deben terminar algún día.">
+
+- **(1) SJF/SPN** (o SRT si se puede expropiar): conoces las ráfagas, nadie mira la pantalla y SJF minimiza la espera promedio. El riesgo de starvation es bajo porque el lote es finito.
+- **(2) RR** con un quantum algo mayor que una interacción típica: lo que importa es el **response time** y la equidad. FCFS haría que una compilación larga congele a los demás.
+- **(3) HRRN** si no se puede expropiar, o **feedback con aging**: priorizan a los cortos pero la espera hace subir a los largos, sin starvation. SJF puro haría esperar a los largos para siempre.
+
+No hay ganador universal: cada respuesta depende de qué métrica importa y de qué se sabe de las ráfagas.
+
+</Predice>
+
+<Errores
+	errores={[
+		{ mal: 'Poner a correr un proceso antes de su llegada (como el Gantt de SJF de las diapositivas).', bien: 'En cada decisión, solo compiten los que tienen llegada ≤ t.' },
+		{ mal: 'En SJF no expropiativo, interrumpir cuando llega uno más corto.', bien: 'Eso es SRTF. En SJF el elegido corre hasta terminar.' },
+		{ mal: 'En RR, reinsertar al proceso que agotó su quantum antes que los que llegaron durante su turno.', bien: 'Los que llegaron entran primero (hoja, ej. 6). Escríbelo como convención.' },
+		{ mal: 'En RR, cobrar el quantum completo a un proceso que termina antes.', bien: 'Corre solo lo que le queda y la CPU pasa al siguiente sin esperar.' },
+		{ mal: 'Olvidar los intervalos IDLE en el Gantt.', bien: 'Si nadie está listo, la CPU queda inactiva hasta la próxima llegada. Ese tiempo no se suma a la espera de nadie.' },
+		{ mal: 'Usar «número menor = más prioridad» cuando el enunciado dice lo contrario.', bien: 'La hoja del lab y el framework usan número mayor = más prioridad. Escribe la convención al inicio.' },
+		{ mal: 'Calcular la espera como inicio − llegada en un algoritmo expropiativo.', bien: 'Waiting = turnaround − ráfaga. Inicio − llegada es el response.' },
+	]}
+/>
+
+<Quiz
+	client:visible
+	id="lab4-algoritmos"
+	preguntas={[
+		{ q: 'Para un lote de trabajos que llegan juntos, ¿qué algoritmo no expropiativo minimiza la espera promedio?', opts: ['FCFS', 'SJF', 'HRRN', 'RR'], ok: 1 },
+		{ q: 'RR con un quantum mayor que todas las ráfagas se comporta como…', opts: ['SJF', 'FCFS', 'SRTF', 'prioridad'], ok: 1 },
+		{ q: 'Con 4 procesos listos y q = 20 ms, lo máximo que un proceso espera para su próximo turno es…', opts: ['20 ms', '60 ms', '80 ms', 'no hay cota'], ok: 1 },
+		{ q: '¿Cuál de estos NO puede causar starvation?', opts: ['SJF', 'SRTF', 'prioridad sin aging', 'HRRN'], ok: 3 },
+		{ q: 'En HRRN, un proceso esperó 6 y su ráfaga es 3. Su R es…', opts: ['2', '3', '0.5', '9'], ok: 1 },
+		{ q: 'En la hoja de ejercicios del lab, un número de prioridad mayor significa…', opts: ['menos prioridad', 'más prioridad', 'depende del quantum', 'más ráfaga'], ok: 1 },
+	]}
+/>
+
+<Feynman
+	consigna="Explica por qué SJF minimiza la espera promedio de un lote de trabajos que llegan juntos, sin usar fórmulas."
+	claves={[
+		'Cuando un trabajo corre, <strong>todos los que vienen detrás</strong> esperan su duración completa.',
+		'Si el primero es corto, hace esperar «poco» a muchos; si es largo, hace esperar «mucho» a muchos.',
+		'Un intercambio: si un largo va justo antes que un corto, cambiarlos de lugar baja la espera del corto más de lo que sube la del largo. Repitiendo esos intercambios se llega al orden de menor a mayor.',
+		'Es la idea de la demostración del problema 9.3 de Stallings.',
+	]}
+	trampa="decir «porque los cortos terminan rápido». También tienes que explicar por qué eso baja la espera de <strong>los demás</strong>."
+/>
+
+<Dominio client:visible id="lab4-algoritmos" />
+
+<Fuente archivos={['sem_12/Sema12_11-OST-Scheduling.pdf (diap. 29–44)', 'sem_11/Sem11-OSL-Ejercicios_Repaso.pdf (ej. 6, 7, 10)', 'Stallings 9e §9.2, tablas 9.3–9.5', 'Soluciones propias verificadas con un script y con los programas en C']} />

@@ -25,6 +25,12 @@ export const TEMAS: Tema[] = [
 	{ id: 'stallings-6', t: 'Stallings cap. 6', href: '/final/stallings/cap6/', u: 'F', peso: 2 },
 	{ id: 'stallings-7', t: 'Stallings cap. 7', href: '/final/stallings/cap7/', u: 'F', peso: 2 },
 	{ id: 'stallings-8', t: 'Stallings cap. 8', href: '/final/stallings/cap8/', u: 'F', peso: 2 },
+	{ id: 'lab4-teoria', t: 'Lab 4 · Teoría de scheduling', href: '/lab4/teoria/', u: 'G', peso: 2 },
+	{ id: 'lab4-algoritmos', t: 'Lab 4 · Algoritmos a mano', href: '/lab4/algoritmos/', u: 'G', peso: 3 },
+	{ id: 'lab4-codigo', t: 'Lab 4 · Pregunta de código', href: '/lab4/codigo/', u: 'G', peso: 3 },
+	{ id: 'lab4-linux', t: 'Lab 4 · MLFQ, O(1) y CFS', href: '/lab4/linux/', u: 'G', peso: 2 },
+	{ id: 'lab4-pr', t: 'Lab 4 · Scheduling + page replacement', href: '/lab4/page-replacement/', u: 'G', peso: 3 },
+	{ id: 'stallings-9', t: 'Stallings cap. 9', href: '/lab4/stallings-cap9/', u: 'G', peso: 2 },
 ];
 
 export const NIVELES = [

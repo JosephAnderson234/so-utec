@@ -1,0 +1,223 @@
+---
+title: 'Teoría de scheduling (clase sem. 12)'
+description: 'Lo que dicen las diapositivas de scheduling: interrupciones y cambio de contexto, IO-bound y CPU-bound, cuándo decide el scheduler, expropiativo o no, dispatcher, criterios de rendimiento, predicción de ráfagas y evaluación de algoritmos.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Quiz from '../../../components/Quiz.tsx';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+
+<EnSimple>
+La CPU es una sola ventanilla y hay muchos procesos en la cola. Cada cierto tiempo pasa algo (suena el reloj, termina una lectura de disco, un proceso pide algo al SO) y el **scheduler** decide quién usa la ventanilla. El **dispatcher** es quien hace el cambio físico: guarda el estado del que sale y carga el del que entra. Esa decisión se mide con varios relojes: cuánto esperó cada uno, cuánto tardó en terminar, cuánto tardó en recibir **la primera** respuesta y cuántos terminaron por hora. Ningún algoritmo gana en todos.
+</EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Decir <strong>en qué 4 momentos</strong> decide el scheduler y cuáles corresponden a un scheduler no expropiativo.',
+		'Definir y calcular <strong>turnaround, waiting y response time</strong>, y decir cuáles se maximizan y cuáles se minimizan.',
+		'Explicar el <strong>convoy effect</strong>, la <strong>starvation</strong> y el <strong>aging</strong> con un ejemplo.',
+		'Estimar la próxima ráfaga con el <strong>promedio exponencial</strong>.',
+		'Distinguir interrupción y trap, y explicar por qué Linux divide el manejo de interrupciones en <em>top half</em> y <em>bottom half</em>.',
+	]}
+	prerrequisitos={[
+		{ t: 'Estados de un proceso y PCB', href: '/procesos/estados/' },
+		{ t: 'Interrupciones (hardware)', href: '/fundamentos/hardware/' },
+	]}
+	perfiles={['visual', 'socratico', 'feynman']}
+/>
+
+## 1. Cómo se cambia de proceso
+
+Las diapositivas empiezan recordando **cómo** el SO recupera la CPU:
+
+| | **Interrupción** | **Trap** |
+| --- | --- | --- |
+| Origen | un evento **externo** al proceso que corre | un error o excepción **dentro** del proceso que corre |
+| Ejemplos | reloj (fin del *time slice*), E/S terminada, fallo de memoria | división por cero, instrucción inválida, syscall |
+| Qué hace el SO | atiende y, si corresponde, llama al scheduler | decide si es fatal (el proceso pasa a *Exit*) o lo atiende |
+
+El **time slice** es el tiempo máximo que un proceso puede correr antes de ser interrumpido por el reloj. Sin interrupción de reloj **no hay expropiación**: un proceso con un bucle infinito nunca soltaría la CPU.
+
+**Manejo de una interrupción:** se guarda el PC, se deshabilitan las interrupciones, se pasa a modo kernel, se saltan al *handler* por el vector de interrupciones, se guardan los registros, se atiende, se restauran los registros y el PC, y se vuelve a modo usuario. Todo eso usa la **pila de kernel** del hilo, no la pila de usuario.
+
+**`yield` en hilos de kernel y de usuario:** con hilos de kernel, ceder la CPU es una syscall (un *trap*, caro). Con hilos de usuario es una llamada a una función de biblioteca (barato), pero si un hilo de usuario hace una E/S bloqueante, el kernel bloquea **todo el proceso**, porque no sabe que tiene varios hilos.
+
+### Interrupciones anidadas y la solución de Linux
+
+Permitir que una interrupción interrumpa a otra mejora la respuesta, pero obliga a que el código del *handler* sea **reentrante**, hace más probable un desborde de pila y complica la depuración. Linux lo resuelve partiendo el trabajo en dos:
+
+| Parte | Interrupciones | Qué hace |
+| --- | --- | --- |
+| **Top half** | **deshabilitadas** | lo mínimo y urgente; marca que hay trabajo pendiente |
+| **Bottom half: softirqs y tasklets** | habilitadas | trabajo de duración media que **no duerme**; se revisa al volver del top half o en los hilos `ksoftirqd` |
+| **Bottom half: work queues** | habilitadas | trabajo lento o que **puede dormir**, en hilos de kernel |
+
+Además, las excepciones en el kernel se anidan como mucho a **dos niveles**: una excepción y un page fault provocado por su propio *handler* (por ejemplo, al leer una página de usuario que estaba en swap).
+
+<Predice pregunta="Una tarea del kernel toma el <code>runq_lock</code> (un spinlock) para agregar un proceso a la cola de listos. En ese momento llega una interrupción de reloj <strong>en el mismo núcleo</strong> y el scheduler intenta tomar el mismo lock. ¿Qué pasa?">
+
+**Deadlock en un solo núcleo.** El *handler* gira esperando el lock, pero el dueño del lock es el código que el propio *handler* interrumpió: nunca volverá a correr hasta que el *handler* termine. Es el «deadlock de un hilo» que ya viste en el LC3. Por eso, en el kernel, un spinlock que también se usa desde interrupciones se toma **deshabilitando las interrupciones locales** (`spin_lock_irqsave`). Sin soporte multinúcleo, un spinlock de Linux se reduce justamente a eso: guardar el estado de interrupciones y deshabilitarlas.
+
+</Predice>
+
+**Del Big Kernel Lock al bloqueo fino.** Cuando Linux agregó soporte multinúcleo (1996), usó un único lock que se tomaba al entrar al kernel: era simple y el código de usuario seguía siendo paralelo, pero **solo un núcleo podía estar dentro del kernel a la vez**. Con los años se reemplazó por locks de grano fino.
+
+## 2. ¿A quién elegir? IO-bound y CPU-bound
+
+- **IO-bound**: pasa casi todo el tiempo esperando E/S. Sus ráfagas de CPU son **cortas**.
+- **CPU-bound**: calcula mucho y hace poca E/S. Sus ráfagas son **largas**.
+- Un proceso puede **cambiar de comportamiento**, y el scheduler debe notarlo.
+
+En general conviene **favorecer a los IO-bound**: usan la CPU un instante, lanzan su próxima E/S y así el disco o la red trabajan en paralelo con la CPU. La ejecución de un proceso es un **ciclo**: ráfaga de CPU, ráfaga de E/S, ráfaga de CPU… El histograma de ráfagas tiene muchísimas ráfagas cortas y pocas largas, y eso es lo que justifica favorecer a los procesos de ráfaga corta.
+
+## 3. Cuándo decide el scheduler
+
+El **short-term scheduler** elige entre los procesos de la **cola de listos**. Puede decidir cuando un proceso:
+
+1. pasa de **running a waiting** (pide E/S, hace `wait`);
+2. pasa de **running a ready** (interrupción de reloj);
+3. pasa de **waiting a ready** (termina su E/S);
+4. **termina**.
+
+Si solo decide en **1 y 4**, el scheduling es **no expropiativo** (*nonpreemptive*): el proceso suelta la CPU por su cuenta. Si decide también en 2 y 3, es **expropiativo** (*preemptive*), y aparecen problemas nuevos: datos compartidos que quedan a medio actualizar, expropiación en modo kernel e interrupciones durante operaciones críticas del SO.
+
+El **dispatcher** entrega la CPU al proceso elegido: cambia el contexto, pasa a modo usuario y salta a la instrucción donde el programa se había quedado. La **dispatch latency** es el tiempo que tarda en detener uno y arrancar otro.
+
+**Hilos:** cuando el SO soporta hilos, se planifican **hilos**, no procesos. Si una biblioteca planifica hilos de usuario sobre LWPs, la competencia es dentro del proceso (**PCS**, *process-contention scope*); si el kernel planifica hilos de kernel en las CPUs, la competencia es entre todos los hilos del sistema (**SCS**, *system-contention scope*).
+
+## 4. Criterios: qué se mide
+
+| Criterio | Definición | Se busca |
+| --- | --- | :-: |
+| **Utilización de CPU** | porcentaje del tiempo en que la CPU está ocupada | máx |
+| **Throughput** | procesos terminados por unidad de tiempo | máx |
+| **Turnaround** | desde que llega hasta que **termina** | mín |
+| **Waiting time** | tiempo total en la **cola de listos** | mín |
+| **Response time** | desde que llega hasta su **primera** respuesta (primera vez que corre) | mín |
+
+Las fórmulas que pide la hoja de ejercicios:
+
+```text
+turnaround = completion - arrival
+waiting    = turnaround - burst
+response   = first_run  - arrival
+```
+
+<Practica nivel={1} titulo="Resuelto: las tres métricas de un proceso">
+
+P3 llega en t = 4 con ráfaga 2. En SJF no expropiativo (la hoja, ej. 7) corre de 7 a 9.
+
+- turnaround = 9 − 4 = **5**
+- waiting = 5 − 2 = **3** (estuvo listo de 4 a 7)
+- response = 7 − 4 = **3**
+
+En un algoritmo **no expropiativo**, waiting = response, porque cuando un proceso empieza ya no vuelve a esperar. En RR o SRTF difieren: un proceso puede empezar pronto (response chico) y después esperar mucho entre turnos (waiting grande).
+
+</Practica>
+
+<Practica nivel={3} titulo="Solo: RR con q = 3 y los mismos procesos">
+
+Con P1 (0, 7), P2 (2, 3), P3 (4, 2) y P4 (5, 4), Round Robin con quantum 3 da este Gantt:
+`P1 0–3 · P2 3–6 · P1 6–9 · P3 9–11 · P4 11–14 · P1 14–15 · P4 15–16`.
+Calcula turnaround, waiting y response de **P4**.
+
+<Solucion titulo="Comparar">
+
+- turnaround = 16 − 5 = **11**
+- waiting = 11 − 4 = **7**
+- response = 11 − 5 = **6**
+
+Waiting (7) es mayor que response (6) porque P4 esperó 6 hasta su primer turno y **1 más** entre su primer y su segundo turno (14–15, mientras corría P1).
+
+</Solucion>
+</Practica>
+
+## 5. Predecir la próxima ráfaga
+
+SJF necesita conocer la **próxima** ráfaga, que no se sabe. Se estima con un **promedio exponencial**:
+
+$$
+\tau_{n+1} = \alpha\, t_n + (1-\alpha)\,\tau_n, \qquad 0 \le \alpha \le 1
+$$
+
+donde $t_n$ es la última ráfaga real y $\tau_n$ la estimación anterior.
+
+- $\alpha = 0$: $\tau_{n+1} = \tau_n$. La historia reciente **no cuenta**.
+- $\alpha = 1$: $\tau_{n+1} = t_n$. Solo cuenta **la última** ráfaga.
+- Al expandir, cada término pesa $(1-\alpha)^j$: **cuanto más vieja la ráfaga, menos pesa**.
+
+<Practica nivel={2} titulo="Complétalo: α = 0.5, τ₀ = 10 y ráfagas reales 6, 4, 6, 4, 13, 13, 13">
+
+| n | ráfaga real $t_n$ | estimación siguiente $\tau_{n+1} = 0.5\,t_n + 0.5\,\tau_n$ |
+| :-: | :-: | :-: |
+| 0 | 6 | 0.5·6 + 0.5·10 = **8** |
+| 1 | 4 | 0.5·4 + 0.5·8 = **6** |
+| 2 | 6 | ? |
+| 3 | 4 | ? |
+| 4 | 13 | ? |
+| 5 | 13 | ? |
+| 6 | 13 | ? |
+
+<Solucion titulo="Comparar (verificado con un script)">
+
+6, **5**, **9**, **11**, **12**. La estimación sigue a la ráfaga real con retraso: cuando el proceso pasa de ráfagas de 4–6 a ráfagas de 13, la estimación sube 9 → 11 → 12, acercándose a 13 sin alcanzarla. Este es el problema 9.4 de Stallings.
+
+</Solucion>
+</Practica>
+
+## 6. Cómo se evalúa un algoritmo
+
+| Método | Idea | Ventaja | Desventaja |
+| --- | --- | --- | --- |
+| **Modelo determinista** | se toma una carga fija y se calcula cada métrica a mano | simple y rápido | el resultado vale **solo para esa carga** |
+| **Modelos de colas** | análisis estadístico (llegadas de Poisson, servicio exponencial) | resultados generales | supuestos idealizados |
+| **Simulación** | un programa genera o reproduce cargas | flexible | cuesta escribirlo; vale para lo que simulaste |
+| **Implementación real** | se programa en el SO y se mide | lo más realista | difícil y arriesgado: un bug en el kernel |
+
+El ejemplo determinista de las diapositivas, con 5 procesos que llegan en 0 y ráfagas 10, 29, 3, 7 y 12, da una espera promedio de **28** con FCFS, **13** con SJF y **23** con RR (q = 10). Lo comprobé con el simulador de la página siguiente.
+
+<Errores
+	errores={[
+		{ mal: 'Llamar «response time» al tiempo hasta que el proceso termina.', bien: 'Eso es turnaround. Response es hasta la <strong>primera</strong> vez que corre.' },
+		{ mal: 'Calcular waiting como «inicio − llegada» en RR o SRTF.', bien: 'Ese es el response. Waiting suma <strong>todos</strong> los ratos en la cola de listos: turnaround − ráfaga.' },
+		{ mal: 'Decir que un scheduler que decide cuando el proceso termina o se bloquea es expropiativo.', bien: 'Los casos 1 y 4 son los del no expropiativo. Expropiar es quitarle la CPU a un proceso que <strong>quería seguir</strong> (casos 2 y 3).' },
+		{ mal: 'Confundir scheduler y dispatcher.', bien: 'El scheduler <strong>decide</strong> a quién; el dispatcher <strong>ejecuta</strong> el cambio de contexto.' },
+		{ mal: 'Decir que con α = 1 se usa todo el historial.', bien: 'Con α = 1 solo cuenta la última ráfaga; con α = 0, solo la estimación inicial.' },
+	]}
+/>
+
+<Quiz
+	client:visible
+	id="lab4-teoria"
+	preguntas={[
+		{ q: 'Un scheduler que solo decide cuando el proceso se bloquea o termina es…', opts: ['expropiativo', 'no expropiativo', 'de tiempo real', 'Round Robin'], ok: 1 },
+		{ q: '¿Qué métrica se MAXIMIZA?', opts: ['turnaround', 'waiting time', 'throughput', 'response time'], ok: 2 },
+		{ q: 'Response time es el tiempo desde la llegada hasta…', opts: ['que termina', 'que corre por primera vez', 'su última E/S', 'que sale de la cola de bloqueados'], ok: 1 },
+		{ q: 'El convoy effect aparece típicamente en…', opts: ['RR con q chico', 'FCFS con un proceso largo delante de varios cortos', 'SRTF', 'MLFQ'], ok: 1 },
+		{ q: 'La solución clásica a la starvation en prioridades es…', opts: ['aging', 'aumentar el quantum', 'FCFS', 'deshabilitar interrupciones'], ok: 0 },
+		{ q: 'En Linux, el top half de una interrupción corre…', opts: ['con interrupciones habilitadas y puede dormir', 'con interrupciones deshabilitadas y debe ser rápido', 'en una work queue', 'en modo usuario'], ok: 1 },
+		{ q: 'Con α = 0 en el promedio exponencial…', opts: ['solo cuenta la última ráfaga', 'la estimación nunca cambia', 'todas pesan igual', 'SJF se vuelve FCFS'], ok: 1 },
+	]}
+/>
+
+<Feynman
+	consigna="Explica con el ejemplo de un editor de texto y un render de video por qué un buen scheduler de propósito general favorece a los procesos IO-bound, y qué riesgo trae hacerlo."
+	claves={[
+		'El editor pasa casi todo el tiempo esperando una tecla: sus ráfagas de CPU son cortísimas. El render usa la CPU sin parar.',
+		'Si el editor espera detrás del render, cada tecla tarda en aparecer: el <strong>response time</strong> es malo aunque el throughput sea bueno.',
+		'Darle prioridad al editor casi no le quita CPU al render (usa muy poco) y mantiene ocupados a la vez la CPU y los dispositivos.',
+		'El riesgo es la <strong>starvation</strong> del proceso CPU-bound si siempre hay alguien más prioritario; se corrige con <strong>aging</strong>.',
+	]}
+	trampa="decir que el editor «es más importante». El criterio no es la importancia, sino que sus ráfagas son cortas."
+/>
+
+<Dominio client:visible id="lab4-teoria" />
+
+<Fuente archivos={['sem_12/Sema12_11-OST-Scheduling.pdf (diap. 4–45)', 'Ejercicios y la tabla α = 0.5: propios, verificados con un script']} />

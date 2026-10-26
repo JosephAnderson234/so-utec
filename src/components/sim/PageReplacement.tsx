@@ -69,6 +69,9 @@ const PRESETS = [
 	{ id: 'belady', label: 'Belady (P2)', refs: 'A B C D A B E A B C D E', n: 3, algo: 'FIFO' as Algo },
 	{ id: 'p4', label: 'Ejercicio P4 (Clock, 4 frames)', refs: 'A B C A C D B D A E B F', n: 4, algo: 'Clock' as Algo },
 	{ id: 'stallings', label: 'Stallings fig. 8.14', refs: '2 3 2 1 5 2 4 5 3 2 5 2', n: 3, algo: 'LRU' as Algo },
+	{ id: 'lab4', label: 'Hoja sem 11 · ej 1', refs: 'A B C A D B E A C D B E', n: 3, algo: 'Clock' as Algo },
+	{ id: 'lab4rr', label: 'Ej 2 (RR + FIFO)', refs: 'A B D E A C D F', n: 3, algo: 'FIFO' as Algo },
+	{ id: 'lab4prio', label: 'Ej 3 (prioridad + LRU)', refs: 'C D C A B A E A E', n: 3, algo: 'LRU' as Algo },
 ];
 
 /** Simulador de reemplazo de páginas: FIFO, OPT, LRU y Clock, paso a paso y con la curva fallos vs frames. */

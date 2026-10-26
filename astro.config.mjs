@@ -33,6 +33,20 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Lab 4 · Scheduling y Page Replacement',
+					badge: { text: 'próximo', variant: 'danger' },
+					items: [
+						{ label: 'Mapa, formato y plan', slug: 'lab4', badge: { text: 'empieza aquí', variant: 'caution' } },
+						{ label: '1 · Teoría de scheduling', slug: 'lab4/teoria' },
+						{ label: '2 · Algoritmos a mano', slug: 'lab4/algoritmos' },
+						{ label: '3 · Pregunta de código', slug: 'lab4/codigo' },
+						{ label: '4 · MLFQ, O(1) y CFS', slug: 'lab4/linux' },
+						{ label: '5 · Scheduling + page replacement', slug: 'lab4/page-replacement' },
+						{ label: '6 · Stallings cap. 9', slug: 'lab4/stallings-cap9' },
+						{ label: 'Simulacro del Lab 4', slug: 'lab4/simulacro', badge: { text: 'examen', variant: 'tip' } },
+					],
+				},
+				{
 					label: 'Final · LC3 y examen final',
 					badge: { text: 'nuevo', variant: 'success' },
 					items: [

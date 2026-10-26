@@ -1,0 +1,77 @@
+---
+title: 'Lab 4: mapa, formato y plan de estudio'
+description: 'Qué entra en el Laboratorio Calificado 4 (Scheduling y Page Replacement), cómo se reparte el puntaje, el orden del día de la evaluación y la ruta de páginas para prepararlo.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import PanelRepaso from '../../../components/tutor/PanelRepaso.tsx';
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+<EnSimple>
+Un **planificador** (scheduler) es como el encargado de la cola de un banco con una sola ventanilla: decide **a quién atiende ahora** y por cuánto tiempo. Atender primero al que llegó primero (FCFS) es justo, pero si delante hay alguien con un trámite de una hora, los que venían a pagar una boleta esperan muchísimo. Atender primero al trámite más corto (SJF) reduce la espera promedio, pero el del trámite largo puede no ser atendido nunca. Dar turnos de 5 minutos a cada uno (Round Robin) reparte mejor, pero cada cambio de cliente cuesta tiempo. El Lab 4 te pide **simular** estas decisiones a mano, **programarlas** en C y **justificar** cuál conviene.
+</EnSimple>
+
+## Qué dice la hoja de indicaciones (oficial)
+
+| Sección | Puntaje | Dónde se resuelve |
+| --- | :-: | --- |
+| 1 pregunta de **código** | **5** | enunciado **impreso**; se programa y envía en el quiz de código de Canvas, en el entorno de ejecución que ya mostraron |
+| 2 preguntas de **análisis** | **10** | quiz de Canvas |
+| 3 preguntas **teóricas** (libro) | **5** | quiz de Canvas; pueden ser **de desarrollo** (justificar) |
+| **Total** | **20** | |
+
+**Temas:** todo lo visto después del Lab 3, es decir, **Scheduling** y **Page Replacement**. **Lectura para la teoría:** Stallings, **capítulo 9**.
+
+:::caution[Reglas que cuestan puntos aunque sepas el tema]
+- La evaluación empieza **10 minutos después del inicio de la clase**, con el código. **Si llegas después, pierdes la sección de código** y tu máximo baja a 15.
+- Tienes **50 minutos como máximo** para el código. El quiz de Canvas se habilita a los **20 minutos** y **solo después de enviar el código**.
+- **Una vez enviado el código no puedes volver a entrar**: compila y prueba antes de enviar.
+- Usas Google Chrome con **Proctorio**. Está prohibido usar IA, apuntes o páginas externas, y también forzar el cierre del quiz para reingresar: la sanción es **0**.
+- Al final entregas la **hoja impresa** y el **cuadernillo**, ambos **con tu nombre**. Si falta alguno o no tiene nombre, son **−2 puntos**.
+- Antes del día, **prueba otra vez el entorno de ejecución** de Canvas, como recomienda la hoja.
+:::
+
+## Cómo repartir los minutos (sugerencia propia)
+
+| Minuto | Qué haces |
+| --- | --- |
+| 0–5 | Lee el enunciado de código **entero**. Subraya la política, si es o no expropiativa, el quantum, la convención de prioridad y el formato de salida pedido. |
+| 5–10 | En el cuadernillo, resuelve **a mano** el caso de prueba (un Gantt rápido). Ese es tu resultado esperado. |
+| 10–35 | Programa. Compila seguido; no escribas todo de una vez. |
+| 35–45 | Compara la salida con tu Gantt a mano. Prueba un caso borde (CPU inactiva, empate, ráfaga menor que el quantum). |
+| ≤ 50 | Envía. Pasa al quiz: análisis primero (10 pts), teoría después. |
+
+<Predice pregunta="Sin leer nada más: con los procesos P1 (llega 0, ráfaga 7), P2 (llega 2, ráfaga 3), P3 (llega 4, ráfaga 2) y P4 (llega 5, ráfaga 4), ¿en qué orden ejecuta <strong>SJF no expropiativo</strong>? ¿Y quién termina último?">
+
+**P1 → P3 → P2 → P4**, y P4 termina en t = 16. En t = 0 solo existe P1, así que corre entero (0–7): SJF no expropiativo **no interrumpe** aunque lleguen trabajos más cortos. En t = 7 están listos P2 (3), P3 (2) y P4 (4): gana P3 (7–9), después P2 (9–12) y al final P4 (12–16). Si dijiste «P1, P2, P3, P4», aplicaste FCFS; si pusiste a P3 antes que P1, olvidaste que en t = 0 P3 todavía no había llegado.
+
+</Predice>
+
+## Ruta de estudio, en orden
+
+<CardGrid>
+	<LinkCard title="1 · Teoría de scheduling (clase sem. 12)" href="/lab4/teoria/" description="Criterios, cuándo decide el scheduler, expropiativo o no, dispatcher, interrupciones, IO-bound y CPU-bound." />
+	<LinkCard title="2 · Algoritmos a mano: Gantt y métricas" href="/lab4/algoritmos/" description="FCFS, SJF, SRTF, prioridad, RR y HRRN con escalera de práctica y simulador. Lo que más pesa en el análisis." />
+	<LinkCard title="3 · La pregunta de código" href="/lab4/codigo/" description="base-scheduler.c y el framework driver/list/CPU, con los 10 ejercicios resueltos, compilados y probados." />
+	<LinkCard title="4 · MLFQ, O(1) y CFS" href="/lab4/linux/" description="Colas multinivel y el scheduler de Linux, con la traza CFS/MLFQ que dejaron explicada paso a paso." />
+	<LinkCard title="5 · Scheduling + page replacement" href="/lab4/page-replacement/" description="Los 3 ejercicios de reemplazo de la hoja: FIFO, LRU, OPT y Clock, solos y combinados con RR y prioridad." />
+	<LinkCard title="6 · Stallings cap. 9 (teóricas)" href="/lab4/stallings-cap9/" description="Lo esencial del capítulo, las Review Questions 9.1–9.11 y los problemas resueltos." />
+	<LinkCard title="7 · Simulacro del Lab 4" href="/lab4/simulacro/" description="1 de código, 2 de análisis y 3 teóricas, con el mismo formato y tiempo." />
+</CardGrid>
+
+:::tip[Si solo tienes una tarde]
+1. **Algoritmos a mano**: los peldaños 1 y 3 de cada algoritmo (≈ 60 min).
+2. **Código**: escribe de memoria `schedule()` para SJF y para RR con llegadas, y compáralo con la solución (≈ 45 min).
+3. **Page replacement**: el ejercicio 1 con los cuatro algoritmos (≈ 25 min).
+4. **Stallings**: las Review Questions sin mirar (≈ 20 min).
+:::
+
+## Tu panel de repaso
+
+Los temas del Lab 4 están en el mismo panel que los del final, en la unidad **G**. Marca tu nivel al final de cada página y aquí verás qué te toca repasar primero.
+
+<PanelRepaso client:visible />
+
+<Fuente archivos={['sem_12/OSL-Indicaciones-Laboratorio_Calificado_4.pdf', 'Reparto de minutos y ruta: sugerencia propia']} />

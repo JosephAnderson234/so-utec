@@ -1,0 +1,872 @@
+---
+title: 'La pregunta de código: schedulers en C'
+description: 'Las dos bases de código del curso (base-scheduler.c y el framework driver/list/CPU), los 10 ejercicios de la hoja de sem. 11 y las 4 políticas del framework resueltos, compilados y probados, más los errores que más se repiten.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Solucion from '../../../components/Solucion.astro';
+import Fuente from '../../../components/Fuente.astro';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Detective from '../../../components/tutor/Detective.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+
+<EnSimple>
+Un scheduler en C es **un bucle con tres preguntas**: ¿queda alguien sin terminar?, ¿quién de los listos gana?, ¿cuánto lo dejo correr? Todas las políticas comparten el bucle y solo cambian **la función que elige** (llegada, ráfaga, prioridad, turno) y **cuánto corre** (todo, un quantum, hasta la próxima llegada). Si memorizas el esqueleto, en el examen solo escribes la parte que cambia.
+</EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Modificar <code>base-scheduler.c</code> para FCFS con CPU inactiva, SJF, prioridad, RR (con y sin llegadas) y las métricas por proceso.',
+		'Completar los <code>TODO</code> del framework (<code>add</code>, <code>pick_next_task</code> y <code>schedule</code>) para SJF, prioridad, RR y prioridad con RR.',
+		'Evitar los errores que cuelgan el programa o desordenan la cola: el <code>return</code> silencioso de <code>run</code>, la reinserción en RR y los desempates.',
+		'Verificar tu salida contra un Gantt hecho a mano antes de enviar.',
+	]}
+	prerrequisitos={[{ t: 'Algoritmos a mano', href: '/lab4/algoritmos/' }]}
+	perfiles={['laboratorio', 'detective', 'examen']}
+/>
+
+:::note[Qué base te pueden dar]
+La hoja no dice cuál será. En el curso se usaron **dos**, así que conviene dominar ambas:
+
+| | `base-scheduler.c` (hoja de ejercicios, sem. 11) | Framework `scheduler.zip` (actividad de lab, sem. 11) |
+| --- | --- | --- |
+| Archivos | uno solo | `driver.c`, `list.c/h`, `CPU.c`, `cpu.h`, `task.h`, `schedulers.h`, `schedule_<política>.c`, `Makefile` |
+| Tareas | arreglo `Task tasks[N]` con `arrival`, `burst`, `remaining` y `priority` | lista enlazada con nodo cabecera; `Task` tiene `name`, `tid`, `priority` y `burst` |
+| Llegadas | **sí** (`arrival`) | **no**: todas en t = 0, en el orden del archivo |
+| Tiempo | global `current_time`, que `run()` avanza | `run()` solo imprime: el tiempo lo llevas tú si te lo piden |
+| Quantum | `#define QUANTUM 3` | `#define QUANTUM 10` en `cpu.h` |
+| Prioridad | la hoja dice: número **mayor** = más prioridad | `MIN_PRIORITY 1`, `MAX_PRIORITY 10`: número **mayor** = más prioridad |
+| Se compila | `gcc base-scheduler.c -o scheduler` | `make sjf`, `make rr`, … y `./sjf schedule.txt` |
+:::
+
+## El esqueleto común
+
+```c
+while (quedan procesos sin terminar) {
+    elegido = el mejor de los LISTOS (llegada <= current_time y remaining > 0);
+    if (no hay ninguno) {
+        IDLE desde current_time hasta la próxima llegada;
+        continue;
+    }
+    run(elegido, cuánto: todo | min(QUANTUM, remaining) | hasta la próxima llegada);
+    si terminó: anotar completion;
+    si no (RR): admitir a los que llegaron y DESPUÉS reinsertarlo al final;
+}
+```
+
+| Política | ¿Quién gana? | ¿Cuánto corre? |
+| --- | --- | --- |
+| FCFS | menor `arrival` | todo |
+| SJF | menor `burst` (empate: menor `arrival`) | todo |
+| Prioridad no expropiativa | mayor `priority` (empate: menor `arrival`) | todo |
+| RR | el primero de la cola | `min(QUANTUM, remaining)` |
+| SRTF | menor `remaining` | hasta terminar **o** hasta la próxima llegada |
+| Prioridad + RR | mayor `priority`; dentro del mismo nivel, turno | si está solo en su nivel, todo; si no, `min(QUANTUM, remaining)` |
+
+<Detective titulo="el RR que nunca termina" sintoma="Usas el <code>run()</code> de <code>base-scheduler.c</code> y escribes <code>run(&amp;tasks[i], QUANTUM);</code> en un bucle de RR. El programa imprime algunos turnos y después <strong>se queda colgado</strong> sin imprimir nada más." pista="Lee la primera línea de <code>run()</code> en la plantilla. ¿Qué pasa cuando a un proceso le quedan 1 o 2 unidades y le pides correr 3?">
+
+La plantilla empieza con:
+
+```c
+if (slice <= 0 || slice > task->remaining)
+    return;
+```
+
+Si a P1 le queda 1 y llamas `run(&tasks[i], 3)`, `run` **regresa sin hacer nada**: `remaining` sigue en 1, `current_time` no avanza y tu bucle vuelve a elegir a P1 para siempre. **Corrección:** calcula el trozo antes de llamar:
+
+```c
+int slice = tasks[i].remaining < QUANTUM ? tasks[i].remaining : QUANTUM;
+run(&tasks[i], slice);
+```
+
+Es también lo que pide la hoja: «si termina antes del quantum, la CPU podrá atender al siguiente sin consumir el tiempo sobrante».
+
+</Detective>
+
+## Ejercicios 1–4, 8 y 9: los no expropiativos con métricas
+
+Un solo archivo resuelve FCFS con CPU inactiva (ej. 1–2), SJF (ej. 3), prioridad (ej. 4), las métricas (ej. 8) y la comparación con los datos reiniciados (ej. 9). La política se cambia pasando **una función de comparación** distinta.
+
+<Practica nivel={2} titulo="Complétalo antes de mirar: la función que elige">
+
+Escribe `pick()`: debe devolver el índice del mejor proceso **listo** según `better`, o `-1` si no hay ninguno listo. Ten en cuenta dos condiciones: que ya haya llegado y que no haya terminado.
+
+<Solucion titulo="Comparar">
+
+```c
+int pick(int (*better)(Task *, Task *)) {
+    int best = -1;
+    for (int i = 0; i < N; i++) {
+        if (tasks[i].remaining == 0 || tasks[i].arrival > current_time)
+            continue;
+        if (best == -1 || better(&tasks[i], &tasks[best]))
+            best = i;
+    }
+    return best;
+}
+```
+
+Como `better` usa comparaciones **estrictas** y recorre en orden, ante un empate total gana el de menor índice.
+
+</Solucion>
+</Practica>
+
+<Solucion titulo="Archivo completo: np.c (ej. 1, 2, 3, 4, 8 y 9)">
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+#define N 5
+
+typedef struct {
+    char name[20];
+    int priority;
+    int arrival;
+    int burst;
+    int remaining;
+    int completion;
+} Task;
+
+Task base[N] = {
+    {"P1", 3, 0, 7, 7, 0},
+    {"P2", 1, 2, 3, 3, 0},
+    {"P3", 4, 4, 2, 2, 0},
+    {"P4", 2, 5, 4, 4, 0},
+    {"P5", 5, 8, 5, 5, 0}
+};
+
+Task tasks[N];
+int current_time = 0;
+
+void reset(void) {
+    memcpy(tasks, base, sizeof(tasks));
+    for (int i = 0; i < N; i++) {
+        tasks[i].remaining = tasks[i].burst;
+        tasks[i].completion = -1;
+    }
+    current_time = 0;
+}
+
+void run(Task *task, int slice) {
+    if (slice <= 0 || slice > task->remaining)
+        return;
+    printf("t=%d -> t=%d | %s (%d units)\n",
+           current_time, current_time + slice, task->name, slice);
+    task->remaining -= slice;
+    current_time += slice;
+    if (task->remaining == 0)
+        task->completion = current_time;
+}
+
+int better_fcfs(Task *a, Task *b) {
+    return a->arrival < b->arrival;
+}
+
+int better_sjf(Task *a, Task *b) {
+    if (a->burst != b->burst)
+        return a->burst < b->burst;
+    return a->arrival < b->arrival;
+}
+
+int better_priority(Task *a, Task *b) {
+    if (a->priority != b->priority)
+        return a->priority > b->priority;
+    return a->arrival < b->arrival;
+}
+
+int pick(int (*better)(Task *, Task *)) {
+    int best = -1;
+    for (int i = 0; i < N; i++) {
+        if (tasks[i].remaining == 0 || tasks[i].arrival > current_time)
+            continue;
+        if (best == -1 || better(&tasks[i], &tasks[best]))
+            best = i;
+    }
+    return best;
+}
+
+int next_arrival(void) {
+    int t = -1;
+    for (int i = 0; i < N; i++)
+        if (tasks[i].remaining > 0 && (t == -1 || tasks[i].arrival < t))
+            t = tasks[i].arrival;
+    return t;
+}
+
+void schedule(int (*better)(Task *, Task *)) {
+    int done = 0;
+    while (done < N) {
+        int i = pick(better);
+        if (i == -1) {
+            int t = next_arrival();
+            printf("t=%d -> t=%d | IDLE\n", current_time, t);
+            current_time = t;
+            continue;
+        }
+        run(&tasks[i], tasks[i].remaining);
+        done++;
+    }
+}
+
+double report(void) {
+    double tat_sum = 0, wt_sum = 0;
+    printf("%-4s %4s %4s %4s %4s %4s\n", "Proc", "Arr", "Bur", "Fin", "TAT", "WT");
+    for (int i = 0; i < N; i++) {
+        int tat = tasks[i].completion - tasks[i].arrival;
+        int wt = tat - tasks[i].burst;
+        tat_sum += tat;
+        wt_sum += wt;
+        printf("%-4s %4d %4d %4d %4d %4d\n", tasks[i].name, tasks[i].arrival,
+               tasks[i].burst, tasks[i].completion, tat, wt);
+    }
+    printf("Promedio TAT = %.2f | Promedio WT = %.2f\n", tat_sum / N, wt_sum / N);
+    return wt_sum / N;
+}
+
+int main(void) {
+    reset();
+    printf("== FCFS\n");
+    schedule(better_fcfs);
+    double w_fcfs = report();
+
+    reset();
+    printf("\n== SJF no preemptive\n");
+    schedule(better_sjf);
+    double w_sjf = report();
+
+    reset();
+    printf("\n== Priority no preemptive (mayor numero = mayor prioridad)\n");
+    schedule(better_priority);
+    report();
+
+    printf("\nWT promedio: FCFS = %.2f, SJF = %.2f -> menor: %s\n",
+           w_fcfs, w_sjf, w_sjf < w_fcfs ? "SJF" : (w_fcfs < w_sjf ? "FCFS" : "empate"));
+    return 0;
+}
+```
+
+</Solucion>
+
+<Solucion titulo="Salida real (ejecución de prueba, gcc -Wall -Wextra sin advertencias)">
+
+```text
+== FCFS
+t=0 -> t=7 | P1 (7 units)
+t=7 -> t=10 | P2 (3 units)
+t=10 -> t=12 | P3 (2 units)
+t=12 -> t=16 | P4 (4 units)
+t=16 -> t=21 | P5 (5 units)
+Proc  Arr  Bur  Fin  TAT   WT
+P1      0    7    7    7    0
+P2      2    3   10    8    5
+P3      4    2   12    8    6
+P4      5    4   16   11    7
+P5      8    5   21   13    8
+Promedio TAT = 9.40 | Promedio WT = 5.20
+
+== SJF no preemptive
+t=0 -> t=7 | P1 (7 units)
+t=7 -> t=9 | P3 (2 units)
+t=9 -> t=12 | P2 (3 units)
+t=12 -> t=16 | P4 (4 units)
+t=16 -> t=21 | P5 (5 units)
+...
+Promedio TAT = 9.20 | Promedio WT = 5.00
+
+== Priority no preemptive (mayor numero = mayor prioridad)
+t=0 -> t=7 | P1 (7 units)
+t=7 -> t=9 | P3 (2 units)
+t=9 -> t=14 | P5 (5 units)
+t=14 -> t=18 | P4 (4 units)
+t=18 -> t=21 | P2 (3 units)
+...
+Promedio TAT = 10.00 | Promedio WT = 5.80
+
+WT promedio: FCFS = 5.20, SJF = 5.00 -> menor: SJF
+```
+
+**Ej. 2 (CPU inactiva):** con P1 (llega 5, ráfaga 3), P2 (6, 2) y P3 (12, 4), el mismo programa imprime:
+
+```text
+t=0 -> t=5 | IDLE
+t=5 -> t=8 | P1 (3 units)
+t=8 -> t=10 | P2 (2 units)
+t=10 -> t=12 | IDLE
+t=12 -> t=16 | P3 (4 units)
+```
+
+</Solucion>
+
+<Predice pregunta="En el ejercicio 9 se pide «reiniciar correctamente los datos entre ambas simulaciones». Si llamas <code>schedule(better_sjf)</code> justo después de FCFS sin <code>reset()</code>, ¿qué imprime SJF?">
+
+**Se cuelga imprimiendo `IDLE` sin parar.** Después de FCFS todos los `remaining` quedaron en 0, así que `pick()` no encuentra a nadie y `done` nunca avanza. Además, `next_arrival()` devuelve −1 porque no queda nadie pendiente. La ejecución de prueba lo muestra:
+
+```text
+== SJF no preemptive
+t=21 -> t=-1 | IDLE
+t=-1 -> t=-1 | IDLE
+t=-1 -> t=-1 | IDLE
+...
+```
+
+Por eso `reset()` restaura `remaining`, `completion` y también `current_time` a 0 (si olvidas solo este último, SJF empezaría en t = 21).
+
+</Predice>
+
+## Ejercicios 5, 6 y 10: Round Robin
+
+La cola es un arreglo circular de índices. El orden importa: **primero se admite a los que llegaron durante el turno y después se reinserta al que corrió** (hoja, ej. 6). El arreglo debe estar ordenado por `arrival`, como en la plantilla.
+
+<Practica nivel={3} titulo="Solo: escribe schedule() de RR con llegadas">
+
+Tienes `push(i)`, `pop()`, `empty()` y una variable `next` que apunta al siguiente proceso que aún no entra a la cola. Escribe `admit()` y `schedule()`, incluido el caso en que la cola queda vacía.
+
+<Solucion titulo="Comparar: rr.c completo">
+
+```c
+#include <stdio.h>
+
+#define N 5
+#define QUANTUM 3
+
+typedef struct {
+    char name[20];
+    int priority;
+    int arrival;
+    int burst;
+    int remaining;
+} Task;
+
+Task tasks[N] = {
+    {"P1", 3, 0, 7, 7},
+    {"P2", 1, 2, 3, 3},
+    {"P3", 4, 4, 2, 2},
+    {"P4", 2, 5, 4, 4},
+    {"P5", 5, 8, 5, 5}
+};
+
+int current_time = 0;
+
+int queue[64];
+int head = 0, tail = 0;
+
+void push(int i) { queue[tail++ % 64] = i; }
+int pop(void) { return queue[head++ % 64]; }
+int empty(void) { return head == tail; }
+
+void run(Task *task, int slice) {
+    if (slice <= 0 || slice > task->remaining)
+        return;
+    printf("t=%d -> t=%d | %s (%d units)", current_time, current_time + slice,
+           task->name, slice);
+    task->remaining -= slice;
+    current_time += slice;
+    printf(" | restante %s = %d\n", task->name, task->remaining);
+}
+
+int next = 0;
+
+void admit(void) {
+    while (next < N && tasks[next].arrival <= current_time)
+        push(next++);
+}
+
+void schedule(void) {
+    int done = 0;
+    admit();
+    while (done < N) {
+        if (empty()) {
+            printf("t=%d -> t=%d | IDLE\n", current_time, tasks[next].arrival);
+            current_time = tasks[next].arrival;
+            admit();
+            continue;
+        }
+        int i = pop();
+        int slice = tasks[i].remaining < QUANTUM ? tasks[i].remaining : QUANTUM;
+        run(&tasks[i], slice);
+        admit();
+        if (tasks[i].remaining > 0)
+            push(i);
+        else
+            done++;
+    }
+}
+
+int main(void) {
+    schedule();
+    return 0;
+}
+```
+
+**Salida real (ej. 6):**
+
+```text
+t=0 -> t=3 | P1 (3 units) | restante P1 = 4
+t=3 -> t=6 | P2 (3 units) | restante P2 = 0
+t=6 -> t=9 | P1 (3 units) | restante P1 = 1
+t=9 -> t=11 | P3 (2 units) | restante P3 = 0
+t=11 -> t=14 | P4 (3 units) | restante P4 = 1
+t=14 -> t=17 | P5 (3 units) | restante P5 = 2
+t=17 -> t=18 | P1 (1 units) | restante P1 = 0
+t=18 -> t=19 | P4 (1 units) | restante P4 = 0
+t=19 -> t=21 | P5 (2 units) | restante P5 = 0
+```
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: ejercicio 10 (P1 = 5, P2 = 2, P3 = 4, todos en t = 0, QUANTUM 2)">
+
+¿Qué cambias en `rr.c`? ¿Qué imprime?
+
+<Solucion titulo="Comparar (salida real)">
+
+Solo cambian `N` a 3, `QUANTUM` a 2 y la tabla (todas las llegadas en 0). El ej. 5 es el mismo programa con todas las llegadas en 0: no hace falta otro código.
+
+```text
+t=0 -> t=2 | P1 (2 units) | restante P1 = 3
+t=2 -> t=4 | P2 (2 units) | restante P2 = 0
+t=4 -> t=6 | P3 (2 units) | restante P3 = 2
+t=6 -> t=8 | P1 (2 units) | restante P1 = 1
+t=8 -> t=10 | P3 (2 units) | restante P3 = 0
+t=10 -> t=11 | P1 (1 units) | restante P1 = 0
+```
+
+Coincide con la traza a mano de [Algoritmos a mano](/lab4/algoritmos/).
+
+</Solucion>
+</Practica>
+
+<Solucion titulo="Extra: SRTF (srtf.c), por si piden la versión expropiativa de SJF">
+
+La idea: el elegido corre hasta que **termina o llega alguien**, lo que pase primero, y ahí se vuelve a elegir.
+
+```c
+#include <stdio.h>
+
+#define N 5
+
+typedef struct {
+    char name[20];
+    int priority;
+    int arrival;
+    int burst;
+    int remaining;
+} Task;
+
+Task tasks[N] = {
+    {"P1", 3, 0, 7, 7},
+    {"P2", 1, 2, 3, 3},
+    {"P3", 4, 4, 2, 2},
+    {"P4", 2, 5, 4, 4},
+    {"P5", 5, 8, 5, 5}
+};
+
+int current_time = 0;
+
+int pick(void) {
+    int best = -1;
+    for (int i = 0; i < N; i++) {
+        if (tasks[i].remaining == 0 || tasks[i].arrival > current_time)
+            continue;
+        if (best == -1 || tasks[i].remaining < tasks[best].remaining ||
+            (tasks[i].remaining == tasks[best].remaining &&
+             tasks[i].arrival < tasks[best].arrival))
+            best = i;
+    }
+    return best;
+}
+
+int next_event(int running) {
+    int end = current_time + tasks[running].remaining;
+    for (int i = 0; i < N; i++)
+        if (tasks[i].remaining > 0 && tasks[i].arrival > current_time && tasks[i].arrival < end)
+            end = tasks[i].arrival;
+    return end;
+}
+
+void schedule(void) {
+    int done = 0, last = -1, start = 0;
+    while (done < N) {
+        int i = pick();
+        if (i == -1) {
+            int t = -1;
+            for (int k = 0; k < N; k++)
+                if (tasks[k].remaining > 0 && (t == -1 || tasks[k].arrival < t))
+                    t = tasks[k].arrival;
+            printf("t=%d -> t=%d | IDLE\n", current_time, t);
+            current_time = t;
+            continue;
+        }
+        if (i != last) {
+            if (last != -1 && start < current_time)
+                printf("t=%d -> t=%d | %s\n", start, current_time, tasks[last].name);
+            start = current_time;
+            last = i;
+        }
+        int until = next_event(i);
+        tasks[i].remaining -= until - current_time;
+        current_time = until;
+        if (tasks[i].remaining == 0) {
+            printf("t=%d -> t=%d | %s (termina)\n", start, current_time, tasks[i].name);
+            done++;
+            last = -1;
+        }
+    }
+}
+
+int main(void) {
+    schedule();
+    return 0;
+}
+```
+
+```text
+t=0 -> t=2 | P1
+t=2 -> t=5 | P2 (termina)
+t=5 -> t=7 | P3 (termina)
+t=7 -> t=11 | P4 (termina)
+t=11 -> t=16 | P1 (termina)
+t=16 -> t=21 | P5 (termina)
+```
+
+En t = 11, P1 y P5 tienen restante 5: gana P1 porque llegó antes.
+
+</Solucion>
+
+## El framework: completar los `TODO`
+
+Así está cada `schedule_<política>.c` al descargarlo:
+
+```c
+struct node *head = NULL;
+
+void add (char *name, int priority, int burst) {
+	// TODO
+}
+
+Task *pick_next_task (struct node *head) {
+	// TODO
+}
+
+void schedule () {
+	// TODO
+}
+```
+
+Lo que tienes que saber de la lista (`list.c`):
+
+- `head` apunta a un **nodo cabecera vacío**; el primer `Task` es `head->next->task`. La lista está vacía cuando `head->next == NULL`.
+- `insert(&head, t)` agrega **al final**, así que la lista queda en el orden del archivo (FCFS).
+- `delete(&head, t)` busca por **nombre** con `strcmp` y desengancha el nodo (no libera el `Task`).
+- `run(t, slice)` solo **imprime** `Running task = [nombre] [prioridad] [burst] for slice units.`: no cambia `burst`; si haces RR, lo descuentas tú.
+
+<Practica nivel={1} titulo="Resuelto: SJF y prioridad en el framework">
+
+`add` es igual en las cuatro políticas: crea el `Task` y lo inserta. La diferencia está en `pick_next_task`.
+
+```c
+#include <stdlib.h>
+
+#include "list.h"
+#include "schedulers.h"
+#include "task.h"
+#include "cpu.h"
+
+struct node *head = NULL;
+int nextTid = 0;
+
+void add (char *name, int priority, int burst) {
+	Task *t = malloc(sizeof(Task));
+	t->tid = nextTid++;
+	t->name = name;
+	t->priority = priority;
+	t->burst = burst;
+	insert(&head, t);
+}
+
+Task *pick_next_task (struct node *head) {
+	Task *best = head->next->task;
+	for (struct node *n = head->next->next; n != NULL; n = n->next)
+		if (n->task->burst < best->burst)
+			best = n->task;
+	return best;
+}
+
+void schedule () {
+	if (head == NULL)
+		return;
+	while (head->next != NULL) {
+		Task *t = pick_next_task(head);
+		run(t, t->burst);
+		delete(&head, t);
+	}
+}
+```
+
+Para **prioridad**, el archivo es idéntico salvo una línea de `pick_next_task`:
+
+```c
+		if (n->task->priority > best->priority)
+```
+
+La comparación es **estricta** (`<` y `>`): ante un empate se queda el que estaba antes en la lista, es decir, el primero del archivo. Con `<=` invertirías los desempates.
+
+</Practica>
+
+<Practica nivel={3} titulo="Solo: RR en el framework">
+
+Pista: en RR, `pick_next_task` es simplemente el primero de la lista. Para «mandar al final» al que no terminó, combina `delete` e `insert`.
+
+<Solucion titulo="Comparar: schedule_rr.c">
+
+```c
+Task *pick_next_task (struct node *head) {
+	return head->next->task;
+}
+
+void schedule () {
+	if (head == NULL)
+		return;
+	while (head->next != NULL) {
+		Task *t = pick_next_task(head);
+		int slice = t->burst < QUANTUM ? t->burst : QUANTUM;
+		run(t, slice);
+		t->burst -= slice;
+		delete(&head, t);
+		if (t->burst > 0)
+			insert(&head, t);
+	}
+}
+```
+
+(`add` es el mismo de arriba.) Ojo con el orden: `run` imprime `t->burst` **antes** de descontarlo, así que la salida muestra lo que le quedaba al **empezar** el turno.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: prioridad con RR (priority_rr)">
+
+Regla: se atiende el nivel de mayor prioridad; si en ese nivel hay **un solo** proceso, corre hasta terminar; si hay varios, se turnan con RR.
+
+<Solucion titulo="Comparar: schedule_priority_rr.c">
+
+```c
+Task *pick_next_task (struct node *head) {
+	Task *best = head->next->task;
+	for (struct node *n = head->next->next; n != NULL; n = n->next)
+		if (n->task->priority > best->priority)
+			best = n->task;
+	return best;
+}
+
+int same_priority (int p) {
+	int count = 0;
+	for (struct node *n = head->next; n != NULL; n = n->next)
+		if (n->task->priority == p)
+			count++;
+	return count;
+}
+
+void schedule () {
+	if (head == NULL)
+		return;
+	while (head->next != NULL) {
+		Task *t = pick_next_task(head);
+		if (same_priority(t->priority) == 1) {
+			run(t, t->burst);
+			delete(&head, t);
+			continue;
+		}
+		int slice = t->burst < QUANTUM ? t->burst : QUANTUM;
+		run(t, slice);
+		t->burst -= slice;
+		delete(&head, t);
+		if (t->burst > 0)
+			insert(&head, t);
+	}
+}
+```
+
+¿Por qué funciona el turno? Al reinsertar `t` **al final**, el próximo `pick_next_task` encuentra primero a otro proceso del mismo nivel.
+
+</Solucion>
+</Practica>
+
+<Solucion titulo="Salida real con el schedule.txt del framework (QUANTUM 10)">
+
+`schedule.txt`: T1 (prioridad 4, ráfaga 20), T2 (3, 25), T3 (3, 25), T4 (5, 15), T5 (5, 20), T6 (1, 10), T7 (3, 30), T8 (10, 25).
+
+```text
+##### sjf
+Running task = [T6] [1] [10] for 10 units.
+Running task = [T4] [5] [15] for 15 units.
+Running task = [T1] [4] [20] for 20 units.
+Running task = [T5] [5] [20] for 20 units.
+Running task = [T2] [3] [25] for 25 units.
+Running task = [T3] [3] [25] for 25 units.
+Running task = [T8] [10] [25] for 25 units.
+Running task = [T7] [3] [30] for 30 units.
+##### priority
+Running task = [T8] [10] [25] for 25 units.
+Running task = [T4] [5] [15] for 15 units.
+Running task = [T5] [5] [20] for 20 units.
+Running task = [T1] [4] [20] for 20 units.
+Running task = [T2] [3] [25] for 25 units.
+Running task = [T3] [3] [25] for 25 units.
+Running task = [T7] [3] [30] for 30 units.
+Running task = [T6] [1] [10] for 10 units.
+##### rr
+Running task = [T1] [4] [20] for 10 units.
+Running task = [T2] [3] [25] for 10 units.
+Running task = [T3] [3] [25] for 10 units.
+Running task = [T4] [5] [15] for 10 units.
+Running task = [T5] [5] [20] for 10 units.
+Running task = [T6] [1] [10] for 10 units.
+Running task = [T7] [3] [30] for 10 units.
+Running task = [T8] [10] [25] for 10 units.
+Running task = [T1] [4] [10] for 10 units.
+Running task = [T2] [3] [15] for 10 units.
+Running task = [T3] [3] [15] for 10 units.
+Running task = [T4] [5] [5] for 5 units.
+Running task = [T5] [5] [10] for 10 units.
+Running task = [T7] [3] [20] for 10 units.
+Running task = [T8] [10] [15] for 10 units.
+Running task = [T2] [3] [5] for 5 units.
+Running task = [T3] [3] [5] for 5 units.
+Running task = [T7] [3] [10] for 10 units.
+Running task = [T8] [10] [5] for 5 units.
+##### priority_rr
+Running task = [T8] [10] [25] for 25 units.
+Running task = [T4] [5] [15] for 10 units.
+Running task = [T5] [5] [20] for 10 units.
+Running task = [T4] [5] [5] for 5 units.
+Running task = [T5] [5] [10] for 10 units.
+Running task = [T1] [4] [20] for 20 units.
+Running task = [T2] [3] [25] for 10 units.
+Running task = [T3] [3] [25] for 10 units.
+Running task = [T7] [3] [30] for 10 units.
+Running task = [T2] [3] [15] for 10 units.
+Running task = [T3] [3] [15] for 10 units.
+Running task = [T7] [3] [20] for 10 units.
+Running task = [T2] [3] [5] for 5 units.
+Running task = [T3] [3] [5] for 5 units.
+Running task = [T7] [3] [10] for 10 units.
+Running task = [T6] [1] [10] for 10 units.
+```
+
+Las cuatro compilan con `make` y `-Wall` sin advertencias.
+
+</Solucion>
+
+<Practica nivel={4} titulo="Variante probable: «además, imprima el turnaround, waiting y response promedio» (RR del framework)">
+
+En el framework todos llegan en t = 0, así que turnaround = fin, waiting = fin − ráfaga original y response = primer inicio. El problema: `run` no lleva el tiempo y en RR `burst` se va descontando. ¿Qué guardas?
+
+<Solucion titulo="Comparar (salida verificada contra un script independiente)">
+
+Guarda por `tid` la ráfaga **original**, el primer inicio y el fin, y lleva tu propio reloj `now`:
+
+```c
+#define MAXT 100
+
+int now = 0;
+int original[MAXT], first[MAXT], finish[MAXT];
+
+void add (char *name, int priority, int burst) {
+	Task *t = malloc(sizeof(Task));
+	t->tid = nextTid++;
+	t->name = name;
+	t->priority = priority;
+	t->burst = burst;
+	original[t->tid] = burst;
+	first[t->tid] = -1;
+	insert(&head, t);
+}
+
+void schedule () {
+	if (head == NULL)
+		return;
+	while (head->next != NULL) {
+		Task *t = pick_next_task(head);
+		int slice = t->burst < QUANTUM ? t->burst : QUANTUM;
+		if (first[t->tid] == -1)
+			first[t->tid] = now;
+		run(t, slice);
+		now += slice;
+		t->burst -= slice;
+		delete(&head, t);
+		if (t->burst > 0)
+			insert(&head, t);
+		else
+			finish[t->tid] = now;
+	}
+	double tat = 0, wt = 0, rt = 0;
+	for (int i = 0; i < nextTid; i++) {
+		tat += finish[i];
+		wt += finish[i] - original[i];
+		rt += first[i];
+	}
+	printf("Promedio turnaround = %.2f\n", tat / nextTid);
+	printf("Promedio waiting    = %.2f\n", wt / nextTid);
+	printf("Promedio response   = %.2f\n", rt / nextTid);
+}
+```
+
+Con `schedule.txt` imprime **128.75**, **107.50** y **35.00**. Como referencia, con los mismos datos FCFS da waiting 73.13, SJF 61.25 y prioridad 75.00.
+
+</Solucion>
+</Practica>
+
+<Detective titulo="lo que está mal en el propio framework" sintoma="El <code>driver.c</code> oficial compila y funciona con <code>schedule.txt</code>, pero si le pasas un archivo que no existe, el programa <strong>se cae con segmentation fault</strong> en vez de imprimir «open file». Y Valgrind, con <code>schedule.txt</code>, reporta 25 bloques sin liberar al terminar." pista="¿Qué devuelve <code>fopen</code> cuando falla? ¿Cuánto vale <code>temp</code> después del tercer <code>strsep</code>?">
+
+1. `if (in < 0)` compara un **puntero** con 0 usando `<`. `fopen` devuelve **`NULL`** al fallar, y `NULL < 0` es falso: el error no se detecta y `fgets(task, SIZE, NULL)` revienta. Lo correcto es `if (in == NULL)`.
+2. `strsep` va avanzando `temp`, y después del último campo lo deja en `NULL`. Entonces `free(temp)` es `free(NULL)`, que no hace nada, y el bloque de `strdup` **nunca se libera**. Pero tampoco se puede liberar ahí, porque `name` apunta dentro de ese bloque y el `Task` lo sigue usando. La forma correcta es guardar el puntero original (`char *line = strdup(task); temp = line;`) y liberarlo al final del programa.
+3. El nodo cabecera se crea con `malloc` en el primer `insert` y nunca se libera, y `delete` desengancha nodos sin hacerles `free`.
+
+No es lo que te van a pedir, pero si en el examen aparece «encuentre el error en este código», estos son los candidatos clásicos. En C, **comparar un puntero con `< 0` es casi siempre un bug**.
+
+</Detective>
+
+## Antes de enviar (no puedes volver a entrar)
+
+1. ¿Compila con `-Wall` **sin advertencias**? En particular: funciones con tipo de retorno que no devuelven nada en algún camino, y variables sin usar.
+2. ¿Probaste el **caso del enunciado** y coincide con tu Gantt a mano?
+3. ¿Probaste un caso borde?
+   - **CPU inactiva**: el primero llega después de 0, o hay un hueco entre llegadas.
+   - **Empate**: misma ráfaga o misma prioridad.
+   - **Ráfaga menor que el quantum.**
+4. ¿Respetaste la **convención de prioridad** y el **formato de salida** que pide el enunciado?
+5. Si el bucle depende de que algo cambie (`remaining`, `current_time`), ¿cambia **siempre**? Si no, se cuelga (ver el primer Detective).
+
+<Errores
+	errores={[
+		{ mal: 'Llamar <code>run(&amp;t, QUANTUM)</code> con la plantilla de <code>base-scheduler.c</code>.', bien: '<code>run</code> ignora un slice mayor que <code>remaining</code>. Pasa <code>min(QUANTUM, remaining)</code>.' },
+		{ mal: 'En RR, reinsertar antes de admitir a los que llegaron.', bien: 'Primero <code>admit()</code>, después <code>push(i)</code> (hoja, ej. 6).' },
+		{ mal: 'Elegir entre todos los procesos y no solo entre los que llegaron.', bien: 'Filtra por <code>arrival &lt;= current_time</code> y <code>remaining &gt; 0</code>.' },
+		{ mal: 'No avanzar <code>current_time</code> cuando nadie está listo.', bien: 'Imprime IDLE y salta a la próxima llegada; si no, el bucle no termina.' },
+		{ mal: 'En el framework, usar <code>&lt;=</code> o <code>&gt;=</code> en <code>pick_next_task</code>.', bien: 'Con comparación estricta, el empate lo gana el primero del archivo, que es el criterio FCFS.' },
+		{ mal: 'Olvidar <code>reset()</code> entre dos simulaciones (ej. 9).', bien: 'Restaura <code>remaining</code>, <code>completion</code> y <code>current_time</code>.' },
+		{ mal: 'En el framework de RR, olvidar que <code>run</code> no descuenta <code>burst</code>.', bien: 'Descuenta tú: <code>t-&gt;burst -= slice;</code>. Si no, el bucle no termina.' },
+	]}
+/>
+
+<Feynman
+	consigna="Explícale a un compañero, en 5 líneas, qué cambia entre tu código de SJF no expropiativo y el de SRTF."
+	claves={[
+		'El criterio de elección es casi el mismo: menor ráfaga. En SRTF es la ráfaga <strong>restante</strong>.',
+		'SJF hace <code>run(t, remaining)</code>: el elegido corre hasta terminar.',
+		'SRTF corre solo hasta el <strong>próximo evento</strong>: su fin o la próxima llegada, lo que ocurra primero.',
+		'En cada evento se vuelve a elegir, y ahí puede ocurrir la expropiación.',
+	]}
+	trampa="decir que SRTF revisa en cada unidad de tiempo. Funciona, pero basta con revisar en las llegadas, que son los únicos momentos en que la decisión puede cambiar."
+/>
+
+<Dominio client:visible id="lab4-codigo" />
+
+<Fuente archivos={['sem_11/base-scheduler.c', 'sem_11/Sem11-OSL-Ejercicios_Repaso.pdf', 'sem_11/Sem11_11-OSL-Scheduling.pdf (framework scheduler.zip)', 'Soluciones propias: compiladas con gcc -Wall -Wextra y comparadas con un script independiente']} />
