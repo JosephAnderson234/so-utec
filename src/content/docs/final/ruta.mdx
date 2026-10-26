@@ -1,0 +1,82 @@
+---
+title: 'Ruta de repaso: cómo estudiar el final'
+description: 'El método de la web para el LC3: qué significa cada recuadro (predicción, escalera de práctica, detective, debate, Feynman), en qué orden estudiar según el peso de cada tema, un plan de sesiones con repaso intercalado y tu panel de progreso con repaso espaciado.'
+---
+
+import EnSimple from '../../../components/EnSimple.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import PanelRepaso from '../../../components/tutor/PanelRepaso.tsx';
+
+<EnSimple>
+Leer una página y sentir que «ya entendí» **no** es lo mismo que poder resolver un ejercicio en el LC3. Lo que fija el conocimiento es **sacarlo de tu cabeza**: predecir antes de mirar, resolver sin ayuda, explicar con tus palabras y volver al tema unos días después. Cada página del final está armada para obligarte a hacer eso, no solo a leer.
+</EnSimple>
+
+## Cómo está armada cada página
+
+Todas las páginas del final (unidades 0 a F) siguen el mismo recorrido. Es la secuencia **modelo mental → ejemplo resuelto → práctica con ayudas que se retiran → transferencia → consolidación**.
+
+| Recuadro | Qué es | Qué tienes que hacer |
+| --- | --- | --- |
+| 🎯 **Al terminar podrás** | Objetivos que se pueden comprobar («simular Clock y contar fallos», no «entender Clock») y los prerrequisitos | Léelos primero. Si un prerrequisito te suena a chino, ve a ese tema antes |
+| 💡 **En simple** | La idea con una analogía cotidiana, antes de la versión técnica | Tradúcela a la definición formal en tu cabeza |
+| 🔮 **Predice antes de seguir** | Una pregunta corta antes de la explicación | **Comprométete con una respuesta** (escríbela) y recién después abre la comparación. Equivocarte aquí sirve: es lo que hace que recuerdes la versión correcta |
+| **Peldaños 1 a 4** | La escalera de práctica: resuelto → complétalo → solo → variante | Sube un peldaño cada vez. Si fallas en el 3, vuelve al 2 con otro ejemplo |
+| 🔍 **Detective** | Código o razonamiento con un bug y su síntoma | Escribe tu hipótesis (qué variable, qué orden) antes de abrir el diagnóstico |
+| 🔮 **Debate** | Un escenario donde eliges entre alternativas | Elige, defiende tu opción y luego mira cómo cambia la respuesta si cambia el escenario |
+| ⚠️ **Errores que cuestan puntos** | Lo que se suele creer (✗) y la versión correcta (✓) | Revisa si caíste en alguno |
+| 🗣️ **Explícalo tú** | La técnica de Feynman: explicar el tema como a un compañero | Hazlo **sin mirar** y compara con la lista de ideas que no pueden faltar |
+| 📈 **¿Qué tan bien lo dominas?** | Autoevaluación de 0 a 4 | Marca con honestidad. Eso programa tu próximo repaso en el panel de abajo |
+
+## La escala de dominio
+
+| Nivel | Qué significa | Cómo lo compruebas |
+| :-: | --- | --- |
+| **0** | No lo reconoces o lo confundes con otro tema | No pudiste responder el «Predice» |
+| **1** | Lo entiendes leyendo, pero no lo aplicas solo | Seguiste el peldaño 1, pero te trabaste en el 2 |
+| **2** | Resuelves ejercicios parecidos, con alguna pista | Hiciste el peldaño 2; en el 3 abriste la solución antes de terminar |
+| **3** | Resuelves uno **nuevo** sin ayuda y justificas cada paso | Peldaño 3 bien sin mirar y un «Explícalo tú» completo |
+| **4** | Transfieres: comparas alternativas y ves casos límite | Peldaño 4 y debate bien; sabes **cuándo deja de valer** la regla |
+
+Una sola respuesta correcta no prueba dominio. Para marcar **3** necesitas tres evidencias: un ejercicio nuevo resuelto sin pistas, una justificación correcta y una explicación con tus palabras.
+
+## Qué estudiar primero
+
+El LC3 tiene 4 teóricas (5 pts), 3 de análisis (9 pts) y 2 de código (6 pts). La prioridad de cada tema es **peso × probabilidad × lo que te falta**. Los pesos (●●● = casi seguro en código o análisis) son una **estimación propia** a partir de las indicaciones oficiales, los ejercicios de la semana 9 y lo que dijo la profesora el 10/10. No son un anuncio del examen.
+
+| Peso | Temas | Por qué |
+| :-: | --- | --- |
+| ●●● | Traducción de direcciones (paginación, segmentación, multinivel), EAT con TLB | La profesora dijo que entra en el LC3 y resolvió la hoja *Virtual Memory* en clase |
+| ●●● | Reemplazo (FIFO, LRU, OPT, Clock), Belady | Hoja *Page Replacement* de la semana 9; es simulación pura, ideal para «análisis» |
+| ●●● | Filósofos, barbero dormilón, Valgrind | Son los labs que alimentan las 2 preguntas de **código** |
+| ●●● | Deadlock: Coffman, banquero, código que se bloquea | Clase de teoría sem. 11, posterior al LC2 |
+| ●●○ | Working set, thrashing, monitores, lectores–escritores, mecanismos del kernel, particiones y buddy | Teóricas del libro (caps. 6–8) |
+| ●○○ | UNIX/Solaris/Linux, registros | Detalles para alguna teórica de alternativas |
+
+## Plan de sesiones
+
+Cada sesión dura unos 90 minutos y **empieza con 10 minutos de repaso de la anterior** (repaso intercalado). Mezclar temas cuesta más que estudiar uno solo a la vez, y por eso funciona: te obliga a decidir **qué método aplica**, como en el examen.
+
+| Sesión | Tema principal | Repaso intercalado al inicio | Cierra con |
+| :-: | --- | --- | --- |
+| 1 | [Paginación](/memoria/paginacion/) y [segmentación](/memoria/segmentacion/): traducir direcciones | — | Peldaños 1–3 de traducción |
+| 2 | [Hardware de MV y page fault](/final/memoria-virtual/fundamentos/), EAT | 2 traducciones sin mirar | [Virtual Memory](/final/ejercicios/memoria-virtual/) P1–P4 |
+| 3 | [Reemplazo](/final/memoria-virtual/reemplazo/) y [working set](/final/memoria-virtual/conjunto-residente/) | 1 EAT y 1 traducción | [Page Replacement](/final/ejercicios/page-replacement/) completo |
+| 4 | [Deadlock](/semaforos/deadlock/), [clase sem. 11](/final/deadlock/teoria-sem11/) y [livelock](/final/deadlock/livelock-trylock/) | 1 cadena de reemplazo | Banquero a mano + Detective del orden de locks |
+| 5 | Código: [filósofos](/final/deadlock/filosofos/), [barbero](/final/deadlock/barbero/), [Valgrind](/final/linux/valgrind-perf/) | Coffman: nombra la condición que rompe cada solución | Escribe una solución en C **cronometrada** |
+| 6 | Teóricas: [Stallings](/final/stallings/), [kernel](/final/deadlock/mecanismos-kernel/), [particiones](/memoria/particiones/) | 1 pregunta de cada sesión anterior | Todos los «Explícalo tú» en voz alta |
+| 7 | [Simulacro del LC3](/final/repaso/) cronometrado | — | Marca tu dominio y mira el panel |
+| 8 | [Peor escenario](/final/lc3-peor-escenario/) | Lo que el panel marque como «hoy» | Hoja de errores propia (5–8 líneas) |
+
+<Predice titulo="Antes de empezar" pregunta="Sin abrir ninguna página: escribe en una hoja todo lo que recuerdes de <strong>paginación</strong>, <strong>reemplazo</strong> y <strong>deadlock</strong> (2 minutos por tema). ¿Qué tema te dejó la hoja más vacía?">
+
+Ese es tu tema de **mayor brecha**: empieza por él dentro de su peso. Guarda la hoja y repite el ejercicio después de la sesión 7, para comparar.
+
+</Predice>
+
+## Tu panel de repaso
+
+El panel ordena los temas por **prioridad = peso en el LC3 × (4 − tu nivel)**, con un extra si el repaso ya venció. Los intervalos crecen con el nivel: nivel 0 se repasa hoy; 1, mañana; 2, en 2 días; 3, en 4 días; y 4, en una semana. Es **repaso espaciado**: volver a un tema justo cuando está por olvidarse cuesta menos y fija más que releerlo muchas veces seguidas.
+
+<PanelRepaso client:visible />
+
+El botón **Copiar registro de progreso** genera una tabla con tus niveles. Puedes pegarla al empezar una sesión de estudio con un tutor (o con Claude) para que continúe desde donde quedaste, en vez de empezar de cero.

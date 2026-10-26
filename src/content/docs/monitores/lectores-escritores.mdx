@@ -7,8 +7,27 @@ import RWMonitor from '../../../components/sim/RWMonitor.tsx';
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
 
 **Problema:** los lectores pueden leer **en paralelo**; los escritores necesitan acceso **exclusivo**. Queremos paralelismo **y** ausencia de starvation.
+
+
+<Objetivos
+	objetivos={[
+		'Explicar el patrón <strong>lightswitch</strong> (el primero cierra, el último abre) y por qué deja a los escritores con starvation.',
+		'Decir por qué la versión con mutex falla (el mutex tiene dueño).',
+		'Leer una solución con lock + condition variables y decir a quién <strong>favorece</strong> mirando la condición del <code>while</code> de cada uno.',
+		'Proponer una versión con prioridad a escritores (o justa) y su costo.',
+	]}
+	prerrequisitos={[
+		{ t: 'Monitores', href: '/monitores/monitores/' },
+	]}
+	perfiles={['simulador', 'detective', 'debate']}
+/>
 
 ## Solución 0: un solo semáforo (`r-w-sequential.c`)
 
@@ -68,6 +87,12 @@ Writer:
 
 - Los datos se leen y escriben **fuera** del lock. El lock solo protege los contadores, y por eso hay paralelismo real entre lectores.
 - **Sigue favoreciendo a los lectores:** un lector entra si `nw == 0`, aunque haya escritores esperando.
+
+<Predice pregunta="En la solución 3, un escritor está esperando porque hay 2 lectores dentro. Llega un tercer lector. ¿Entra o espera? ¿Qué parte del código lo decide?">
+
+**Entra.** El lector solo espera mientras `nw > 0` (escritores **activos**), y el escritor que espera todavía no incrementó `nw`. Mientras sigan llegando lectores, `nr` nunca baja a 0 y el escritor puede esperar indefinidamente: **starvation de escritores**. Para dar prioridad a los escritores, el lector también debe esperar si hay escritores **esperando** (un contador `ww`), como en `r-w-sol-example.c`.
+
+</Predice>
 
 ## Simulador
 
@@ -210,6 +235,22 @@ mutex_unlock(&lock_nr);
 
 `lock_data` actúa como **torniquete**. Un escritor que llega lo toma y **no lo suelta** hasta terminar, así que los lectores nuevos se quedan en la puerta y los que ya estaban dentro terminan (`nr → 0`). Con eso se evita la starvation de escritores sin contadores extra, y los lectores siguen leyendo en paralelo entre escrituras.
 
+<Predice titulo="Debate: ¿a quién le das prioridad?" pregunta="Elige prioridad a lectores, a escritores o turnos justos para: (1) un catálogo de productos que se lee miles de veces por segundo y se actualiza una vez al día; (2) un sistema de precios de bolsa que se actualiza todo el tiempo y no puede mostrar precios viejos.">
+
+- **(1) Prioridad a lectores:** las escrituras son tan raras que su starvation es improbable, y se maximiza el paralelismo de lectura. Igual conviene un torniquete, por si la carga cambia.
+- **(2) Prioridad a escritores:** un precio viejo es un error, así que la escritura no puede esperar a que se vacíe la sala. El costo: los lectores pueden sufrir starvation si hay escrituras continuas.
+- **Turnos justos:** alternar (después de una escritura entran todos los lectores que esperaban, y luego otro escritor) evita la starvation de ambos, a cambio de más lógica.
+
+</Predice>
+
+<Errores
+	errores={[
+		{ mal: 'Decir que la solución 3 ya da prioridad a escritores porque usa condition variables.', bien: 'Mira la condición: el lector solo espera si hay escritores <strong>activos</strong>, así que sigue favoreciendo a los lectores.' },
+		{ mal: 'Reemplazar el semáforo del lightswitch por un mutex.', bien: 'El que bloquea (el primer lector) puede no ser el que desbloquea (el último). El mutex tiene dueño.' },
+		{ mal: 'Leer y escribir los datos dentro del lock de los contadores.', bien: 'El lock protege solo los contadores. Si los datos se leen dentro, se pierde el paralelismo entre lectores.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="rw"
@@ -220,5 +261,17 @@ mutex_unlock(&lock_nr);
 		{ q: 'En la solución de la diap. 25, ¿qué papel cumple `lock_data`?', opts: ['Proteger nr', 'Torniquete: un escritor que lo toma impide que entren lectores nuevos', 'Condition variable', 'Ninguno'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica qué es el lightswitch y por qué causa starvation de escritores."
+	claves={[
+		'El primer lector que entra cierra el acceso a los escritores (<code>wait(sem_data)</code>) y el último que sale lo abre.',
+		'Mientras haya al menos un lector dentro, el contador nunca llega a 0 y el escritor sigue esperando.',
+		'Con lectores que se solapan continuamente, el escritor espera para siempre.',
+		'La solución: un torniquete o un contador de escritores esperando, que impida entrar a lectores nuevos.',
+	]}
+/>
+
+<Dominio client:visible id="lectores-escritores" />
 
 <Fuente archivos={['for_partial/pending_themes/09-OSL-Monitors_ReaderWriter.pdf', 'código del curso so/sem6/r-w-sequential.c, r-w-starvation.c, r-w-broadcast.c, r-w-sol-example.c', 'lab2/Resumenes/11-Lectores-Escritores.md']} />

@@ -6,6 +6,26 @@ description: 'Tema nuevo (09 Monitors) + Sem05 + Stallings §5.5: motivación, e
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Detective from '../../../components/tutor/Detective.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+
+
+<Objetivos
+	objetivos={[
+		'Explicar qué es un monitor (un lock + condition variables) y qué hacen <code>wait</code>, <code>signal</code> y <code>broadcast</code> con el lock.',
+		'Distinguir <strong>Hoare</strong> (signal-and-wait) de <strong>Mesa</strong> (signal-and-continue) y justificar por qué en Mesa se usa <code>while</code>.',
+		'Escribir un método de monitor en C POSIX con la plantilla de 5 pasos.',
+		'Encontrar el bug de un <code>if</code> en lugar de <code>while</code> con una intercalación concreta.',
+	]}
+	prerrequisitos={[
+		{ t: 'Semáforos y productor–consumidor', href: '/semaforos/productor-consumidor/' },
+	]}
+	perfiles={['detective', 'debate', 'laboratorio']}
+/>
 
 ## ¿Por qué no bastan los semáforos?
 
@@ -46,6 +66,12 @@ Java tiene monitores nativos (`synchronized` + `wait` / `notify` / `notifyAll`).
 :::caution[Condition variable ≠ semáforo]
 Un `signal` sin nadie esperando **se pierde**, porque una condition variable **no tiene memoria**. Un `semSignal`, en cambio, siempre incrementa el contador. Por eso la condición se guarda en **variables del monitor** (contadores, flags) y el `wait` va siempre dentro de un chequeo de esas variables.
 :::
+
+<Predice pregunta="Un consumidor despierta de <code>pthread_cond_wait(&no_vacio, &m)</code> porque un productor hizo <code>signal</code>. ¿Puede encontrar el buffer <strong>vacío</strong> otra vez? Piensa en quién tiene el lock justo después del signal.">
+
+**Sí, en pthreads (Mesa).** Tras el `signal`, el productor **sigue** con el lock. El consumidor despertado pasa a competir por el lock como cualquier otro, y otro consumidor que llegaba puede entrar antes y vaciar el buffer. Por eso hay que volver a chequear la condición: **`while`**, no `if`. Además existen los *spurious wakeups*. En Hoare no pasaría, porque el despertado corre de inmediato.
+
+</Predice>
 
 ## ¿Qué pasa tras un signal? Las dos semánticas
 
@@ -126,7 +152,7 @@ typedef struct rw_monitor {        // un monitor como struct (diapositiva 09)
 } rw_monitor_t;
 ```
 
-<Solucion titulo="Ejercicio: ¿qué está mal? (típico de análisis de código)">
+<Detective titulo="un consumidor que a veces lee <code>buf[-1]</code>" sintoma="Con <strong>un</strong> consumidor el programa funciona. Con <strong>dos</strong> consumidores, de vez en cuando uno lee basura o el programa se cae en <code>buf[--count]</code>." pista="Construye la intercalación: C1 duerme con el buffer vacío, un productor mete 1 item y hace signal, C2 llega justo en ese momento. ¿Quién entra primero?">
 
 ```c
 void consumir() {
@@ -143,7 +169,16 @@ void consumir() {
 
 Si en cambio el `signal` estuviera **antes del `lock`** (fuera del monitor), sería un error de protección sobre `count`. Siempre modifica el estado y señala **con el lock tomado**.
 
-</Solucion>
+</Detective>
+
+<Errores
+	errores={[
+		{ mal: 'Usar <code>if</code> antes de <code>pthread_cond_wait</code>.', bien: 'Siempre <code>while</code>: Mesa no garantiza la condición al despertar, y existen los spurious wakeups.' },
+		{ mal: 'Creer que un <code>signal</code> sin nadie esperando «queda guardado».', bien: 'Se pierde. La condición se guarda en variables del monitor (contadores, flags).' },
+		{ mal: 'Modificar el estado o señalar sin tener el lock.', bien: 'Se modifica y se señala con el lock tomado: si no, hay race sobre el estado.' },
+		{ mal: 'Pensar que <code>wait</code> deja el lock tomado mientras duerme.', bien: 'Lo libera atómicamente al dormir y lo recupera antes de retornar.' },
+	]}
+/>
 
 <Quiz
 	client:visible
@@ -158,5 +193,16 @@ Si en cambio el `signal` estuviera **antes del `lock`** (fuera del monitor), ser
 		{ q: '¿Por qué con semáforos no se puede «esperar dentro de la SC»?', opts: ['Porque semWait no libera el mutex que tienes: bloquearse lo retiene y causa deadlock', 'Porque los semáforos son lentos', 'Porque POSIX lo prohíbe', 'Sí se puede'], ok: 0 },
 	]}
 />
+
+<Feynman
+	consigna="Explica por qué con un monitor se puede «esperar dentro de la sección crítica» y con semáforos no."
+	claves={[
+		'<code>pthread_cond_wait</code> <strong>libera el lock atómicamente</strong> al dormir, así que otro hilo puede entrar y cambiar la condición.',
+		'Un <code>sem_wait</code> dentro de la SC duerme <strong>con el mutex tomado</strong>: nadie más entra y es deadlock (el productor–consumidor con los P() invertidos).',
+		'Al despertar, <code>wait</code> recupera el lock antes de retornar. En Mesa hay que volver a chequear la condición (<code>while</code>).',
+	]}
+/>
+
+<Dominio client:visible id="monitores" />
 
 <Fuente archivos={['for_partial/pending_themes/09-OSL-Monitors_ReaderWriter.pdf', 'lab2/Sem05_05-OST-Mutex mechanisms monitors.pdf (diap. 40–60)', 'Stallings §5.5 (cwait/csignal, cnotify/cbroadcast, Lampson & Redell)', 'lab2/Resumenes/10-Monitores-Condition-Variables.md, 13-Stallings-Cap5']} />

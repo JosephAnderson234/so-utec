@@ -1,0 +1,18 @@
+---
+/** Errores frecuentes: lo que se suele creer y la versión correcta. */
+interface Props {
+	errores: { mal: string; bien: string }[];
+}
+const { errores } = Astro.props;
+---
+<aside class="tutor-box tutor-box--errores not-content">
+	<p class="tutor-box__t">⚠️ Errores que cuestan puntos</p>
+	<ul class="tutor-err">
+		{errores.map((e) => (
+			<li>
+				<span class="tutor-err__mal" set:html={e.mal} />
+				<span class="tutor-err__bien" set:html={e.bien} />
+			</li>
+		))}
+	</ul>
+</aside>

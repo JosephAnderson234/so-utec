@@ -1,0 +1,16 @@
+---
+/** Pausa de recuperación activa: el lector se compromete con una respuesta antes de verla. */
+interface Props {
+	pregunta: string;
+	titulo?: string;
+}
+const { pregunta, titulo = 'Predice antes de seguir' } = Astro.props;
+---
+<aside class="tutor-box tutor-box--predice">
+	<p class="tutor-box__t">🔮 {titulo}</p>
+	<p class="tutor-box__q" set:html={pregunta} />
+	<details class="tutor-reveal">
+		<summary>Ya tengo mi respuesta: comparar</summary>
+		<div class="tutor-reveal__b"><slot /></div>
+	</details>
+</aside>

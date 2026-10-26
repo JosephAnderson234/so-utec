@@ -7,6 +7,9 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 La RAM es como un **estacionamiento** que comparten muchos autos (procesos). El capítulo 7 cuenta cómo se fue mejorando la forma de repartirlo:
@@ -20,6 +23,29 @@ En este capítulo **todo el proceso** sigue en memoria; el cap. 8 da el salto de
 
 :::tip[Qué entra del cap. 7]
 **Todo el capítulo**, apéndice incluido. Las cuentas de bits, la traducción y el traductor interactivo están en [Particiones](/memoria/particiones/), [Segmentación](/memoria/segmentacion/) y [Paginación](/memoria/paginacion/). Esta página es la **teoría del libro**, que es de donde salen las preguntas teóricas.
+:::
+
+
+<Objetivos
+	objetivos={[
+		'Enumerar los 5 requisitos de la gestión de memoria y relacionar cada uno con un mecanismo.',
+		'Comparar particiones fijas, dinámicas, buddy, paginación y segmentación por su tipo de fragmentación.',
+		'Explicar los tipos de dirección (lógica, relativa, física) y la carga y el enlace del apéndice 7A.',
+		'Responder de memoria las Review Questions 7.1–7.9.',
+	]}
+	prerrequisitos={[
+		{ t: 'Particiones, segmentación y paginación (con práctica)', href: '/memoria/particiones/' },
+	]}
+	perfiles={['feynman', 'examen']}
+/>
+
+:::tip[Cómo leer el capítulo sin que se te olvide]
+1. **Antes** de cada sección, lee solo su título y escribe una pregunta que creas que responde (por ejemplo, «¿por qué el banquero exige conocer los máximos?»).
+2. Lee la sección **buscando esa respuesta**.
+3. **Cierra** la página y escribe la idea central en dos líneas.
+4. Al final, responde las **Review Questions sin mirar** y recién después abre cada respuesta.
+
+Releer subrayando da sensación de dominio, pero recuperar la idea de memoria es lo que la fija para la parte teórica del LC3.
 :::
 
 ## 7.1 Requisitos de la gestión de memoria 📌
@@ -292,5 +318,18 @@ Es decir, hay **más flexibilidad** manteniendo la simplicidad y el bajo *overhe
 		{ q: 'En segmentación simple, la dirección física se obtiene…', opts: ['concatenando el segmento con el offset', 'sumando la base y el offset, tras verificar offset < longitud', 'con un hash', 'con la TLB'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica cómo evolucionó la gestión de memoria desde las particiones fijas hasta la paginación, diciendo qué problema resuelve cada paso y cuál deja."
+	claves={[
+		'Fijas: simples, pero con fragmentación <strong>interna</strong> y un número máximo de procesos.',
+		'Dinámicas: sin interna, pero con fragmentación <strong>externa</strong>, que obliga a compactar.',
+		'Buddy: un compromiso; bloques potencia de 2 que se parten y fusionan rápido.',
+		'Paginación: cualquier marco sirve, así que no hay externa; la interna se limita a la última página.',
+		'Segmentación: refleja la estructura del programa (protección y compartición), pero vuelve la externa.',
+	]}
+/>
+
+<Dominio client:visible id="stallings-7" />
 
 <Fuente archivos={['Stallings, Operating Systems 9e, cap. 7 completo (§7.1–7.6) y apéndice 7A', 'Indicaciones del LC3: lectura recomendada']} />

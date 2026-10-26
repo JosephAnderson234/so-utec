@@ -1,0 +1,24 @@
+---
+/** Diagnóstico guiado: síntoma → hipótesis propia → pista → causa raíz, disparo, corrección y verificación. */
+interface Props {
+	titulo: string;
+	sintoma: string;
+	pista?: string;
+}
+const { titulo, sintoma, pista } = Astro.props;
+---
+<aside class="tutor-box tutor-box--detective">
+	<p class="tutor-box__t">🔍 Detective · <span set:html={titulo} /></p>
+	<p class="tutor-box__q"><strong>Síntoma:</strong> <span set:html={sintoma} /></p>
+	<p class="tutor-box__hint">Escribe tu hipótesis (qué variable o qué orden lo causa) antes de abrir.</p>
+	{pista && (
+		<details class="tutor-reveal">
+			<summary>Pista</summary>
+			<div class="tutor-reveal__b"><p set:html={pista} /></div>
+		</details>
+	)}
+	<details class="tutor-reveal">
+		<summary>Diagnóstico: causa raíz, cuándo se dispara, corrección y cómo verificarla</summary>
+		<div class="tutor-reveal__b"><slot /></div>
+	</details>
+</aside>

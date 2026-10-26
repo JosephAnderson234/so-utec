@@ -8,6 +8,12 @@ import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
 import PageReplacement from '../../../../components/sim/PageReplacement.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 El escritorio (la RAM) está lleno y necesitas un libro nuevo: **¿cuál devuelves a la estantería?**
@@ -16,6 +22,20 @@ El escritorio (la RAM) está lleno y necesitas un libro nuevo: **¿cuál devuelv
 - Otra opción es una versión barata de LRU que solo recuerda si lo tocaste «hace poco» (**Clock**).
 - La opción ingenua es devolver el que **llegó primero** (**FIFO**), aunque lo estés usando todo el tiempo.
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Simular <strong>FIFO, LRU, OPT y Clock</strong> sobre una cadena de referencias y contar los fallos, declarando la convención.',
+		'Aplicar el <strong>Clock mejorado</strong> (bits u y m) y decir en qué pasada aparece la víctima.',
+		'Mostrar la <strong>anomalía de Belady</strong> con FIFO y justificar por qué LRU y OPT no la tienen.',
+		'Elegir una política para un escenario y defenderla con su costo de implementación.',
+	]}
+	prerrequisitos={[
+		{ t: 'Page fault y bits P, u y m de la PTE', href: '/final/memoria-virtual/fundamentos/' },
+		{ t: 'Localidad', href: '/final/memoria-virtual/fundamentos/#localidad-por-qué-no-colapsa' },
+	]}
+	perfiles={['simulador', 'laboratorio', 'debate', 'examen']}
+/>
 
 Stallings organiza el software de memoria virtual en **seis decisiones de diseño**. Esta página cubre las tres primeras; las otras tres están en [conjunto residente, limpieza y carga](/final/memoria-virtual/conjunto-residente/).
 
@@ -50,6 +70,12 @@ Con **paginación** (y con segmentación paginada) la ubicación es **irrelevant
 
 Se marcan con un bit de bloqueo en la tabla de frames o en la PTE.
 
+<Predice pregunta="Antes de ver la tabla: con 3 marcos y la cadena <code>1 2 3 1 4</code>, ¿cuántos fallos da FIFO y cuántos LRU? ¿Cuál de los dos expulsa al 1, y por qué eso es una mala idea?">
+
+Los dos dan **4 fallos**: los tres de arranque y el del 4. La diferencia está en **a quién** sacan para meter el 4. FIFO saca al **1**, porque llegó primero, aunque se acaba de usar. LRU saca al **2**, que es el que lleva más tiempo sin usarse. Si la cadena siguiera con otro 1, FIFO fallaría de nuevo y LRU acertaría.
+
+</Predice>
+
 ### Los cuatro algoritmos básicos
 
 <EnSimple titulo="En simple: un ejemplo de cinco referencias">
@@ -78,6 +104,59 @@ Por eso FIFO suele ser malo: no le importa si la página se está usando, solo c
 4. Si todos tenían u = 1, el puntero da la vuelta completa, apaga todos los bits y reemplaza la página donde empezó. En ese caso Clock degenera en FIFO.
 
 <PageReplacement client:visible preset="stallings" />
+
+<Practica nivel={1} titulo="Resuelto: la cadena de Stallings (fig. 8.14)">
+
+Cadena `2 3 2 1 5 2 4 5 3 2 5 2` con 3 marcos. En el simulador de arriba elige el preset «Stallings» y avanza paso a paso. **Antes de cada paso**, di qué página sale y por qué. El resultado está justo debajo: OPT 6, LRU 7, Clock 8 y FIFO 9, contando los fallos de arranque.
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: LRU con 3 marcos y la cadena <code>1 2 3 2 4 1 3 2 4 1</code>">
+
+Las cinco primeras columnas ya están resueltas. Completa las otras cinco: escribe qué hay en los marcos y marca cada fallo con ✗.
+
+| Ref. | 1 | 2 | 3 | 2 | 4 | 1 | 3 | 2 | 4 | 1 |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| Marcos | 1 | 1 2 | 1 2 3 | 1 2 3 | 4 2 3 | ? | ? | ? | ? | ? |
+| ¿Fallo? | ✗ | ✗ | ✗ | ✓ | ✗ (sale 1) | ? | ? | ? | ? | ? |
+
+<Solucion titulo="Comparar con la solución (9 fallos)">
+
+| Ref. | 1 | 3 | 2 | 4 | 1 |
+| --- | :-: | :-: | :-: | :-: | :-: |
+| Marcos | 4 2 **1** | 4 **3** 1 | **2** 3 1 | 2 3 **4** | 2 **1** 4 |
+| Sale | 3 | 2 | 4 | 1 | 3 |
+
+En cada fallo sale la página cuyo **último uso** es el más antiguo. Por ejemplo, cuando llega el 1 (posición 6), el último uso del 4 fue en la posición 5, el del 2 en la 4 y el del 3 en la 3. Por eso sale el 3. En total son **9 fallos**: solo acierta el segundo 2.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: la misma cadena con FIFO, OPT y Clock">
+
+Usa la misma cadena y 3 marcos. Cuenta los fallos de FIFO, de OPT y de Clock. En Clock, u = 1 al cargar una página y, después de reemplazar, el puntero pasa al marco siguiente.
+
+<Solucion titulo="Comparar (verificado con un script)">
+
+- **FIFO = 6:** `1 · 12 · 123 · ✓ · 423 · 413 · ✓ · 412 · ✓ · ✓`.
+- **OPT = 5:** cuando llega el 4 sale el **2**, porque de 1, 2 y 3 es el que se vuelve a usar más tarde (posición 8). Cuando llega el 2 sale el **3**, que ya no se vuelve a usar.
+- **Clock = 6:** coincide paso a paso con FIFO. En cada fallo todos los u están en 1, así que el puntero da la vuelta completa y reemplaza en orden de llegada.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: ¿LRU siempre le gana a FIFO?">
+
+Con esta misma cadena, **LRU da 9 fallos y FIFO 6**. Antes de abrir la respuesta, explica cómo puede pasar.
+
+<Solucion titulo="Por qué aquí pierde LRU">
+
+La cadena repite un **ciclo de 4 páginas** (`… 4 1 3 2 4 1`), pero solo hay **3 marcos**. En ese caso LRU siempre saca justo la página que se va a pedir a continuación: si el ciclo es más largo que la memoria, la que lleva más tiempo sin usarse es precisamente la próxima. Es el peor caso de LRU, el mismo de la [segunda pasada sobre un arreglo grande](/final/memoria-virtual/fundamentos/).
+
+**Lección:** que «LRU es casi tan bueno como OPT» es cierto **en promedio y con buena localidad**, no para cualquier cadena. En el examen, simula siempre y no supongas de antemano qué algoritmo saldrá mejor.
+
+</Solucion>
+</Practica>
 
 **Ejemplo de Stallings (fig. 8.14).** Cadena `2 3 2 1 5 2 4 5 3 2 5 2` con 3 frames. Contando también los 3 fallos iniciales: **OPT 6, LRU 7, Clock 8, FIFO 9**. Stallings cuenta solo los fallos **después** de llenar los frames: 3, 4, 5 y 6. Revisa en el examen cuál de las dos convenciones piden.
 
@@ -132,6 +211,16 @@ Con LRU, las páginas en memoria con n frames son siempre **las n referenciadas 
 
 </Solucion>
 
+<Predice titulo="Debate: elige y defiende" pregunta="Diseñas el SO de un equipo pequeño con 64 marcos. El hardware <strong>no</strong> marca el bit u y el disco es lento. ¿Eliges FIFO, LRU o Clock? Defiende tu elección con el <strong>costo de implementación</strong> y con el <strong>número de fallos</strong>. Después cambia el escenario: un servidor cuyo hardware sí pone u = 1 en cada acceso.">
+
+- **Sin bit u en hardware:** Clock no se puede usar tal cual, y un LRU exacto obligaría a registrar cada acceso por software, lo que es carísimo. La opción realista es **FIFO con page buffering** (ver abajo): la víctima queda un tiempo en la lista libre y, si se vuelve a pedir pronto, se recupera sin ir al disco. Eso compensa lo malo de FIFO.
+- **Con bit u en hardware:** **Clock**, o el Clock mejorado si además hay bit m, porque con un disco lento conviene evitar escrituras. Cuesta solo un bit por marco y aproxima bien a LRU.
+- **Nunca OPT:** no se puede implementar, porque exige conocer el futuro. Solo sirve como referencia para medir a los demás.
+
+No hay un ganador universal: la elección depende de qué ofrece el hardware y de cuánto cuesta un fallo.
+
+</Predice>
+
 ### Page buffering
 
 <EnSimple titulo="En simple: la papelera de reciclaje">
@@ -153,6 +242,16 @@ Las listas funcionan como una **caché de páginas**. Linux hace algo parecido c
 
 **Reemplazo y caché:** en un sistema con caché de datos, Stallings menciona políticas de ubicación según la caché (*page coloring*), que eligen frames para repartir las páginas entre los conjuntos de la caché y reducir los conflictos.
 
+<Errores
+	errores={[
+		{ mal: 'Contar los fallos sin decir si se incluyen los de arranque.', bien: 'Declara la convención. En la fig. 8.14, Stallings da 3, 4, 5 y 6 sin contar los fallos iniciales, y contándolos son 6, 7, 8 y 9.' },
+		{ mal: 'Atribuir la anomalía de Belady a LRU.', bien: 'Solo pueden tenerla FIFO y Clock. LRU y OPT son algoritmos de pila: lo que guardan con n marcos está incluido en lo que guardan con n + 1.' },
+		{ mal: 'En Clock, mover el puntero cuando hay un acierto.', bien: 'Un acierto solo pone u = 1. El puntero se mueve únicamente mientras busca una víctima.' },
+		{ mal: 'En Clock mejorado, apagar los bits u en la primera pasada.', bien: 'La 1.ª pasada busca (0,0) sin tocar nada. Recién la 2.ª, que busca (0,1), va poniendo u = 0.' },
+		{ mal: 'Suponer que LRU siempre le gana a FIFO.', bien: 'Con un ciclo más largo que la memoria, LRU puede perder: 9 fallos contra 6 en el peldaño 4.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="fin-reemplazo"
@@ -166,5 +265,18 @@ Las listas funcionan como una **caché de páginas**. Linux hace algo parecido c
 		{ q: '¿Qué frames NO pueden ser víctimas?', opts: ['Los que tienen M = 1', 'Los bloqueados: kernel, buffers de E/S en uso', 'Los del proceso actual', 'Los de páginas compartidas'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explícale a alguien de Programación I por qué Clock es «una versión barata de LRU» y en qué caso se comporta igual que FIFO."
+	claves={[
+		'LRU necesita conocer el <strong>orden exacto</strong> de los usos, es decir, una marca de tiempo por cada acceso. Clock guarda <strong>un solo bit</strong>: si la página se usó hace poco o no.',
+		'El puntero recorre los marcos en círculo. Si encuentra u = 1, lo apaga (segunda oportunidad) y sigue; si encuentra u = 0, esa página es la víctima.',
+		'Si todas tienen u = 1, el puntero da la vuelta completa apagándolas y saca la primera. Eso es exactamente FIFO.',
+		'Un ejemplo concreto, como la cadena del peldaño 3, donde Clock coincide con FIFO.',
+	]}
+	trampa="decir que Clock «recuerda cuál se usó menos veces». No cuenta usos: solo distingue entre usada hace poco y no usada."
+/>
+
+<Dominio client:visible id="reemplazo" />
 
 <Fuente archivos={['Stallings 9e §8.2 (Fetch, Placement, Replacement Policy, Page Buffering)', 'sem_9/11-OSL-Ejercicios_Page_Replacement.pdf (P1, P2)', 'Simulador propio verificado contra un script independiente']} />

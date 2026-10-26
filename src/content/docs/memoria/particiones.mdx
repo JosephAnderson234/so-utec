@@ -8,6 +8,24 @@ import PlacementSim from '../../../components/sim/PlacementSim.tsx';
 import EnSimple from '../../../components/EnSimple.astro';
 import Quiz from '../../../components/Quiz.tsx';
 import Fuente from '../../../components/Fuente.astro';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+import Solucion from '../../../components/Solucion.astro';
+
+
+<Objetivos
+	objetivos={[
+		'Nombrar los <strong>5 requisitos</strong> de la gestión de memoria con un ejemplo de cada uno.',
+		'Clasificar un desperdicio como fragmentación <strong>interna</strong> o <strong>externa</strong> y decir qué esquema la produce.',
+		'Aplicar <strong>first-fit, best-fit y next-fit</strong> a una lista de huecos.',
+		'Simular el <strong>buddy system</strong>: partir, asignar, liberar y fusionar.',
+		'Explicar cómo base y límite resuelven a la vez la relocalización y la protección.',
+	]}
+	perfiles={['visual', 'simulador', 'laboratorio']}
+/>
 
 ## Requisitos de la gestión de memoria (Stallings cap. 7)
 
@@ -93,6 +111,29 @@ Hay varios huecos libres y llega un proceso. **Ejemplo trivial:** huecos, en ord
 
 <PlacementSim client:visible />
 
+<Practica nivel={1} titulo="Resuelto: huecos de 5, 12 y 8 MB; llega un proceso de 7 MB">
+
+Es el ejemplo del recuadro «En simple» de arriba. First-fit usa el de **12** y deja 5. Best-fit usa el de **8** y deja una astilla de 1. Next-fit depende de dónde quedó el puntero.
+
+</Practica>
+
+<Practica nivel={3} titulo="Solo: huecos (en orden) de 10, 4, 20, 18, 7, 9, 12 y 15 KB; llegan, en orden, pedidos de 12, 10 y 9 KB">
+
+¿Dónde va cada pedido con first-fit, best-fit y next-fit? (Next-fit empieza al inicio de la memoria.)
+
+<Solucion titulo="Comparar">
+
+| Pedido | First-fit | Best-fit | Next-fit |
+| :-: | :-: | :-: | :-: |
+| 12 | 20 (quedan 8) | **12** (exacto) | 20 (quedan 8) |
+| 10 | **10** | **10** | 18: el puntero sigue desde el hueco de 20, donde quedan 8 |
+| 9 | 18 | **9** | 9 |
+
+Best-fit da tres ajustes exactos y next-fit «se come» los huecos grandes del medio. Es la tabla clásica de Silberschatz: con otra secuencia de pedidos, el ranking puede cambiar.
+
+</Solucion>
+</Practica>
+
 ## Buddy system
 
 <EnSimple titulo="En simple: partir una barra de chocolate">
@@ -118,6 +159,44 @@ Es un compromiso entre particiones fijas y dinámicas. Los bloques tienen tamañ
 En el árbol binario, si dos buddies son hojas, al menos uno está asignado; si no, ya se habrían fusionado. Linux usa buddy para asignar **páginas físicas** (`__get_free_pages`).
 
 <BuddySim client:visible />
+
+<Practica nivel={2} titulo="Complétalo: el ejemplo de Stallings (fig. 7.6) con 1 MB">
+
+Ya se asignaron A = 100K (recibe un bloque de **128K** en 0) y B = 240K (recibe **256K** en 256K). Quedan libres 128K en 128K y 512K en 512K. Completa: ¿dónde van **C = 64K** y **D = 256K**?
+
+<Solucion titulo="Comparar">
+
+- **C = 64K:** el menor bloque libre que alcanza es el de 128K en 128K. Se parte en dos de 64K: C va en **128K** y queda libre el de 64K en 192K.
+- **D = 256K:** el único bloque que alcanza es el de 512K. Se parte en dos: D va en **512K** y queda libre el de 256K en 768K.
+- Mapa: `A 128 | C 64 | libre 64 | B 256 | D 256 | libre 256`.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: sigue el mismo ejemplo. Libera B, libera A y pide E = 75K">
+
+<Solucion titulo="Comparar">
+
+- **Libera B** (256K en 256K): su buddy es el bloque de 256K en 0, que no está libre (tiene A y C), así que **no se fusiona**.
+- **Libera A** (128K en 0): su buddy es el de 128K en 128K, que está partido (C está ahí), así que **no se fusiona**.
+- **E = 75K** necesita 128K: usa el de **0**.
+- Mapa: `E 128 | C 64 | libre 64 | libre 256 | D 256 | libre 256`. Es el mismo que en la fig. 7.6.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: ahora libera C, después E y después D. ¿Cuántas fusiones hay en cada paso?">
+
+<Solucion titulo="Comparar">
+
+- **C:** se fusiona con su buddy de 64K en 192K y forma 128K en 128K. Su buddy (E, en 0) está ocupado: **1 fusión**.
+- **E:** con 128K en 128K forma 256K en 0, y con el 256K libre en 256K forma 512K en 0: **2 fusiones**.
+- **D:** con 256K en 768K forma 512K en 512K, y con 512K en 0 vuelve a ser **1 MB**: **2 fusiones**.
+
+Para encontrar el buddy de un bloque se calcula inicio XOR tamaño. Por ejemplo, 512K XOR 512K = 0.
+
+</Solucion>
+</Practica>
 
 ## Relocalización (diapositiva «Important about relocation»)
 
@@ -169,6 +248,15 @@ La pregunta de fondo es **cuándo se decide la dirección real**: si se decide t
   - ✘ **DLL hell:** dos aplicaciones necesitan **versiones distintas** de la misma DLL.
   - Junto con la segmentación, permite **no reservar memoria** para módulos que nunca se usan en una ejecución (por ejemplo, en un sistema de reservas).
 
+<Errores
+	errores={[
+		{ mal: 'Llamar «interna» a los huecos entre procesos.', bien: 'Los huecos entre procesos son fragmentación <strong>externa</strong>. La interna es el sobrante <strong>dentro</strong> del bloque asignado.' },
+		{ mal: 'Creer que best-fit es el mejor por su nombre.', bien: 'Deja astillas diminutas. En la práctica, first-fit suele ganar.' },
+		{ mal: 'Decir que en buddy se asigna exactamente lo pedido.', bien: 'Se asigna la menor potencia de 2 ≥ lo pedido: 100K recibe 128K.' },
+		{ mal: 'Afirmar que la compactación sirve con cualquier tipo de carga.', bien: 'Necesita relocalización <strong>dinámica</strong> (en ejecución), porque los procesos se mueven mientras están en memoria.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="particiones"
@@ -180,5 +268,17 @@ La pregunta de fondo es **cuándo se decide la dirección real**: si se decide t
 		{ q: 'En buddy, el buddy del bloque de 64K que empieza en 128K es…', opts: ['el de 64K en 192K', 'el de 64K en 64K', 'el de 128K en 0', 'el de 64K en 0'], ok: 0, why: 'buddy = start XOR size = 128K XOR 64K = 192K.' },
 	]}
 />
+
+<Feynman
+	consigna="Explica con un ejemplo de números por qué las particiones fijas tienen fragmentación interna y las dinámicas externa, y cómo el buddy system queda en el medio."
+	claves={[
+		'Fijas: el bloque viene predefinido, así que lo que sobra del bloque se pierde <strong>dentro</strong> (8 MB para un proceso de 3 MB pierde 5).',
+		'Dinámicas: se da exactamente lo pedido, pero al salir procesos quedan huecos <strong>entre</strong> ellos (4 + 6 MB libres no sirven para 8 MB).',
+		'Buddy: los bloques son potencias de 2, así que hay algo de interna, pero liberar y fusionar con el buddy es rápido y limita la externa.',
+		'La compactación arregla la externa, pero cuesta CPU y exige relocalización dinámica.',
+	]}
+/>
+
+<Dominio client:visible id="particiones" />
 
 <Fuente archivos={['for_partial/pending_themes/Sem06_06-OST-Memory.pdf (diap. 4–23)', 'sem_6/resumen-capitulo-7-memory-management.md', 'Stallings cap. 7']} />

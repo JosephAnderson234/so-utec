@@ -7,6 +7,12 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Hasta ahora vimos las ideas en abstracto (Clock, buddy, tablas multinivel). Aquí está **cómo las usan dos sistemas reales**:
@@ -14,6 +20,30 @@ Hasta ahora vimos las ideas en abstracto (Clock, buddy, tablas multinivel). Aqu�
 - **Linux** mantiene dos listas: páginas **activas** (usadas a menudo) y **inactivas** (candidatas a salir). Una página tiene que demostrar dos veces que es útil para subir a «activa».
 - Para el **propio kernel**, que pide trocitos pequeños todo el tiempo, ambos usan variantes del **buddy** y de cachés de objetos (**slab**).
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Relacionar cada idea abstracta (Clock, buddy, multinivel, LRU) con <strong>cómo la usa</strong> SVR4/Solaris o Linux.',
+		'Explicar el <strong>reloj de dos manecillas</strong> y qué controlan scanrate y handspread.',
+		'Aplicar la regla del <strong>lazy buddy</strong> (D<sub>i</sub> = A<sub>i</sub> − L<sub>i</sub>) a un caso concreto.',
+		'Describir cómo una página sube a la lista activa en el split LRU, y para qué sirve slab.',
+	]}
+	prerrequisitos={[
+		{ t: 'Clock', href: '/final/memoria-virtual/reemplazo/' },
+		{ t: 'Buddy system', href: '/memoria/particiones/#buddy-system' },
+		{ t: 'Tablas multinivel', href: '/memoria/paginacion/#tablas-grandes-multinivel-e-invertidas' },
+	]}
+	perfiles={['visual', 'socratico', 'feynman']}
+/>
+
+**Mapa de la página:** cada mecanismo real es una idea que ya conoces, ajustada para memorias grandes.
+
+| Idea abstracta | SVR4 / Solaris | Linux |
+| --- | --- | --- |
+| Clock (bit de uso) | reloj de **dos manecillas** | antes: Clock con **age** (tipo LFU) · ahora: **split LRU** con listas activa e inactiva |
+| Buddy | **lazy buddy** para el kernel | buddy para grupos de 1 a 32 **frames** |
+| Tabla multinivel | tabla por proceso + descriptor de bloque | PGD → PUD → PMD → PTE |
+| Objetos pequeños | lazy buddy | **slab** (SLAB, SLUB, SLOB) |
 
 ## UNIX SVR4 y Solaris (§8.3)
 
@@ -33,6 +63,12 @@ SVR4 tiene **dos esquemas** separados:
 <EnSimple titulo="En simple: fotocopiar solo cuando alguien escribe">
 Después de un `fork`, padre e hijo **comparten el mismo cuaderno** en lugar de fotocopiarlo entero. Solo cuando uno de los dos quiere **escribir** en una hoja, se fotocopia **esa hoja** para él. Si el hijo hace `exec` enseguida, casi no se fotocopió nada.
 </EnSimple>
+
+<Predice pregunta="Un proceso de 200 páginas hace <code>fork()</code> y el hijo llama a <code>exec()</code> de inmediato. Con COW, ¿cuántas páginas se copian?">
+
+Casi **ninguna**. El `fork` solo duplica la tabla de páginas y marca los frames como compartidos de solo lectura. Como el hijo hace `exec` antes de escribir, nadie dispara el fallo de protección y no se copia ninguna página de datos. A lo sumo se copian las pocas que el hijo alcance a escribir antes del `exec`, como la de la pila. Sin COW se habrían copiado las 200.
+
+</Predice>
 
 **Copy on write** (COW) es lo que hace barato a `fork()`:
 1. Padre e hijo **comparten** los frames, marcados como de solo lectura y con el bit COW.
@@ -93,6 +129,19 @@ El **lazy buddy** (Barkley y Lee) **demora la fusión** hasta que parece necesar
   - si $D_i = 1$, se libera **globalmente** y se fusiona si se puede;
   - si $D_i = 0$, se libera globalmente **y además** se libera globalmente un bloque libre local.
 
+<Practica nivel={2} titulo="Complétalo: lazy buddy para bloques de 2<sup>i</sup>">
+
+Para cierto tamaño hay A<sub>i</sub> = 5 bloques asignados y L<sub>i</sub> = 3 libres locales. Se libera un bloque. Calcula D<sub>i</sub> = A<sub>i</sub> − L<sub>i</sub> y decide qué pasa con él. Después repite con A<sub>i</sub> = 4 y L<sub>i</sub> = 3.
+
+<Solucion titulo="Comparar">
+
+- A = 5, L = 3 → D = 2 ≥ 2: el bloque queda **libre local**, sin fusionar.
+- A = 4, L = 3 → D = 1: se libera **globalmente** y se fusiona con su buddy si este está libre.
+- La idea: mientras haya muchos asignados en comparación con los guardados, conviene guardar el bloque para la próxima petición del mismo tamaño.
+
+</Solucion>
+</Practica>
+
 ## Linux (§8.4)
 
 La unidad básica es la **página física** (`struct page`), normalmente de 4 KB. Linux también soporta **HugePages** (por ejemplo, 2 MB), que reducen los fallos de TLB. DPDK las usa para los buffers de red.
@@ -148,6 +197,14 @@ La base es el asignador de páginas (buddy), pero su unidad mínima es **una pá
 | **SLUB** (*unqueued slab*) | simple, con menos instrucciones (el predeterminado en los kernels actuales) |
 | **SLOB** (*simple list of blocks*) | lo más compacto posible, para sistemas con poca memoria |
 
+<Errores
+	errores={[
+		{ mal: 'Creer que la manecilla delantera expulsa páginas.', bien: 'La delantera solo pone el bit en 0. La trasera expulsa las que siguen en 0 cuando pasa ella.' },
+		{ mal: 'Decir que el split LRU sube una página a activa con un solo acceso.', bien: 'Hacen falta dos accesos en barridos distintos (PG_referenced y luego PG_active).' },
+		{ mal: 'Pensar que slab reemplaza al buddy.', bien: 'Slab trabaja <strong>dentro</strong> de páginas que el buddy ya entregó. El buddy sigue siendo la base.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="fin-unix-linux"
@@ -161,5 +218,17 @@ La base es el asignador de páginas (buddy), pero su unidad mínima es **una pá
 		{ q: '¿Qué asignador de Linux busca ser lo más compacto posible?', opts: ['SLAB', 'SLUB', 'SLOB', 'buddy'], ok: 2 },
 	]}
 />
+
+<Feynman
+	consigna="¿Por qué Solaris usa dos manecillas en vez del Clock normal de un solo puntero? Explícalo con una memoria de 64 GB como ejemplo."
+	claves={[
+		'Con un solo puntero, el tiempo entre apagar un bit y revisarlo es una <strong>vuelta completa</strong>, y con 64 GB eso tarda muchísimo.',
+		'En ese tiempo casi todas las páginas se vuelven a usar, así que todas parecen «útiles» y el algoritmo no distingue nada.',
+		'Con dos manecillas, la ventana de observación la fija el <strong>handspread</strong> (y el scanrate), no el tamaño de la RAM.',
+		'Con poca memoria libre, el scanrate sube y la ventana se acorta.',
+	]}
+/>
+
+<Dominio client:visible id="unix-linux" />
 
 <Fuente archivos={['Stallings 9e §8.3 (UNIX and Solaris Memory Management: tabla 8.6, fig. 8.21, lazy buddy fig. 8.22)', 'Stallings 9e §8.4 (Linux Memory Management: fig. 8.23, 8.24, slab)']} />

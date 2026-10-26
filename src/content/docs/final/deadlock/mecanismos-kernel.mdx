@@ -7,6 +7,11 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Todo lo que vimos en el parcial (semáforos, mensajes, spinlocks, barreras de memoria) existe **de verdad** dentro de UNIX y Linux. Esta página es el «catálogo» de lo que trae cada sistema y **cuándo** se usa cada herramienta:
@@ -14,6 +19,20 @@ Todo lo que vimos en el parcial (semáforos, mensajes, spinlocks, barreras de me
 - para **avisar o sincronizar**: semáforos y señales;
 - **dentro del kernel**: atómicas, spinlocks, semáforos del kernel, barreras y RCU.
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Clasificar los mecanismos de UNIX en «pasan datos» (pipes, mensajes, memoria compartida) y «disparan acciones» (semáforos, señales).',
+		'Predecir qué hace <code>semop</code> según el signo de <code>sem_op</code>, y por qué las señales no se encolan.',
+		'<strong>Elegir</strong> entre atómicas, spinlock (y su variante), semáforo del kernel y RCU para un escenario, y justificarlo.',
+		'Explicar para qué sirve una barrera de memoria con un ejemplo de reordenamiento.',
+	]}
+	prerrequisitos={[
+		{ t: 'Atómicas y spinlocks', href: '/hardware/atomicas/' },
+		{ t: 'Lectores–escritores', href: '/monitores/lectores-escritores/' },
+	]}
+	perfiles={['debate', 'feynman']}
+/>
 
 ## UNIX (§6.7)
 
@@ -26,6 +45,12 @@ Todo lo que vimos en el parcial (semáforos, mensajes, spinlocks, barreras de me
 | **Memoria compartida** | un bloque de memoria virtual común; se lee y escribe con las instrucciones normales. Es **lo más rápido** | permisos de solo lectura o lectura/escritura, **pero la exclusión mutua la ponen los procesos** (con semáforos, por ejemplo) |
 | **Semáforos (System V)** | generalizan semWait/semSignal: vienen en **conjuntos**, `semop` aplica una **lista de operaciones** de forma **atómica**, y los incrementos pueden ser mayores que 1 | se ve abajo |
 | **Señales** | aviso de un evento asíncrono, como una interrupción por software **sin prioridades**. Cada señal es **un bit** en la tabla de procesos, así que **no se encolan**: dos SIGINT seguidas cuentan como una | se procesan al despertar el proceso o al volver de una syscall: acción por defecto, *handler* o ignorar |
+
+<Predice pregunta="Un proceso recibe tres <code>SIGINT</code> seguidas, muy rápido, mientras está ocupado. Tiene un handler que imprime un mensaje. ¿Cuántas veces se imprime?">
+
+**Al menos una, pero puede ser menos de tres.** Cada señal estándar es **un bit** en la tabla de procesos: si llega otra igual antes de que se atienda la primera, el bit ya estaba en 1 y no se cuenta de nuevo. Las señales **no se encolan** (salvo las de tiempo real de Linux). Por eso las señales sirven para avisar, no para contar eventos.
+
+</Predice>
 
 **Las operaciones de `semop`**, según el valor de `sem_op`:
 
@@ -151,6 +176,15 @@ Se integró al kernel en 2002 y se usa en redes, memoria y VFS. **Los lectores n
 
 RCU es ideal cuando **hay muchas lecturas y pocas escrituras**. Su API central son 6 funciones: `rcu_read_lock`, `rcu_read_unlock`, `call_rcu`, `synchronize_rcu`, `rcu_assign_pointer` y `rcu_dereference`.
 
+<Predice titulo="Debate: elige la herramienta" pregunta="Para cada caso, elige atómica, spinlock (¿qué variante?), semáforo del kernel o RCU: (a) contar paquetes recibidos dentro del handler de la tarjeta de red; (b) un driver que espera que el usuario escriba en un dispositivo y debe poder cancelarse con Ctrl+C; (c) la tabla de rutas, leída millones de veces por segundo y cambiada cada varios minutos; (d) una lista corta que modifican tanto un handler de interrupción como el código normal.">
+
+- **(a) `atomic_inc`** sobre un `atomic_t`: es un contador simple y no hace falta lock.
+- **(b) `down_interruptible`:** la espera es larga (depende del usuario), el código puede dormir y, si llega una señal, retorna `-EINTR`.
+- **(c) RCU:** los lectores no toman lock y el escritor copia, modifica y publica el puntero. Es ideal con muchas lecturas y pocas escrituras.
+- **(d) `spin_lock_irqsave`:** la sección es corta y el handler **no puede dormir**. Además hay que deshabilitar las interrupciones locales, porque si no, el handler podría interrumpir al código que ya tiene el lock y girar para siempre sobre él.
+
+</Predice>
+
 <Solucion titulo="Pregunta de análisis: ¿spinlock o semáforo en el kernel?">
 
 - **Spinlock:** la sección crítica es **muy corta**, el código **no puede dormir** (handlers de interrupción, *bottom halves*), y hay varios procesadores. Usa `spin_lock_irqsave` si también lo toca un handler.
@@ -161,6 +195,16 @@ RCU es ideal cuando **hay muchas lecturas y pocas escrituras**. Su API central s
 **Nunca** se duerme con un spinlock tomado: los demás procesadores girarían todo ese tiempo, y en un uniprocesador sería un deadlock.
 
 </Solucion>
+
+<Errores
+	errores={[
+		{ mal: 'Usar un semáforo (<code>down</code>) dentro de un handler de interrupción.', bien: 'Un handler no puede dormir. Ahí van spinlocks o atómicas.' },
+		{ mal: 'Dormir con un spinlock tomado.', bien: 'Los demás procesadores girarían todo ese tiempo, y en un uniprocesador sería un deadlock.' },
+		{ mal: 'Creer que el spinlock de lectores–escritores es justo.', bien: 'Favorece a los lectores: un escritor puede sufrir starvation.' },
+		{ mal: 'Pensar que <code>barrier()</code> frena al procesador.', bien: 'Solo le impide reordenar al <strong>compilador</strong>. Para el procesador están <code>mb</code>, <code>rmb</code> y <code>wmb</code>.' },
+		{ mal: 'Decir que la memoria compartida trae su propia exclusión mutua.', bien: 'Es lo más rápido justamente porque no la trae: la ponen los procesos.' },
+	]}
+/>
 
 <Quiz
 	client:visible
@@ -176,5 +220,18 @@ RCU es ideal cuando **hay muchas lecturas y pocas escrituras**. Su API central s
 		{ q: 'barrier() impide reordenar…', opts: ['al procesador y al compilador', 'solo al compilador', 'solo lecturas', 'solo escrituras'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica cómo RCU deja leer sin locks y aun así es seguro que el escritor cambie los datos."
+	claves={[
+		'Se accede a los datos <strong>a través de un puntero</strong>.',
+		'El escritor no modifica en el lugar: <strong>copia</strong>, modifica la copia y publica el puntero nuevo, de forma atómica.',
+		'Cada lector ve la versión vieja o la nueva completa, nunca una mezcla.',
+		'La versión vieja se libera solo cuando ningún lector puede estar usándola (<code>synchronize_rcu</code> o <code>call_rcu</code>).',
+		'Conviene con muchas lecturas y pocas escrituras, porque escribir cuesta una copia.',
+	]}
+/>
+
+<Dominio client:visible id="mecanismos-kernel" />
 
 <Fuente archivos={['Stallings 9e §6.7 (UNIX Concurrency Mechanisms, tabla 6.1)', 'Stallings 9e §6.8 (Linux Kernel Concurrency Mechanisms, tablas 6.2–6.5, RCU)']} />

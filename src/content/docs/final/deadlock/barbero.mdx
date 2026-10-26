@@ -7,6 +7,13 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Detective from '../../../../components/tutor/Detective.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Una barbería con **un barbero**, **una silla de barbero** y **5 sillas de espera**:
@@ -18,6 +25,20 @@ Una barbería con **un barbero**, **una silla de barbero** y **5 sillas de esper
 Lo difícil no es el corte: es **«mirar si hay sillas y sentarse» sin que dos clientes se sienten en la misma**, y que cada cliente sepa **cuándo terminó su corte**. Es el mismo problema que una **cola de banco** con varias ventanillas.
 </EnSimple>
 
+<Objetivos
+	objetivos={[
+		'Explicar por qué <code>wait(seats)</code> y <code>sem_getvalue</code> fallan, y por qué <code>sem_trywait</code> sí sirve (comprobar y tomar en una sola operación atómica).',
+		'Escribir la solución de <strong>1 barbero</strong> con 4 semáforos, sabiendo el valor inicial de cada uno y quién hace <code>signal</code>.',
+		'Encontrar los errores del código de N barberos de las diapositivas y justificar si se puede quitar <code>barber_chair</code>.',
+		'Discutir la justicia: <em>barging</em> y starvation con semáforos que no son FIFO.',
+	]}
+	prerrequisitos={[
+		{ t: 'Semáforos POSIX y sem_trywait', href: '/hardware/futex/' },
+		{ t: 'Productor–consumidor', href: '/semaforos/productor-consumidor/' },
+	]}
+	perfiles={['detective', 'laboratorio', 'socratico']}
+/>
+
 ## Las sillas de espera: tres intentos (diap. 34–37)
 
 <Solucion titulo="Intento 1: `semaphore seats = 5; wait(seats);` — «Does it work?»">
@@ -26,7 +47,7 @@ Lo difícil no es el corte: es **«mirar si hay sillas y sentarse» sin que dos 
 
 </Solucion>
 
-<Solucion titulo="Intento 2: `if (sem_getvalue(seats) > 0) wait(seats);` — «And what about this?»">
+<Detective titulo="intento 2: <code>if (sem_getvalue(seats) &gt; 0) wait(seats);</code>" sintoma="Con <strong>una</strong> silla libre llegan dos clientes a la vez. Uno se sienta, pero el otro se queda <strong>bloqueado en la puerta</strong> en lugar de irse." pista="¿Qué puede pasar entre el <code>sem_getvalue</code> de un cliente y su <code>wait</code>?">
 
 **Tampoco.** Es un **check-then-act** no atómico, como el lock ingenuo del parcial. Con una sola silla libre:
 
@@ -39,7 +60,7 @@ Lo difícil no es el corte: es **«mirar si hay sillas y sentarse» sin que dos 
 
 Además, `sem_getvalue` solo da una **foto**: el valor puede cambiar apenas retorna. En Linux, con esperadores devuelve 0, nunca un negativo.
 
-</Solucion>
+</Detective>
 
 **Intento 3, correcto:** un **mutex + contador** (diap. 35). La comprobación y el decremento quedan dentro de la misma sección crítica:
 
@@ -91,6 +112,12 @@ Si el cliente libera la silla **apenas la toma**, la silla no queda reservada du
 
 </Solucion>
 
+<Predice pregunta="El cliente ya está en la silla del barbero. ¿Cómo sabe que su corte terminó y que puede levantarse? Propón un mecanismo con semáforos antes de seguir.">
+
+No lo puede saber solo: quien sabe cuándo termina es el **barbero**. Hace falta un semáforo en 0 (`hair_cut`) donde el cliente espera y que el barbero señala al terminar. Es el patrón de **señalización** (un semáforo en 0 usado como aviso entre dos hilos), igual que `client_seat` en sentido contrario: el barbero duerme en él hasta que alguien se sienta.
+
+</Predice>
+
 ## ¿Quién decide terminar? (diap. 40–41)
 
 **El barbero.** El cliente no puede saber cuándo terminó su corte, así que hace falta un semáforo más, `hair_cut`, que el barbero señala al terminar.
@@ -126,6 +153,108 @@ barberos=1: atendidos=237, se fueron=63 (total 300), máx esperando en sillas=5 
 
 Nunca hubo más de 5 esperando, el assert no falló, y los 63 que no encontraron silla **se fueron** en lugar de bloquearse.
 
+<Practica nivel={2} titulo="Complétalo: los 4 semáforos de la solución de 1 barbero">
+
+Sin mirar arriba, completa la tabla.
+
+| Semáforo | Valor inicial | ¿Quién hace `wait`? | ¿Quién hace `signal`? |
+| --- | :-: | --- | --- |
+| `seats` | ? | ? | ? |
+| `barber_chair` | ? | ? | ? |
+| `client_seat` | ? | ? | ? |
+| `hair_cut` | ? | ? | ? |
+
+<Solucion titulo="Comparar">
+
+| Semáforo | Valor inicial | `wait` | `signal` |
+| --- | :-: | --- | --- |
+| `seats` | 5 | cliente (`trywait`) | cliente, al pasar a la silla del barbero |
+| `barber_chair` | 1 | cliente | cliente, al terminar el corte |
+| `client_seat` | 0 | barbero (duerme aquí) | cliente («ya me senté») |
+| `hair_cut` | 0 | cliente | barbero («terminé») |
+
+**Regla mental:** los semáforos de **exclusión** empiezan en la cantidad de recursos (5 y 1). Los de **aviso** empiezan en **0**, y los señala el otro actor.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: el barbero completo en C (25 minutos)">
+
+1 barbero, 5 sillas y 40 clientes que llegan a intervalos aleatorios. Cuenta los atendidos y los que se fueron, y agrega un `assert` de que el barbero nunca corta a dos a la vez. Compila con `gcc -Wall -pthread`.
+
+<Solucion titulo="Una solución (probada: 30 de 30 ejecuciones terminaron sin fallar el assert)">
+
+```c
+#include <assert.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#define SILLAS 5
+#define CLIENTES 40
+
+sem_t seats, barber_chair, client_seat, hair_cut, cuenta;
+int atendidos = 0, se_fueron = 0, en_corte = 0;
+
+void *barbero(void *arg) {
+    (void)arg;
+    while (1) {
+        sem_wait(&client_seat);
+        sem_wait(&cuenta);
+        en_corte++;
+        assert(en_corte == 1);
+        sem_post(&cuenta);
+        usleep(rand() % 300);
+        sem_wait(&cuenta);
+        en_corte--;
+        atendidos++;
+        sem_post(&cuenta);
+        sem_post(&hair_cut);
+    }
+    return NULL;
+}
+
+void *cliente(void *arg) {
+    (void)arg;
+    if (sem_trywait(&seats) == 0) {
+        sem_wait(&barber_chair);
+        sem_post(&seats);
+        sem_post(&client_seat);
+        sem_wait(&hair_cut);
+        sem_post(&barber_chair);
+    } else {
+        sem_wait(&cuenta);
+        se_fueron++;
+        sem_post(&cuenta);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t b, c[CLIENTES];
+    sem_init(&seats, 0, SILLAS);
+    sem_init(&barber_chair, 0, 1);
+    sem_init(&client_seat, 0, 0);
+    sem_init(&hair_cut, 0, 0);
+    sem_init(&cuenta, 0, 1);
+    pthread_create(&b, NULL, barbero, NULL);
+    for (int i = 0; i < CLIENTES; i++) {
+        pthread_create(&c[i], NULL, cliente, NULL);
+        usleep(rand() % 100);
+    }
+    for (int i = 0; i < CLIENTES; i++) pthread_join(c[i], NULL);
+    printf("atendidos=%d se_fueron=%d total=%d\n", atendidos, se_fueron, atendidos + se_fueron);
+    return 0;
+}
+```
+
+En una ejecución: `atendidos=27 se_fueron=13 total=40`. Los números cambian en cada corrida; lo que **no** puede cambiar es que total = 40 y que el assert nunca falle. El barbero queda en un `while (1)`: el programa termina cuando `main` retorna tras el `join` de los clientes.
+
+</Solucion>
+</Practica>
+
 ## N barberos (diap. 42–47)
 
 Ahora hay **n barberos** (n sillas de barbero) y **m sillas de espera**. El cliente necesita saber **qué barbero** lo atiende: es el problema de la **cola del banco** («pase a la ventanilla 3»). Idea de las diapositivas: un **panel** donde un barbero libre publica su id.
@@ -137,16 +266,18 @@ semaphore write_panel = 1, read_panel = 0;
 int panel;
 ```
 
-:::danger[El código de las diapositivas 45–46 no funciona tal cual]
-Lo ejecuté transcrito tal cual (2 barberos, 6 clientes): **0 clientes atendidos en 3 s**. Tiene cuatro errores:
+<Detective titulo="el código de N barberos de las diapositivas 45–46" sintoma="Transcrito tal cual y ejecutado con 2 barberos y 6 clientes: <strong>0 clientes atendidos en 3 s</strong>. Ningún hilo termina." pista="Mira el primer <code>wait</code> que hace cada barbero y el valor inicial de ese semáforo. Después busca una línea con <code>==</code>.">
+
+Tiene **cuatro** errores:
 
 1. **El barbero hace `wait(read_panel)`**, que empieza en 0, así que ningún barbero publica nunca y todos quedan bloqueados. Debería ser **`wait(write_panel)`**.
 2. **`my_seat == panel;`** es una **comparación**, no una asignación. Debería ser `my_seat = panel;`.
 3. **`barber_chair[N_BARBERS] = {0, …, 0}`** y nadie hace `signal` sobre él: el cliente que llega a `wait(barber_chair[my_seat])` queda bloqueado para siempre. Con el panel, además, es **innecesario** (ver la tarea).
 4. **`signal(seats)` justo después del `trywait`** libera la silla de espera **antes** de tener barbero. Así las sillas no limitan nada. Debe liberarse cuando el cliente ya obtuvo su barbero.
 
-Son pseudocódigo de clase, pero si el LC3 los muestra, las preguntas serán justamente «¿funciona?» y «¿qué cambiarías?».
-:::
+Son pseudocódigo de clase, pero si el LC3 los muestra, las preguntas serán justamente «¿funciona?» y «¿qué cambiarías?». **Cómo verificar la corrección:** la versión de abajo, con un `assert` de un cliente por barbero, atendió a 299 o 300 de 300 clientes.
+
+</Detective>
 
 **Versión corregida (propia):**
 
@@ -188,6 +319,16 @@ Con más barberos se van menos clientes y la sala de espera se usa menos, como e
 
 **El mismo problema, con monitores:** el [ejercicio 8 · Barbería](/examen/ejercicios/) (2 barberos, 5 sillas) se resolvió con mutex + condition variables, y su `assert` detectó un bug en la primera versión.
 
+<Errores
+	errores={[
+		{ mal: 'Usar <code>wait(seats)</code> para «ver si hay silla».', bien: '<code>wait</code> bloquea. Para «si no hay, me voy» se usa <code>sem_trywait</code> (o mutex + contador).' },
+		{ mal: 'Comprobar con <code>sem_getvalue</code> y después tomar.', bien: 'Check-then-act no es atómico, y además el valor es solo una foto.' },
+		{ mal: 'Inicializar <code>client_seat</code> o <code>hair_cut</code> en 1.', bien: 'Son <strong>avisos</strong>: empiezan en 0. Con 1, el barbero cortaría sin cliente o el cliente se iría sin corte.' },
+		{ mal: 'Soltar <code>seats</code> antes de tener barbero (en N barberos).', bien: 'Las sillas dejarían de limitar la espera. Se suelta al obtener barbero.' },
+		{ mal: 'Suponer que los clientes en <code>wait(barber_chair)</code> pasan en orden de llegada.', bien: 'Los semáforos POSIX no son FIFO. Para garantizar justicia hacen falta turnos.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="fin-barbero"
@@ -199,5 +340,18 @@ Con más barberos se van menos clientes y la sala de espera se usa menos, como e
 		{ q: 'Con N barberos y panel, ¿se puede quitar barber_chair?', opts: ['No, habría dos clientes por barbero', 'Sí: un barbero solo publica su id estando libre y cada id lo lee un único cliente', 'Solo con un barbero', 'Solo con monitores'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica a un compañero por qué la solución de 1 barbero necesita <strong>cuatro</strong> semáforos y qué pasaría si quitas cada uno."
+	claves={[
+		'<code>seats</code>: limita la espera. Sin él, la sala no tiene límite y nadie se va.',
+		'<code>barber_chair</code>: un cliente a la vez en la silla. Sin él, dos clientes esperan en <code>hair_cut</code> y el aviso puede despertar al equivocado.',
+		'<code>client_seat</code>: el barbero duerme hasta que hay alguien. Sin él, cortaría en el aire (o habría que hacer busy waiting).',
+		'<code>hair_cut</code>: el cliente sabe cuándo terminó. Sin él, se levantaría antes.',
+	]}
+	trampa="confundir semáforos de exclusión (empiezan en N o en 1) con semáforos de aviso (empiezan en 0)."
+/>
+
+<Dominio client:visible id="barbero" />
 
 <Fuente archivos={['sem_9/11-OSL-Deadlock.pdf (diap. 32–47)', 'man sem_trywait(3)', 'Pruebas propias: barber.c (1–4 barberos) y barber_slides.c (código de las diapositivas transcrito), ejecuciones de prueba']} />

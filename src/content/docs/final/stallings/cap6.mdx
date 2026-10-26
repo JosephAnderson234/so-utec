@@ -7,6 +7,9 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Piensa en **cuatro autos en un cruce de cuatro vías**. Cada uno entra un poco y ocupa un cuadrante, pero para salir necesita el cuadrante que tiene el de al lado. Nadie retrocede, nadie cede: **nadie avanza nunca**. Eso es un deadlock. El capítulo responde tres preguntas: ¿qué tiene que pasar para que ocurra? (las condiciones), ¿cómo lo impido? (prevención y evitación) y ¿qué hago si ya pasó? (detección y recuperación).
@@ -14,6 +17,29 @@ Piensa en **cuatro autos en un cruce de cuatro vías**. Cada uno entra un poco y
 
 :::tip[Cómo usar esta página]
 Las **4 preguntas teóricas del LC3 salen del libro** (5 puntos). Esta página sigue el orden de Stallings y marca con 📌 las listas que el libro enumera, porque son las que se preguntan tal cual. Al final están las *Review Questions* del capítulo resueltas. La práctica con código (filósofos, barbero, trylock) está en la sección A del menú.
+:::
+
+
+<Objetivos
+	objetivos={[
+		'Definir deadlock y distinguir recursos <strong>reutilizables</strong> y <strong>consumibles</strong> con ejemplos del libro.',
+		'Explicar cada enfoque (prevención, evitación, detección, estrategia integrada) con su costo.',
+		'Responder de memoria las Review Questions 6.1–6.7 y justificar una respuesta de desarrollo.',
+		'Describir los mecanismos de UNIX (§6.7) y del kernel Linux (§6.8) con el caso de uso de cada uno.',
+	]}
+	prerrequisitos={[
+		{ t: 'Teoría base de deadlock (con práctica)', href: '/semaforos/deadlock/' },
+	]}
+	perfiles={['feynman', 'examen']}
+/>
+
+:::tip[Cómo leer el capítulo sin que se te olvide]
+1. **Antes** de cada sección, lee solo su título y escribe una pregunta que creas que responde (por ejemplo, «¿por qué el banquero exige conocer los máximos?»).
+2. Lee la sección **buscando esa respuesta**.
+3. **Cierra** la página y escribe la idea central en dos líneas.
+4. Al final, responde las **Review Questions sin mirar** y recién después abre cada respuesta.
+
+Releer subrayando da sensación de dominio, pero recuperar la idea de memoria es lo que la fija para la parte teórica del LC3.
 :::
 
 ## 6.1 Principios del deadlock
@@ -326,5 +352,17 @@ Definiendo un **orden lineal** de los tipos de recurso: quien tiene un recurso d
 		{ q: 'down_interruptible devuelve -EINTR cuando…', opts: ['el semáforo está libre', 'una señal despierta al hilo antes del up', 'el contador llega a cero', 'hay deadlock'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica la diferencia entre <strong>prevención</strong> y <strong>evitación</strong> del deadlock como si respondieras una pregunta de desarrollo del LC3 (5–6 líneas)."
+	claves={[
+		'Prevención: se diseña el sistema para que una de las 4 condiciones <strong>nunca</strong> se cumpla (por ejemplo, un orden total o pedir todo de una vez). No necesita información del futuro, pero es restrictiva y desperdicia recursos.',
+		'Evitación: se permiten las 4 condiciones, pero cada petición se concede solo si deja un <strong>estado seguro</strong> (banquero). Da más concurrencia.',
+		'La evitación exige conocer los máximos, un número fijo de recursos y procesos independientes.',
+		'Un ejemplo de cada una.',
+	]}
+/>
+
+<Dominio client:visible id="stallings-6" />
 
 <Fuente archivos={['Stallings, Operating Systems 9e, cap. 6, §6.1–6.8 y sección 6.13 (Key Terms y Review Questions)', 'Indicaciones del LC3: lectura recomendada', 'Problema 6.5 resuelto y verificado con un script propio']} />

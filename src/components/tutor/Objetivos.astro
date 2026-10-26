@@ -1,0 +1,45 @@
+---
+/** Cabecera de cada página: objetivos observables, prerrequisitos y cómo estudiarla. */
+interface Props {
+	objetivos: string[];
+	prerrequisitos?: { t: string; href: string }[];
+	perfiles?: (keyof typeof PERFILES)[];
+}
+const PERFILES = {
+	visual: ['Visual', 'mira el diagrama o la tabla y explica qué cambia en cada paso'],
+	laboratorio: ['Laboratorio', 'sube la escalera: resuelto → completa → solo → variante'],
+	detective: ['Detective', 'escribe tu hipótesis del bug antes de abrir el diagnóstico'],
+	socratico: ['Socrático', 'responde la pregunta guía antes de seguir leyendo'],
+	debate: ['Debate', 'elige una alternativa para el escenario y defiéndela'],
+	simulador: ['Simulador', 'predice el estado antes de pulsar el paso siguiente'],
+	examen: ['Examen', 'cronométrate y no abras la solución hasta terminar'],
+	feynman: ['Feynman', 'explícalo en voz alta sin mirar y compara con la lista'],
+} as const;
+const { objetivos, prerrequisitos = [], perfiles = [] } = Astro.props;
+---
+<section class="tutor-obj not-content" aria-label="Objetivos de la página">
+	<p class="tutor-obj__t">🎯 Al terminar podrás</p>
+	<ol class="tutor-obj__list">
+		{objetivos.map((o) => <li set:html={o} />)}
+	</ol>
+	{prerrequisitos.length > 0 && (
+		<p class="tutor-obj__pre">
+			<strong>Antes necesitas:</strong>{' '}
+			{prerrequisitos.map((p, i) => (
+				<>
+					<a href={p.href}>{p.t}</a>
+					{i < prerrequisitos.length - 1 ? ' · ' : ''}
+				</>
+			))}
+		</p>
+	)}
+	{perfiles.length > 0 && (
+		<ul class="tutor-obj__perfiles">
+			{perfiles.map((k) => (
+				<li>
+					<span class="tutor-chip">{PERFILES[k][0]}</span> {PERFILES[k][1]}
+				</li>
+			))}
+		</ul>
+	)}
+</section>

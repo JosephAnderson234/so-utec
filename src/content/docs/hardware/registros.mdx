@@ -6,10 +6,28 @@ description: 'Tema nuevo (06 · About registers): SRSW/MRSW/MRMW, registros safe
 import RegisterTimeline from '../../../components/sim/RegisterTimeline.tsx';
 import Quiz from '../../../components/Quiz.tsx';
 import Fuente from '../../../components/Fuente.astro';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
 
 :::tip[Tema nuevo]
 Viene de *The Art of Multiprocessor Programming* (Herlihy, Shavit, Luchangco, Spear), cap. 4. Sirve para precisar qué suponemos cuando decimos «las lecturas y escrituras son atómicas» en Peterson o Bakery.
 :::
+
+
+<Objetivos
+	objetivos={[
+		'Leer las siglas SRSW, MRSW y MRMW.',
+		'Decir qué puede devolver una lectura <strong>solapada</strong> con una escritura en un registro safe, regular y atomic.',
+		'Detectar en una línea de tiempo una <strong>inversión nuevo → viejo</strong> (regular pero no atómico).',
+	]}
+	prerrequisitos={[
+		{ t: 'Exclusión mutua: supuestos de Peterson', href: '/mutex/requisitos/' },
+	]}
+	perfiles={['visual', 'simulador']}
+/>
 
 ## ¿Qué es un registro?
 
@@ -46,6 +64,13 @@ Un **registro atómico** se comporta como si cada operación ocurriera en un **i
 
 Atomic ⇒ Regular ⇒ Safe.
 
+<Predice pregunta="Un registro guarda 0 y un escritor escribe 1. Durante esa escritura, el lector A lee y obtiene <strong>1</strong>. Justo después de que A termina, el lector B empieza y obtiene <strong>0</strong>. ¿Puede pasar en un registro regular? ¿Y en uno atómico?">
+
+- **Regular: sí.** Cada lectura solapada puede devolver el valor viejo o el nuevo, y no hay ninguna restricción entre lecturas distintas.
+- **Atómico: no.** Si A ya vio el valor nuevo, la escritura «ocurrió» antes del punto de linealización de A. B empieza después de que A termina, así que debe ver 1. Esa es la **inversión nuevo → viejo**, y la linealizabilidad la prohíbe.
+
+</Predice>
+
 ## Simulador
 
 <RegisterTimeline client:visible />
@@ -79,6 +104,13 @@ La conclusión es que la «atomicidad» que suponen Peterson y Bakery **se puede
 - «¿Por qué el diagrama de la diapositiva 17 es regular pero no linealizable?» → `read(1)` termina antes de que empiece `read(0)`, ambas solapadas con `write(1)`. Cada una por separado es legal (viejo o nuevo), pero en un orden secuencial, después de ver el 1 no se puede volver a ver el 0.
 - «Un registro booleano safe, ¿es regular?» → **Sí.** Si la lectura solapada puede devolver cualquier valor del dominio {0, 1}, devuelve el viejo o el nuevo, a menos que la escritura no cambie el valor. Ese es el truco de la construcción de Herlihy: **solo escribir si el valor cambia**.
 
+<Errores
+	errores={[
+		{ mal: 'Pensar que un registro safe devuelve el viejo o el nuevo cuando hay solapamiento.', bien: 'Puede devolver <strong>cualquier</strong> valor del dominio. Viejo o nuevo es la garantía de regular.' },
+		{ mal: 'Creer que regular y atómico son lo mismo.', bien: 'Atómico agrega la linealizabilidad: no hay inversión nuevo → viejo entre lecturas.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="registros"
@@ -89,5 +121,16 @@ La conclusión es que la «atomicidad» que suponen Peterson y Bakery **se puede
 		{ q: 'Linealizable significa…', opts: ['Que las operaciones no se solapan', 'Que existe un orden secuencial, consistente con el tiempo real, que explica todos los resultados', 'Que usa un lock', 'Que es SRSW'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica con una línea de tiempo la diferencia entre un registro regular y uno atómico."
+	claves={[
+		'Si no hay solapamiento, los dos devuelven el último valor escrito.',
+		'Con solapamiento, regular devuelve el viejo o alguno de los nuevos, sin coherencia entre lecturas.',
+		'Atómico: cada operación «ocurre» en un instante dentro de su intervalo, así que si una lectura vio el nuevo, ninguna posterior ve el viejo.',
+	]}
+/>
+
+<Dominio client:visible id="registros" />
 
 <Fuente archivos={['for_partial/pending_themes/Sem0_6-OST-About registers.pdf', 'Herlihy & Shavit, The Art of Multiprocessor Programming, cap. 4']} />

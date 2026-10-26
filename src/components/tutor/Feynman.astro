@@ -1,0 +1,21 @@
+---
+/** Explicación inversa: el lector explica y luego contrasta con las ideas que no pueden faltar. */
+interface Props {
+	consigna: string;
+	claves: string[];
+	trampa?: string;
+}
+const { consigna, claves, trampa } = Astro.props;
+---
+<aside class="tutor-box tutor-box--feynman">
+	<p class="tutor-box__t">🗣️ Explícalo tú (Feynman)</p>
+	<p class="tutor-box__q" set:html={consigna} />
+	<p class="tutor-box__hint">Dilo en voz alta o escríbelo en 4–5 líneas, sin mirar la página. Después revisa qué te faltó.</p>
+	<details class="tutor-reveal">
+		<summary>Tu explicación debería mencionar…</summary>
+		<div class="tutor-reveal__b">
+			<ul>{claves.map((c) => <li set:html={c} />)}</ul>
+			{trampa && <p><strong>Error típico al explicarlo:</strong> <span set:html={trampa} /></p>}
+		</div>
+	</details>
+</aside>

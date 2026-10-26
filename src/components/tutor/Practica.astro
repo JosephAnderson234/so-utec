@@ -1,0 +1,23 @@
+---
+/** Peldaño de la escalera de práctica (ejemplos con ayudas que se retiran). */
+interface Props {
+	nivel: 1 | 2 | 3 | 4;
+	titulo: string;
+}
+const NIVELES = {
+	1: ['Resuelto', 'lee cada paso y su porqué'],
+	2: ['Complétalo', 'faltan pasos clave: llénalos tú'],
+	3: ['Solo', 'sin ayuda; luego compara'],
+	4: ['Variante', 'cambia una condición: ¿sigue valiendo lo anterior?'],
+} as const;
+const { nivel, titulo } = Astro.props;
+const [nombre, ayuda] = NIVELES[nivel];
+---
+<section class={`tutor-practica tutor-practica--${nivel}`}>
+	<p class="tutor-practica__t">
+		<span class="tutor-practica__lvl">Peldaño {nivel} · {nombre}</span>
+		<span class="tutor-practica__ayuda">{ayuda}</span>
+	</p>
+	<p class="tutor-practica__titulo" set:html={titulo} />
+	<div class="tutor-practica__b"><slot /></div>
+</section>

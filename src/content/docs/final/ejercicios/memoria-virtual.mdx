@@ -8,6 +8,10 @@ import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import SegmentTranslator from '../../../../components/sim/SegmentTranslator.tsx';
 import TlbEat from '../../../../components/sim/TlbEat.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Casi todas estas preguntas se resuelven con **tres ideas**:
@@ -15,6 +19,25 @@ Casi todas estas preguntas se resuelven con **tres ideas**:
 2. **Contar bits es sacar logaritmos en base 2:** 1 KB = $2^{10}$, así que el offset tiene 10 bits.
 3. **Una tabla tiene una entrada por página**, y su tamaño es entradas × bytes por entrada.
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Calcular los bits de VPN, PFN, offset y PTE de un esquema de paginación.',
+		'Traducir direcciones por segmentación (con segfault) y por paginación (con page fault), en decimal y en binario.',
+		'Contar los page faults de un recorrido de matriz según el orden (filas o columnas).',
+		'Diseñar un esquema de varios niveles y calcular accesos a memoria y EAT con TLB.',
+	]}
+	prerrequisitos={[
+		{ t: 'Paginación', href: '/memoria/paginacion/' },
+		{ t: 'Segmentación', href: '/memoria/segmentacion/' },
+		{ t: 'TLB y EAT', href: '/final/memoria-virtual/fundamentos/' },
+	]}
+	perfiles={['examen', 'laboratorio']}
+/>
+
+:::caution[Modo examen]
+Estas son hojas de **análisis** como las del LC3 (3 pts cada pregunta). Hazlas **cronometradas** (unos 12 minutos por pregunta), en papel y **sin abrir la solución** hasta terminar. Al corregir, clasifica cada error: ¿**conceptual** (no sabías la regla), **procedimental** (sabías la regla pero te saltaste un paso) o de **interpretación** (leíste mal el enunciado)? Repasa según el tipo: si es conceptual, vuelve a la página del tema; si es procedimental, a la escalera de práctica.
+:::
 
 :::note[Resueltas en la clase del 10/10]
 La profesora resolvió **P1 a P5 en vivo**, y sus resultados coinciden con los de esta página. Su método paso a paso, sus advertencias (segmentation fault vs page fault, revisar siempre la tabla antes de traducir) y sus pistas para el LC3 están en [Clase del 10/10](/final/clase-memoria/).
@@ -35,6 +58,19 @@ $2^{32}$ bytes de memoria física, páginas de $2^{10}$ bytes y $2^{16}$ página
 | Bits por PTE (con bit de validez) | 22 de frame + 1 V | **23 bits** (en la práctica se redondea a 3 B o 4 B) |
 
 </Solucion>
+
+<Practica nivel={4} titulo="Variante de P1: la misma memoria y el mismo espacio virtual, pero con páginas de 4 KB">
+
+El espacio virtual sigue siendo de 2<sup>26</sup> bytes (26 bits) y la RAM de 2<sup>32</sup>. ¿Qué cambia?
+
+<Solucion titulo="Comparar">
+
+- Offset: 2<sup>12</sup> → **12 bits**. Páginas virtuales: 2<sup>26</sup> / 2<sup>12</sup> = **2<sup>14</sup>** = 16 384 entradas.
+- Bits de frame: 32 − 12 = **20**. PTE con V: **21 bits**.
+- **Lección:** con páginas 4 veces más grandes, la tabla tiene 4 veces menos entradas y cada PTE ocupa 2 bits menos. Es el compromiso del tamaño de página: tablas más chicas a cambio de más fragmentación interna.
+
+</Solucion>
+</Practica>
 
 ## Pregunta 2 · Segmentación
 
@@ -60,6 +96,16 @@ $2^{32}$ bytes de memoria física, páginas de $2^{10}$ bytes y $2^{16}$ página
 **Ojo con el borde:** el offset válido va de 0 a **longitud − 1**. Con (0, 248) ya sería segfault.
 
 </Solucion>
+
+<Practica nivel={4} titulo="Variante de P2: (2, 198) y (3, 603)">
+
+<Solucion titulo="Comparar">
+
+- (2, 198): 198 **no** es menor que 198 → **segmentation fault**. Es el borde: el último offset válido es 197.
+- (3, 603): 603 < 604 → física = 996 + 603 = **1599**.
+
+</Solucion>
+</Practica>
 
 Prueba otras direcciones en el traductor (carga tu propia tabla):
 
@@ -227,5 +273,16 @@ $$
 </Solucion>
 
 <TlbEat client:visible />
+
+<Errores
+	errores={[
+		{ mal: 'Traducir sin revisar el bit de validez de la tabla.', bien: 'Primero la página, después la tabla (¿válida?) y recién después la física. P4 tiene un page fault escondido.' },
+		{ mal: 'Aceptar offset = longitud como válido en segmentación.', bien: 'Es válido solo si offset &lt; longitud.' },
+		{ mal: 'Dar el EAT sin decir cuántos accesos cuesta un fallo de TLB.', bien: 'Declara el modelo (1 acceso o k niveles). En P6 cambia la respuesta: 0.9933 contra 0.98.' },
+	]}
+/>
+
+
+<Dominio client:visible id="ej-memoria-virtual" />
 
 <Fuente archivos={['sem_9/11-OSL-Ejercicios_Virtual_Memory.pdf', 'Soluciones propias; P3, P4 y P5 verificadas con un script (simulación de las 12 288 referencias de P5 con LRU y FIFO)']} />

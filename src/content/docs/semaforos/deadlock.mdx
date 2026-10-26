@@ -8,6 +8,26 @@ import SemaphoreSim from '../../../components/sim/SemaphoreSim.tsx';
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+
+
+<Objetivos
+	objetivos={[
+		'Enunciar las <strong>4 condiciones de Coffman</strong> y decir cuáles son de política y cuál convierte la posibilidad en deadlock.',
+		'Para una solución dada (orden de locks, portero, trylock…), decir <strong>qué condición rompe</strong>.',
+		'Aplicar el <strong>banquero</strong>: calcular Need = C − A, encontrar una secuencia segura y decidir si se concede una petición.',
+		'Distinguir <strong>prevención, evitación y detección</strong>, y elegir una según el escenario.',
+	]}
+	prerrequisitos={[
+		{ t: 'Semáforos y productor–consumidor', href: '/semaforos/productor-consumidor/' },
+	]}
+	perfiles={['visual', 'simulador', 'debate']}
+/>
 
 > **Deadlock:** bloqueo **permanente** de un conjunto de procesos que compiten por recursos o se comunican. Cada uno espera un evento que **solo puede producir otro proceso bloqueado del mismo conjunto**. No hay una solución eficiente en el caso general.
 
@@ -40,6 +60,15 @@ P hace `get A … get B … release A … release B` y Q hace `get B … get A �
 
 Las condiciones **1–3** son de **política**: **necesarias pero no suficientes** (hacen **posible** el deadlock). Con la **4**, que es una consecuencia de la **dinámica**, las cuatro juntas son **suficientes**: el deadlock **existe**, porque se entró a la región fatal. Las condiciones 1–3 suelen ser **deseables**: la exclusión mutua da consistencia, y la preemption de datos exige *rollback*.
 
+<Predice pregunta="Para cada técnica, di qué condición de Coffman rompe: (a) pedir los locks siempre en orden creciente de id; (b) <code>trylock</code> y, si falla, soltar lo que tienes; (c) pedir todos los recursos al empezar; (d) el portero <code>room = 4</code> de los filósofos.">
+
+- (a) **Espera circular**: con un orden total no se puede cerrar un ciclo.
+- (b) **Hold and wait**: al fallar, el proceso no retiene nada mientras espera. Ojo: puede producir **livelock**.
+- (c) **Hold and wait**: nunca se espera teniendo algo.
+- (d) **Espera circular**: con solo 4 filósofos sentados no se puede formar el ciclo de 5. Siempre queda uno que consigue sus dos tenedores.
+
+</Predice>
+
 ## Tres enfoques
 
 ### 1) Prevención: eliminar una condición
@@ -68,6 +97,12 @@ Permite las condiciones 1–3, pero **nunca entra a un estado del que no pueda g
 - **Denegar asignaciones (algoritmo del banquero, Dijkstra 1965):** se **simula** la asignación y se concede **solo si el nuevo estado es seguro**. Un estado **seguro** es uno desde el que existe **al menos una secuencia** en que todos terminan; en cada paso se busca un $P_k$ con $C_k - A_k \le$ disponible, se simula que termina y se suman sus $A_k$.
 
 <Banker client:visible />
+
+<Practica nivel={1} titulo="Resuelto: la fig. 6.7a en el simulador">
+
+Elige el preset «Fig. 6.7a» y avanza paso a paso. **Antes de cada paso**, di qué proceso puede terminar y con qué disponible queda. Resultado (verificado con un script): V = (0, 1, 1); Need de P2 = (0, 0, 1) ≤ V, así que **P2** termina y V = (6, 2, 3). Luego **P1** (V = 7 2 3), **P3** (9 3 4) y **P4** (9 3 6). El estado es **seguro**. La escalera completa del banquero, con la notación de la clase, está en la [clase de teoría sem. 11](/final/deadlock/teoria-sem11/#el-banquero-en-notación-silberschatz-como-en-la-clase).
+
+</Practica>
 
 :::caution[Inseguro ≠ deadlock]
 Un estado inseguro solo tiene **potencial** de deadlock: si P1 libera antes de pedir más, el sistema vuelve a un estado seguro. La evitación **no predice** el deadlock; garantiza que **no haya posibilidad** de que ocurra.
@@ -98,6 +133,16 @@ Se conceden los recursos siempre que se pueda y **periódicamente** se busca el 
 4. **Expropiar recursos uno por uno**, haciendo *rollback* del proceso afectado.
 
 Para 3 y 4 se elige primero al proceso con **menos CPU consumida**, **menos salida producida**, **más tiempo restante estimado**, **menos recursos** o **menor prioridad**.
+
+<Predice titulo="Debate: ¿prevención, evitación o detección?" pregunta="Elige un enfoque para cada sistema y defiéndelo: (1) un sistema de reservas de vuelos con miles de transacciones que bloquean filas de una base de datos; (2) un controlador de un robot industrial con 3 tareas fijas que conocen de antemano qué recursos usan; (3) un SO de escritorio como Linux.">
+
+- **(1) Detección y recuperación.** Los recursos que tocará cada transacción no se conocen de antemano y los deadlocks son raros. Se detectan ciclos en el grafo de espera y se aborta una transacción con *rollback*, que las bases de datos ya saben hacer.
+- **(2) Evitación (banquero) o prevención por orden.** Hay pocas tareas, los máximos se conocen y un deadlock es inaceptable. El banquero aprovecha mejor los recursos; el orden lineal es más simple.
+- **(3) Ignorarlo** en espacio de usuario (la estrategia del avestruz) y prevenir **por orden** dentro del kernel, verificado con lockdep. Detectar en todo momento costaría demasiado y los máximos no se conocen.
+
+El criterio: **¿conozco los máximos?, ¿cuánto cuesta un deadlock?, ¿puedo deshacer trabajo (rollback)?**
+
+</Predice>
 
 ### Estrategia integrada (Howard 1973)
 
@@ -134,6 +179,16 @@ Cinco filósofos, cinco tenedores y hacen falta dos para comer. Se busca exclusi
 | **Semáforos** | disparar acciones | vienen en **conjuntos**. `semop` aplica una lista de operaciones: `sem_op > 0` suma; `== 0` espera a que valga 0; `< 0` resta o espera |
 | **Señales** | disparar acciones | **sin prioridades** y **no se encolan** (un bit por tipo); se procesan al despertar o al volver de una syscall. Las señales **RT** de Linux sí se encolan, tienen prioridad y llevan un valor |
 
+<Errores
+	errores={[
+		{ mal: 'Decir que un estado inseguro es un deadlock.', bien: 'Inseguro es solo la <strong>posibilidad</strong>. Si un proceso libera antes de pedir más, no pasa nada.' },
+		{ mal: 'Decir que un ciclo en el grafo siempre es deadlock.', bien: 'Eso vale solo con <strong>una instancia</strong> por recurso. Con varias, hay que intentar ir liberando.' },
+		{ mal: 'Calcular el banquero comparando el máximo C con lo disponible.', bien: 'Se compara Need = C − A (lo que le <strong>falta</strong>) con el disponible.' },
+		{ mal: 'Decir que trylock «resuelve» el problema.', bien: 'Evita el deadlock (rompe hold and wait), pero puede causar <strong>livelock</strong> y starvation.' },
+		{ mal: 'Decir que la evitación «predice» el deadlock.', bien: 'No lo predice: garantiza que nunca se entre en un estado desde el que no se pueda salir.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="deadlock"
@@ -149,5 +204,18 @@ Cinco filósofos, cinco tenedores y hacen falta dos para comer. Se busca exclusi
 		{ q: 'Exigencia del banquero:', opts: ['Que los procesos compartan memoria', 'Declarar los máximos por adelantado', 'Tener un solo recurso', 'Usar semáforos fuertes'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica por qué basta romper <strong>una</strong> de las 4 condiciones para que no haya deadlock, y por qué casi nunca se rompe la exclusión mutua."
+	claves={[
+		'Las 4 juntas son <strong>suficientes</strong> y cada una es <strong>necesaria</strong>: si falta una, el deadlock no puede existir.',
+		'La exclusión mutua es intrínseca a muchos recursos (una impresora, un lock), así que no se puede quitar.',
+		'Por eso se ataca hold and wait (pedir todo o soltar al fallar), no preemption (expropiar) o espera circular (orden total).',
+		'Un ejemplo de código: dos locks tomados en orden distinto y cómo el orden por id lo arregla.',
+	]}
+	trampa="confundir «necesaria» con «suficiente». Las condiciones 1 a 3 solas hacen el deadlock posible, pero no lo provocan."
+/>
+
+<Dominio client:visible id="deadlock-base" />
 
 <Fuente archivos={['Stallings 9e cap. 6 (§6.1–6.7, figs. 6.1–6.14, tabla 6.1)', 'for_partial/E1_OS_2024_II__Solucionario_.pdf (P4: condiciones y trylock)', 'for_partial/E1_OS_2024_I__Respuestas_.pdf (P5)', 'código del curso so/deadlokck_single_core.c']} />

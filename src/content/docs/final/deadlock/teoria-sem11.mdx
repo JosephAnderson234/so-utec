@@ -7,10 +7,30 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Detective from '../../../../components/tutor/Detective.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 La clase 11 repite el cap. 6 del libro (las 4 condiciones, prevención, evitación, detección) y le suma **ejemplos de código** y **algoritmos al estilo de Silberschatz**: Work, Finish y Need. Esta página solo trae **lo nuevo**. Lo que ya está en el libro lo encuentras en [Stallings cap. 6](/final/stallings/cap6/).
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Distinguir <strong>starvation, livelock y deadlock</strong> con un ejemplo de cada uno.',
+		'Encontrar el deadlock en código real (productor–consumidor con los P() invertidos, transferencias con dos locks) y corregirlo.',
+		'Decidir con el grafo de asignación si un ciclo es deadlock según las instancias, y construir el grafo de espera.',
+		'Ejecutar a mano el <strong>banquero</strong> (Need, seguridad y peticiones) y el <strong>algoritmo de detección</strong>.',
+	]}
+	prerrequisitos={[
+		{ t: 'Coffman y los tres enfoques', href: '/semaforos/deadlock/' },
+	]}
+	perfiles={['detective', 'laboratorio', 'examen']}
+/>
 
 :::note[Por qué importa para el LC3]
 Esta clase es posterior al LC2, así que **entra**. Sus ejemplos de código (productor–consumidor mal ordenado, transferencias con dos locks) tienen justo la forma de una pregunta de **análisis** o de **código**.
@@ -54,9 +74,9 @@ Producer(item) {               Consumer() {
 }                                  return item; }
 ```
 
-La clase cambia el orden **solo en el productor**: `mutex.P()` y después `emptySlots.P()`. **¿Por qué hay deadlock?**
+La clase cambia el orden **solo en el productor**: primero `mutex.P()` y después `emptySlots.P()`.
 
-<Solucion titulo="Traza del deadlock">
+<Detective titulo="productor–consumidor con los P() invertidos" sintoma="Con el buffer <strong>lleno</strong>, el programa se cuelga: ni el productor ni el consumidor avanzan, y la CPU queda en 0 %." pista="¿Qué tiene tomado el productor en el momento en que se bloquea? ¿Qué necesita el consumidor para liberar un espacio?">
 
 Supongamos que el buffer está **lleno**: `mutex = 1`, `emptySlots = 0`, `fullSlots = N`.
 
@@ -71,7 +91,7 @@ Supongamos que el buffer está **lleno**: `mutex = 1`, `emptySlots = 0`, `fullSl
 - **La regla:** nunca hay que bloquearse esperando una condición **mientras se tiene el mutex**. Primero el semáforo de conteo, después el mutex.
 - **Verificación:** recorrí todos los estados con un buffer de tamaño 1. La versión correcta tiene 8 estados y ningún deadlock. La invertida tiene 11 estados y **un deadlock**, justo el de la traza: productor con mutex esperando `emptySlots`, consumidor esperando `mutex`, buffer lleno.
 
-</Solucion>
+</Detective>
 
 ## Ejemplo 2 · Deadlock por orden de locks
 
@@ -102,9 +122,11 @@ void transaction(Account from, Account to, double amount) {
 }
 ```
 
-La transacción 1 hace A → B ($25) y la 2 hace B → A ($50). La 1 toma el lock de A y la 2 el de B, y luego cada una espera el lock del otro. Ninguna función está «mal escrita»: el deadlock depende de **los datos**.
+La transacción 1 hace A → B ($25) y la 2 hace B → A ($50), las dos al mismo tiempo.
 
-<Solucion titulo="Cómo se arregla (orden global de los locks)">
+<Detective titulo="transferencias cruzadas" sintoma="El sistema del banco funciona semanas sin problemas, hasta que dos clientes se transfieren dinero <strong>mutuamente</strong> en el mismo instante. Las dos transacciones quedan colgadas." pista="Escribe el orden en que cada transacción pide los locks cuando from = A, to = B, y cuando from = B, to = A. ¿Qué condición de Coffman se cumple?">
+
+**Causa raíz:** la 1 toma el lock de A y la 2 el de B, y luego cada una espera el lock de la otra. Ninguna función está «mal escrita»: el orden de adquisición lo deciden **los datos** (from, to). Por eso dos transacciones opuestas piden los mismos dos locks en orden contrario: **espera circular**. **Cuándo se dispara:** solo si las dos se intercalan justo entre el primer y el segundo `acquire`; por eso tarda semanas en aparecer. **Corrección:** un orden global.
 
 Se rompe la **espera circular** tomando siempre los locks en un **orden global** fijo, por ejemplo por número de cuenta, sin importar cuál es el origen y cuál el destino:
 
@@ -123,7 +145,7 @@ void transaction(Account from, Account to, double amount) {
 
 Ahora A → B y B → A **toman primero el lock de A**, así que no se puede formar el ciclo. Es la prevención de la espera circular del libro (§6.2) llevada al código. La solución propia es la misma idea que el filósofo asimétrico del lab 11.
 
-</Solucion>
+</Detective>
 
 ## Prevención: los detalles de la clase
 
@@ -154,6 +176,12 @@ Ahora A → B y B → A **toman primero el lock de A**, así que no se puede for
 
 Si existe un orden así, **no hay deadlock** aunque haya un ciclo. En los dos grafos siguientes de la clase, uno **sí** tiene deadlock (nadie puede terminar) y el otro **no**, porque un hilo fuera del ciclo (T2 o T4) libera una instancia.
 
+<Predice pregunta="Un grafo tiene un ciclo P1 → R1 → P2 → R2 → P1. R1 tiene <strong>2 instancias</strong>: una la tiene P2 y la otra P3, que no espera nada. ¿Hay deadlock?">
+
+**No.** P3 no está en el ciclo y no espera nada, así que termina y libera su instancia de R1. Esa instancia se le asigna a P1, P1 termina y libera R2, y luego P2 termina. Con varias instancias, el ciclo es **necesario pero no suficiente**: hay que intentar ir liberando, como en el ejercicio de la clase.
+
+</Predice>
+
 ## Algoritmos según el número de instancias
 
 | Instancias | Evitación | Detección |
@@ -176,6 +204,65 @@ Si existe un orden así, **no hay deadlock** aunque haya un ciclo. En los dos gr
   3. si todos tienen Finish = true, el estado es **seguro**.
 - **Estado seguro (definición de la clase):** existe una secuencia ⟨P1 … Pn⟩ con **todos** los procesos en la que lo que Pi aún puede pedir se cubre con lo disponible **más lo que tienen todos los Pj con j &lt; i**.
 - **Seguro ⇒ no hay deadlock. Inseguro ⇒ posibilidad de deadlock.** La evitación garantiza no entrar nunca en un estado inseguro.
+
+Ejemplo clásico de Silberschatz: 5 procesos y recursos A = 10, B = 5, C = 7.
+
+| | Allocation (A B C) | Max (A B C) | Need = Max − Alloc |
+| :-: | :-: | :-: | :-: |
+| P0 | 0 1 0 | 7 5 3 | 7 4 3 |
+| P1 | 2 0 0 | 3 2 2 | 1 2 2 |
+| P2 | 3 0 2 | 9 0 2 | 6 0 0 |
+| P3 | 2 1 1 | 2 2 2 | 0 1 1 |
+| P4 | 0 0 2 | 4 3 3 | 4 3 1 |
+
+Available = (10, 5, 7) − la suma de Allocation = **(3, 3, 2)**.
+
+<Practica nivel={1} titulo="Resuelto: ¿el estado es seguro?">
+
+| Paso | ¿Quién? | Need ≤ Work | Work después (+ Allocation) |
+| :-: | :-: | --- | :-: |
+| 0 | — | — | 3 3 2 |
+| 1 | P1 | 1 2 2 ≤ 3 3 2 ✓ | 5 3 2 |
+| 2 | P3 | 0 1 1 ≤ 5 3 2 ✓ | 7 4 3 |
+| 3 | P0 | 7 4 3 ≤ 7 4 3 ✓ | 7 5 3 |
+| 4 | P2 | 6 0 0 ≤ 7 5 3 ✓ | 10 5 5 |
+| 5 | P4 | 4 3 1 ≤ 10 5 5 ✓ | 10 5 7 |
+
+Todos terminan: el estado es **seguro**, con la secuencia ⟨P1, P3, P0, P2, P4⟩. Hay otras válidas, como ⟨P1, P3, P4, P2, P0⟩, la del libro de Silberschatz. Al terminar, Work debe volver al total (10, 5, 7): es una buena forma de **comprobar** las sumas.
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: P1 pide (1, 0, 2)">
+
+Los pasos 1 y 2 de la petición ya están: Request (1 0 2) ≤ Need de P1 (1 2 2) ✓, y Request ≤ Available (3 3 2) ✓. Completa el paso 3: simula la asignación (nuevo Available, nuevo Allocation y nuevo Need de P1) y corre el algoritmo de seguridad. ¿Se concede?
+
+<Solucion titulo="Comparar (verificado con un script)">
+
+- Available = 3 3 2 − 1 0 2 = **2 3 0**. Allocation de P1 = **3 0 2**. Need de P1 = **0 2 0**.
+- Seguridad: P1 (0 2 0 ≤ 2 3 0) → Work 5 3 2 → P3 → 7 4 3 → P0 → 7 5 3 → P2 → 10 5 5 → P4 → 10 5 7.
+- Es seguro: **se concede**.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: después de conceder lo anterior, llegan dos peticiones: P4 pide (3, 3, 0) y P0 pide (0, 2, 0)">
+
+<Solucion titulo="Comparar (verificado con un script)">
+
+- **P4 (3 3 0):** es ≤ su Need (4 3 1), pero **no** es ≤ Available (2 3 0), porque falta A. **P4 espera**, sin simular nada.
+- **P0 (0 2 0):** es ≤ su Need (7 4 3) y ≤ Available. Se simula: Available queda en **2 1 0**. Ahora nadie cumple Need ≤ Work: P1 necesita 2 de B, P3 necesita 1 de C y los demás necesitan más A. El estado es **inseguro**, así que **se deniega**, se restaura el estado y P0 espera.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: la misma petición de P0 (0, 2, 0), pero en el estado <strong>original</strong> (antes de conceder lo de P1)">
+
+<Solucion titulo="Comparar">
+
+Ahora **sí se concede**. Available queda en 3 1 2 y existe la secuencia segura ⟨P3, P1, P0, P2, P4⟩ (verificada con un script). **Lección:** el banquero no juzga la petición en sí, sino el **estado** al que lleva. La misma petición puede ser segura o insegura según lo que ya se haya asignado. Que se deniegue no significa que habría habido deadlock: el banquero es **conservador**.
+
+</Solucion>
+</Practica>
 
 ## Ejemplo de detección con 5 procesos
 
@@ -230,6 +317,16 @@ Las dos respuestas están verificadas con un script del algoritmo de detección.
   - verifica que los locks se tomen **siempre en un orden consistente** en todo el código del kernel (es la prevención de la espera circular, comprobada en ejecución);
   - Linux propone además un mecanismo nuevo: **DEPT** (*Dependency Tracker*).
 
+<Errores
+	errores={[
+		{ mal: 'Decir que el livelock es «un deadlock lento».', bien: 'En el livelock los procesos <strong>cambian de estado</strong> todo el tiempo (sueltan y reintentan), pero no progresan. En el deadlock están bloqueados.' },
+		{ mal: 'En una petición, simular aunque Request &gt; Available.', bien: 'Si no hay disponible, el proceso <strong>espera</strong> directamente. Solo se simula si cabe.' },
+		{ mal: 'Olvidar marcar desde el inicio a los procesos con Allocation = 0 en la detección.', bien: 'Esos procesos no retienen nada, así que no pueden estar en deadlock: Finish = true desde el inicio.' },
+		{ mal: 'Confundir la matriz Request de la detección con Need.', bien: 'Detección usa lo que se pide <strong>ahora</strong> (Request). El banquero usa lo que <strong>podría</strong> pedir (Need).' },
+	]}
+/>
+
+
 ## Autoevaluación
 
 <Quiz
@@ -251,5 +348,17 @@ Las dos respuestas están verificadas con un script del algoritmo de detección.
 		{ q: 'Prevenir hold and wait pidiendo todo antes de empezar tiene como desventajas…', opts: ['más deadlocks', 'baja utilización de recursos y posible starvation', 'livelock', 'necesita orden total'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica la diferencia entre el algoritmo del banquero y el de detección, si los dos «buscan una secuencia en que todos terminan»."
+	claves={[
+		'El banquero es <strong>evitación</strong>: se corre <em>antes</em> de conceder y usa Need (el peor caso futuro).',
+		'La detección se corre <em>después</em>, cada cierto tiempo, y usa Request (lo que se pide ahora).',
+		'El banquero exige conocer los máximos. La detección no, pero luego hay que recuperarse (abortar o hacer rollback).',
+		'Si la detección deja procesos sin marcar, esos están en deadlock. Si el banquero no encuentra secuencia, el estado es inseguro (no necesariamente deadlock).',
+	]}
+/>
+
+<Dominio client:visible id="teoria-sem11" />
 
 <Fuente archivos={['sem_11/Sem11_11-OST-Deadlock.pdf (clase de teoría 11)', 'Stallings 9e, cap. 6', 'Ejemplos verificados con scripts propios: recorrido de todos los estados del productor–consumidor y algoritmo de detección', 'La corrección de la transferencia es una solución propia']} />

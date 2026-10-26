@@ -1345,3 +1345,255 @@ main:has(.so-hero) .content-panel {
 .en-simple__b > :last-child {
 	margin-bottom: 0;
 }
+
+/* =========================================================
+   Método de estudio (componentes tutor/)
+   ========================================================= */
+.tutor-obj {
+	margin: 1.5rem 0 2rem;
+	padding: 1.1rem 1.25rem;
+	border-radius: 14px;
+	border: 1px solid color-mix(in srgb, var(--sl-color-accent) 35%, var(--pg-border));
+	background: color-mix(in srgb, var(--sl-color-accent) 6%, var(--pg-surface));
+	font-size: 0.92rem;
+	line-height: 1.65;
+}
+.tutor-obj__t,
+.tutor-box__t,
+.tutor-practica__lvl {
+	margin: 0 0 0.4rem;
+	font-weight: 700;
+	font-size: 0.8rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--sl-color-accent-high);
+}
+.tutor-obj__list {
+	margin: 0;
+	padding-left: 1.3rem;
+	color: var(--sl-color-gray-1);
+}
+.tutor-obj__list li + li {
+	margin-top: 0.2rem;
+}
+.tutor-obj__pre {
+	margin: 0.75rem 0 0;
+	color: var(--sl-color-gray-2);
+}
+.tutor-obj__perfiles {
+	list-style: none;
+	margin: 0.75rem 0 0;
+	padding: 0.75rem 0 0;
+	border-top: 1px dashed var(--pg-border);
+	display: grid;
+	gap: 0.3rem;
+	color: var(--sl-color-gray-2);
+}
+.tutor-chip {
+	display: inline-block;
+	min-width: 6.5rem;
+	padding: 0.05rem 0.55rem;
+	border-radius: 999px;
+	font-size: 0.75rem;
+	font-weight: 650;
+	text-align: center;
+	color: var(--sl-color-accent-high);
+	background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent);
+}
+
+.tutor-box {
+	--tutor-c: var(--pg-c1);
+	margin: 1.5rem 0;
+	padding: 0.95rem 1.15rem;
+	border-radius: 12px;
+	border: 1px solid color-mix(in srgb, var(--tutor-c) 40%, var(--pg-border));
+	border-left-width: 4px;
+	background: color-mix(in srgb, var(--tutor-c) 6%, var(--pg-surface));
+}
+.tutor-box--predice {
+	--tutor-c: var(--pg-c1);
+}
+.tutor-box--detective {
+	--tutor-c: var(--pg-c5);
+}
+.tutor-box--feynman {
+	--tutor-c: var(--pg-c4);
+}
+.tutor-box--errores {
+	--tutor-c: var(--pg-warn);
+}
+.tutor-box .tutor-box__t {
+	color: var(--tutor-c);
+}
+.tutor-box__q {
+	margin: 0 !important;
+	color: var(--sl-color-gray-1);
+}
+.tutor-box__hint {
+	margin: 0.35rem 0 0 !important;
+	font-size: 0.85rem;
+	color: var(--pg-muted);
+}
+.tutor-reveal {
+	margin-top: 0.7rem !important;
+	border-top: 1px dashed var(--pg-border);
+	padding-top: 0.55rem;
+}
+.tutor-reveal > summary {
+	cursor: pointer;
+	font-weight: 600;
+	font-size: 0.88rem;
+	color: var(--tutor-c);
+	user-select: none;
+}
+.tutor-reveal__b {
+	padding-top: 0.5rem;
+}
+.tutor-reveal__b > :first-child {
+	margin-top: 0;
+}
+.tutor-reveal__b > :last-child {
+	margin-bottom: 0;
+}
+.tutor-err {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 0.6rem;
+	font-size: 0.9rem;
+}
+.tutor-err li {
+	display: grid;
+	gap: 0.15rem;
+}
+.tutor-err__mal::before {
+	content: '✗ ';
+	font-weight: 700;
+	color: var(--pg-bad);
+}
+.tutor-err__mal {
+	color: var(--sl-color-gray-2);
+}
+.tutor-err__bien::before {
+	content: '✓ ';
+	font-weight: 700;
+	color: var(--pg-ok);
+}
+.tutor-err__bien {
+	color: var(--sl-color-gray-1);
+}
+
+.tutor-practica {
+	--tutor-c: var(--pg-c3);
+	margin: 1.75rem 0;
+	padding: 1rem 1.2rem;
+	border-radius: 14px;
+	border: 1px solid var(--pg-border);
+	background: var(--pg-surface);
+}
+.tutor-practica--2 {
+	--tutor-c: var(--pg-c1);
+}
+.tutor-practica--3 {
+	--tutor-c: var(--pg-c2);
+}
+.tutor-practica--4 {
+	--tutor-c: var(--pg-c5);
+}
+.tutor-practica__t {
+	margin: 0 !important;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.25rem 0.75rem;
+}
+.tutor-practica .tutor-practica__lvl {
+	margin: 0;
+	color: var(--tutor-c);
+}
+.tutor-practica__ayuda {
+	font-size: 0.82rem;
+	color: var(--pg-muted);
+}
+.tutor-practica__titulo {
+	margin: 0.3rem 0 0 !important;
+	font-weight: 600;
+	color: var(--sl-color-white);
+}
+.tutor-practica__b > :first-child {
+	margin-top: 0.6rem;
+}
+
+.tutor-dominio__niveles {
+	display: grid;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: 0.5rem;
+}
+@container (max-width: 34rem) {
+	.tutor-dominio__niveles {
+		grid-template-columns: 1fr;
+	}
+}
+.tutor-dominio__niveles button {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0.2rem;
+	padding: 0.6rem 0.7rem;
+	text-align: left;
+	font-size: 0.78rem;
+	line-height: 1.35;
+	border-radius: var(--pg-radius-sm);
+	border: 1px solid var(--pg-border);
+	background: var(--pg-tile);
+	color: var(--sl-color-gray-2);
+	cursor: pointer;
+}
+.tutor-dominio__niveles button b {
+	font-size: 1.1rem;
+}
+.tutor-dominio__niveles button.on {
+	border-color: var(--sl-color-accent);
+	background: color-mix(in srgb, var(--sl-color-accent) 14%, var(--pg-tile));
+	color: var(--sl-color-white);
+}
+.tutor-dominio__next {
+	color: var(--sl-color-gray-2);
+}
+
+.tutor-panel__hoy {
+	padding: 0.7rem 0.9rem;
+	border-radius: var(--pg-radius-sm);
+	background: color-mix(in srgb, var(--sl-color-accent) 10%, var(--pg-tile));
+}
+.tutor-panel__tabla {
+	overflow-x: auto;
+}
+.tutor-panel table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.85rem;
+}
+.tutor-panel th,
+.tutor-panel td {
+	padding: 0.4rem 0.5rem;
+	border-bottom: 1px solid var(--pg-border);
+	text-align: left;
+	white-space: nowrap;
+}
+.tutor-panel td:first-child {
+	white-space: normal;
+}
+.tutor-panel tr.vencido td:last-child {
+	color: var(--pg-warn);
+	font-weight: 600;
+}
+.tutor-panel__u {
+	display: inline-block;
+	width: 1.4rem;
+	text-align: center;
+	font-family: var(--sl-font-mono);
+	font-size: 0.75rem;
+	color: var(--pg-muted);
+}

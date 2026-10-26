@@ -8,12 +8,33 @@ import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
 import SemaphoreSim from '../../../../components/sim/SemaphoreSim.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Detective from '../../../../components/tutor/Detective.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Cinco filósofos en una mesa redonda, un tenedor **entre cada par**, y cada uno necesita **los dos tenedores** que tiene al lado para comer. Si todos toman el de su derecha al mismo tiempo, **todos se quedan con uno y esperan el otro para siempre**: eso es el deadlock.
 
 Cada «solución» del laboratorio ataca el problema de una forma distinta: dejar comer a uno a la vez, sacar una silla, hacer que algunos empiecen por la izquierda, o tomar los dos tenedores «de golpe». Además, cada una tiene un costo: algunas comen **de a uno** (poco paralelismo) y otras pueden dejar a alguien **sin comer nunca** (starvation).
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Leer la salida de los programas del curso y reconocer un <strong>deadlock</strong> (los 5 con un tenedor) o una <strong>starvation</strong>.',
+		'Para cada una de las 8 versiones, decir si tiene deadlock o starvation, cuál es su paralelismo máximo y <strong>qué condición de Coffman rompe</strong>.',
+		'Escribir en C, con <code>sem_t</code>, una solución sin deadlock (sillas limitadas o asimétrica). Es candidata a pregunta de <strong>código</strong>.',
+		'Explicar cómo Tanenbaum puede tener starvation y cómo arreglarlo sin perder paralelismo.',
+	]}
+	prerrequisitos={[
+		{ t: 'Coffman', href: '/semaforos/deadlock/' },
+		{ t: 'Semáforos POSIX', href: '/hardware/futex/' },
+	]}
+	perfiles={['simulador', 'detective', 'laboratorio', 'debate']}
+/>
 
 ## El problema (Dijkstra, 1971)
 
@@ -49,6 +70,12 @@ void* f_phil(void *v) {
   }
 }
 ```
+
+<Predice pregunta="Antes de ver la salida: con el <code>sleep(1)</code> entre los dos <code>sem_wait</code>, ¿qué esperas que pase con 5 filósofos? Dibuja la última línea de la mesa.">
+
+Que los cinco tomen su primer tenedor durante ese segundo y después **todos** esperen el segundo, que ya tiene el vecino. La última línea sería `H| H| H| H| H|`: cada uno con un tenedor y hambriento, para siempre. Compara con la salida real de abajo.
+
+</Predice>
 
 **Ejecución de prueba** (N = 5; extracto de la salida. A los 40 s se cortó y el programa no había terminado):
 
@@ -261,6 +288,17 @@ Otras soluciones conocidas: Chandy/Misra (tenedores «sucios» y «limpios»), o
 
 </Solucion>
 
+<Predice titulo="Debate: ¿cuál entregarías?" pregunta="En el LC3 te piden «filósofos sin deadlock y con el mayor paralelismo posible», y tienes 25 minutos. ¿Eliges semáforo central, sillas N − 1, asimétrica o Tanenbaum? Defiende tu elección con tres criterios: deadlock, paralelismo y riesgo de equivocarte al escribirla.">
+
+- **Semáforo central = 1:** fácil, pero paralelismo **1**. No cumple «el mayor posible».
+- **Sillas N − 1:** fácil (un semáforo más) y sin deadlock. En teoría da ⌊N/2⌋, aunque con `sleep` entre tenedores en la práctica puede serializarse (lo viste en la ejecución).
+- **Asimétrica:** también fácil (un `if` de paridad), sin deadlock y con ⌊N/2⌋ medido. **Es la mejor relación riesgo/beneficio con poco tiempo.**
+- **Tanenbaum:** ⌊N/2⌋, pero tiene más piezas (estado, un semáforo por filósofo, `test_forks` en dos lugares), así que es más fácil equivocarse. Y tiene starvation.
+
+Si además piden **sin starvation**, ninguna de las básicas lo garantiza: hay que agregar orden de llegada (los turnos de la sección 6) o una cola FIFO.
+
+</Predice>
+
 ## Resumen
 
 | Versión | Deadlock | Starvation | Comiendo a la vez (máx.) | Qué condición rompe |
@@ -271,6 +309,129 @@ Otras soluciones conocidas: Chandy/Misra (tenedores «sucios» y «limpios»), o
 | asimétrica | no | posible | **⌊N/2⌋** | espera circular |
 | Tanenbaum | no | **sí** (tanen-5-1, tanen-4-2) | **⌊N/2⌋** | hold and wait (toma ambos de golpe) |
 | Tanenbaum + turnos (propia) | no | **no** | ⌊N/2⌋ | hold and wait + orden de llegada |
+
+<Practica nivel={2} titulo="Complétalo: sillas limitadas con <code>sem_t</code>">
+
+Completa los cuatro `???`: dos valores iniciales y dos llamadas.
+
+```c
+sem_t silla, tenedor[N];
+
+void *filosofo(void *arg) {
+    int i = *(int *)arg;
+    for (int c = 0; c < CICLOS; c++) {
+        ???;                                   /* (3) entrar a la mesa */
+        sem_wait(&tenedor[i]);
+        sem_wait(&tenedor[(i + 1) % N]);
+        /* come */
+        sem_post(&tenedor[(i + 1) % N]);
+        sem_post(&tenedor[i]);
+        ???;                                   /* (4) dejar la silla */
+    }
+    return NULL;
+}
+/* en main: */
+sem_init(&silla, 0, ???);                      /* (1) */
+for (int i = 0; i < N; i++) sem_init(&tenedor[i], 0, ???);   /* (2) */
+```
+
+<Solucion titulo="Comparar">
+
+(1) **N − 1**: así nunca están los N en la mesa. (2) **1**: cada tenedor es un mutex. (3) `sem_wait(&silla)`. (4) `sem_post(&silla)`. Si pusieras N en (1), volverías a tener la versión con deadlock: mira el detective de abajo.
+
+</Solucion>
+</Practica>
+
+<Detective titulo="«mi versión con sillas a veces se cuelga»" sintoma="Un compañero entrega la solución de sillas limitadas. La probó 10 veces y terminó bien, pero en la corrección se quedó colgada con la salida <code>H| H| H| H| H|</code>." pista="Mira su <code>sem_init(&silla, 0, N)</code>. ¿Cuántos filósofos pueden estar sentados a la vez?">
+
+- **Causa raíz:** inicializó `silla` en **N** en vez de N − 1, así que los N filósofos pueden sentarse y cada uno tomar un tenedor: vuelve la **espera circular**. El recorrido de estados de arriba lo muestra: con k = 5 hay deadlock.
+- **Cuándo se dispara:** solo si los 5 toman su primer tenedor antes de que alguno tome el segundo. Por eso «terminó bien 10 veces».
+- **Corrección:** `sem_init(&silla, 0, N - 1)`.
+- **Cómo verificar:** un `usleep` entre los dos `sem_wait` hace que el caso malo sea casi seguro. Con N − 1, ni así se cuelga. Y recuerda: que funcione en las pruebas no demuestra que no haya deadlock; el argumento del palomar sí.
+
+</Detective>
+
+<Practica nivel={3} titulo="Solo: la solución asimétrica completa en C (20 minutos, como en el LC3)">
+
+Escribe un programa completo: N = 5 hilos, 3 porciones cada uno, sin deadlock. Imprime quién come y, al final, el máximo de filósofos que comieron a la vez. Compílalo con `gcc -Wall -pthread` y córrelo varias veces.
+
+<Solucion titulo="Una solución (probada: 30 de 30 ejecuciones terminaron, con un máximo de 2 comiendo a la vez)">
+
+```c
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#define N 5
+#define CICLOS 3
+
+sem_t tenedor[N];
+sem_t pantalla;
+int comiendo = 0, max_comiendo = 0;
+
+void *filosofo(void *arg) {
+    int i = *(int *)arg;
+    int izq = i, der = (i + 1) % N;
+    int primero = (i % 2 == 0) ? izq : der;
+    int segundo = (i % 2 == 0) ? der : izq;
+    for (int c = 0; c < CICLOS; c++) {
+        usleep(1000);
+        sem_wait(&tenedor[primero]);
+        usleep(1000);
+        sem_wait(&tenedor[segundo]);
+        sem_wait(&pantalla);
+        comiendo++;
+        if (comiendo > max_comiendo) max_comiendo = comiendo;
+        printf("F%d come (porción %d)\n", i, c + 1);
+        sem_post(&pantalla);
+        usleep(2000);
+        sem_wait(&pantalla);
+        comiendo--;
+        sem_post(&pantalla);
+        sem_post(&tenedor[segundo]);
+        sem_post(&tenedor[primero]);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t[N];
+    int id[N];
+    sem_init(&pantalla, 0, 1);
+    for (int i = 0; i < N; i++) sem_init(&tenedor[i], 0, 1);
+    for (int i = 0; i < N; i++) {
+        id[i] = i;
+        pthread_create(&t[i], NULL, filosofo, &id[i]);
+    }
+    for (int i = 0; i < N; i++) pthread_join(t[i], NULL);
+    printf("terminaron todos; máximo comiendo a la vez: %d\n", max_comiendo);
+    return 0;
+}
+```
+
+Los `usleep` fuerzan intercalaciones malas: con la versión ingenua (todos `izq` primero), este mismo programa se cuelga casi siempre. El contador `comiendo` está protegido por `pantalla`, porque lo tocan todos los hilos.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: ¿y si solo el filósofo 0 es «zurdo» y los demás toman primero el izquierdo?">
+
+<Solucion titulo="Comparar">
+
+**Tampoco hay deadlock.** Para cerrar el ciclo, los N tendrían que tomar su primer tenedor «en la misma dirección». Basta con **uno** distinto para romper la espera circular: es prevención por orden. Ahora el zurdo (F0) y su vecino F1 compiten por el **mismo primer** tenedor (el 1), así que uno de los dos ni siquiera empieza. Para comparar el paralelismo con la versión por paridad, cambia `primero` y `segundo` en tu código y mide `max_comiendo`.
+
+</Solucion>
+</Practica>
+
+<Errores
+	errores={[
+		{ mal: 'Decir que el semáforo central tiene deadlock con cualquier valor.', bien: 'Solo con k = N. Cualquier k ≤ N − 1 lo evita (con N − 1 es la solución de las sillas).' },
+		{ mal: 'Pensar que la asimétrica baja el paralelismo.', bien: 'Se midió ⌊N/2⌋ (5 de 10). Solo cambia el orden, no hay un semáforo global.' },
+		{ mal: 'Decir que Tanenbaum es «la solución perfecta».', bien: 'No tiene deadlock y tiene alto paralelismo, pero sí puede tener <strong>starvation</strong> (tanen-5-1, tanen-4-2).' },
+		{ mal: 'Creer que no hay deadlock porque el programa terminó al probarlo.', bien: 'El deadlock depende de la intercalación. Argumenta con Coffman (qué condición rompes), no con una ejecución.' },
+	]}
+/>
 
 <Quiz
 	client:visible
@@ -284,5 +445,17 @@ Otras soluciones conocidas: Chandy/Misra (tenedores «sucios» y «limpios»), o
 		{ q: 'tanen-4-2.c demuestra que Tanenbaum…', opts: ['tiene deadlock', 'puede tener starvation con ciertos tiempos', 'come de a uno', 'es injusto siempre'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica por qué con N − 1 sillas no puede haber deadlock, usando el argumento del palomar, y por qué Tanenbaum tampoco lo tiene aunque no limita las sillas."
+	claves={[
+		'Sillas: con N − 1 sentados y N tenedores, aunque cada uno tome uno, <strong>sobra un tenedor</strong>. Ese tenedor es vecino de alguien, que entonces come y libera. Se rompe la espera circular.',
+		'Tanenbaum: el filósofo toma los dos tenedores «de golpe», en una sección crítica, o no toma ninguno. Nunca espera reteniendo uno: se rompe hold and wait.',
+		'Cada solución rompe una condición distinta de Coffman.',
+		'Ninguna de las dos garantiza la ausencia de starvation sin un orden de llegada.',
+	]}
+/>
+
+<Dominio client:visible id="filosofos" />
 
 <Fuente archivos={['sem_9/11-OSL-Deadlock.pdf (diap. 15–31)', 'Código del curso sem9/deadlock/: deadlock-bug.c, sem_central.c, table.c, limit_seats.c, assymetric.c, tanen-sem.c, tanen-5-1.c, tanen-4-2.c (ejecuciones de prueba)', 'Recorrido exhaustivo de estados propio (semáforo central k = 1…5, asimétrica N = 5 y 10)', 'Variante propia con turnos: fair.c y fair42.c (ejecución de prueba)', 'Stallings §6.6, Tanenbaum «Modern Operating Systems» §2.5']} />

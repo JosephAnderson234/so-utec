@@ -7,6 +7,27 @@ import SegmentTranslator from '../../../components/sim/SegmentTranslator.tsx';
 import EnSimple from '../../../components/EnSimple.astro';
 import Quiz from '../../../components/Quiz.tsx';
 import Fuente from '../../../components/Fuente.astro';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
+import Solucion from '../../../components/Solucion.astro';
+
+
+<Objetivos
+	objetivos={[
+		'Distinguir dirección <strong>lógica</strong> y <strong>física</strong>, y decir cuándo coinciden según el momento del binding.',
+		'Traducir con base y límite: <strong>física = base + offset</strong>, solo si offset &lt; límite.',
+		'Partir una dirección en <strong>(segmento, offset)</strong> según los bits de cada parte, y detectar el <em>segmentation fault</em> (offset ≥ límite o s ≥ STLR).',
+		'Comparar segmentación y paginación: quién divide el programa, qué fragmentación tiene cada una y si la traducción suma o concatena.',
+	]}
+	prerrequisitos={[
+		{ t: 'Binario y hexadecimal (agrupar de a 4 bits)', href: '/formulario/' },
+	]}
+	perfiles={['visual', 'laboratorio', 'simulador']}
+/>
 
 ## Dirección lógica vs física
 
@@ -95,6 +116,58 @@ La segmentación **elimina la fragmentación interna** y conserva la **externa**
 
 <SegmentTranslator client:visible />
 
+Tabla de la diapositiva 37 (direcciones de 16 bits: **2 bits de segmento | 14 bits de offset**):
+
+| Seg. | Uso | Base | Límite |
+| :-: | --- | --- | --- |
+| 0 | código | `0x4000` | `0x0800` |
+| 1 | datos | `0x4800` | `0x1400` |
+| 2 | compartido | `0xF000` | `0x1000` |
+| 3 | stack | `0x0000` | `0x3000` |
+
+<Practica nivel={1} titulo="Resuelto: <code>0x8010</code>">
+
+1. **Partir:** `0x8010` = `10 | 00 0000 0001 0000`. Segmento **2**, offset `0x0010`.
+2. **Validar:** ¿2 < STLR = 4? Sí. ¿`0x10` < límite `0x1000`? Sí.
+3. **Sumar:** `0xF000 + 0x10` = **`0xF010`**.
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: <code>0x5000</code>">
+
+El paso 1 ya está: `0x5000` = `01 | 01 0000 0000 0000`, así que es el **segmento 1**. Completa: ¿cuál es el offset? ¿Pasa la validación? ¿Qué dirección física da?
+
+<Solucion titulo="Comparar">
+
+Offset = `01 0000 0000 0000` = `0x1000`. Como `0x1000` < `0x1400`, es válido. Física = `0x4800 + 0x1000` = **`0x5800`**.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: <code>0xC100</code>, <code>0x9200</code> y <code>0x47FF</code>">
+
+<Solucion titulo="Comparar (verificado con un script)">
+
+| Virtual | Seg. | Offset | ¿Válido? | Física |
+| --- | :-: | --- | --- | --- |
+| `0xC100` | 3 | `0x0100` | `0x100` < `0x3000` | **`0x0100`** |
+| `0x9200` | 2 | `0x1200` | `0x1200` ≥ `0x1000` | **segmentation fault** |
+| `0x47FF` | 1 | `0x07FF` | `0x7FF` < `0x1400` | **`0x4FFF`** |
+
+`0x47FF` es la trampa: «parece» una dirección de código porque cae cerca de `0x4000`, pero los 2 bits altos son `01` y por eso pertenece a **datos**. Nunca confundas una dirección virtual con una física.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: la misma <code>0x5000</code>, con 4 bits de segmento y 12 de offset (como en Stallings) y STLR = 4">
+
+<Solucion titulo="Comparar">
+
+`0x5000` = `0101 | 0000 0000 0000`, así que ahora es el **segmento 5**, con offset 0. Como 5 ≥ STLR = 4, el segmento **no existe** y hay *segmentation fault* antes de mirar el offset. **Lección:** la misma dirección significa otra cosa si cambia cómo se reparten los bits. El primer paso siempre es fijar cuántos bits tiene cada campo.
+
+</Solucion>
+</Practica>
+
 ### Traza de la diapositiva 38 (PC = 0x0240)
 
 1. Fetch `0x0240` (`0000 0010 0100 0000`): segmento 0, offset `0x240` → física `0x4000 + 0x240 = 0x4240` → `la $a0, varx` → `$a0 = 0x4050`.
@@ -113,6 +186,27 @@ Observa que la **misma** dirección `0x4050` es un dato virtual y **no** la fís
   - **GS**: variables **per-CPU** del kernel.
 - **Linux** ignora la segmentación y usa **paginación** como mecanismo principal, porque da aislamiento, memoria virtual y *demand paging*, cosas que la segmentación sola no maneja bien.
 
+<Predice titulo="Debate: segmentación o paginación" pregunta="Un compañero dice: «la segmentación es mejor porque no tiene fragmentación interna». ¿Estás de acuerdo? Usa al menos tres criterios para responder.">
+
+Es **verdad a medias**. Criterios:
+- **Fragmentación:** la segmentación no tiene interna, pero sí **externa**, que es peor porque exige compactar. La paginación tiene solo interna, acotada a menos de una página por proceso.
+- **Visibilidad y protección:** la segmentación refleja la estructura del programa, así que proteger y compartir por módulo es natural. La paginación es invisible para el programador.
+- **Asignación:** en paginación cualquier marco libre sirve. En segmentación hay que buscar un hueco del tamaño justo (best-fit o first-fit).
+- **Traducción:** la segmentación suma y compara; la paginación concatena.
+
+Por eso se combinan (segmentos paginados) y por eso Linux en x86-64 usa casi solo paginación.
+
+</Predice>
+
+<Errores
+	errores={[
+		{ mal: 'Concatenar base y offset, como en paginación.', bien: 'En segmentación se <strong>suma</strong>: física = base + offset.' },
+		{ mal: 'Comparar con ≤ el límite.', bien: 'Es válido solo si offset &lt; límite. Si offset = límite, ya se salió del segmento.' },
+		{ mal: 'Responder <em>page fault</em> cuando el offset se pasa del límite.', bien: 'Es <em>segmentation fault</em>: el proceso accede fuera de su segmento y se aborta.' },
+		{ mal: 'Tomar los bits de segmento de la dirección física.', bien: 'Se toman de los bits altos de la dirección <strong>virtual</strong>, según cuántos bits tiene cada campo en el enunciado.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="segmentacion"
@@ -124,5 +218,18 @@ Observa que la **misma** dirección `0x4050` es un dato virtual y **no** la fís
 		{ q: 'Las direcciones lógica y física difieren cuando el binding es en tiempo de…', opts: ['compilación', 'carga', 'ejecución', 'enlazado'], ok: 2 },
 	]}
 />
+
+<Feynman
+	consigna="Explica qué hace la MMU con una dirección (segmento, offset) y por qué ese mismo mecanismo da protección «gratis»."
+	claves={[
+		'Mira la tabla de segmentos con el número de segmento (y verifica s &lt; STLR y el bit de validez).',
+		'Compara el offset con el límite: si offset ≥ límite, hay trap y segmentation fault.',
+		'Si es válido, física = base + offset, y además revisa los permisos (lectura, escritura, ejecución).',
+		'Un proceso no puede ni nombrar memoria fuera de sus segmentos: eso <strong>es</strong> la protección.',
+	]}
+	trampa="olvidar la comparación con el límite y quedarse solo con la suma."
+/>
+
+<Dominio client:visible id="segmentacion" />
 
 <Fuente archivos={['for_partial/pending_themes/Sem06_06-OST-Memory.pdf (diap. 8–10, 24–40)', 'Stallings cap. 7', 'Love, Linux Kernel Development']} />

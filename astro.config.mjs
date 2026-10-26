@@ -36,6 +36,7 @@ export default defineConfig({
 					label: 'Final · LC3 y examen final',
 					badge: { text: 'nuevo', variant: 'success' },
 					items: [
+						{ label: 'Ruta de repaso y tu progreso', slug: 'final/ruta', badge: { text: 'empieza aquí', variant: 'caution' } },
 						{ label: 'Mapa de temas del final', slug: 'final' },
 						{ label: 'Clase del 10/10 (grabación)', slug: 'final/clase-memoria', badge: { text: 'clase', variant: 'tip' } },
 						{

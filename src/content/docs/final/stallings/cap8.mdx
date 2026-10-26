@@ -7,6 +7,9 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Para estudiar no necesitas **toda la biblioteca** en tu escritorio: basta con los dos o tres libros del tema de hoy, y cuando hace falta otro vas a buscarlo al estante. La **memoria virtual** hace lo mismo con los procesos: en la RAM (el escritorio) solo está lo que se usa ahora y el resto espera en disco (el estante). Funciona gracias a la **localidad**: casi siempre usas lo mismo que acabas de usar. Si el escritorio es demasiado chico, te pasas el día yendo y viniendo del estante sin estudiar: eso es el **thrashing**.
@@ -14,6 +17,29 @@ Para estudiar no necesitas **toda la biblioteca** en tu escritorio: basta con lo
 
 :::tip[Qué entra del cap. 8]
 Las secciones **8.1 a 8.4**: hardware, software del SO, UNIX/Solaris y Linux. Windows y Android (8.5 y 8.6) **no entran**. Los ejercicios del curso (V/R/M con 1052, 2221 y 5499, y el bucle de A[64][64]) son los **problemas 8.1 y 8.2 del libro**, resueltos en [Virtual Memory](/final/ejercicios/memoria-virtual/).
+:::
+
+
+<Objetivos
+	objetivos={[
+		'Explicar por qué la memoria virtual funciona (localidad) y qué es el thrashing.',
+		'Describir la PTE, las tablas multinivel e invertidas, la TLB y el compromiso del tamaño de página.',
+		'Recorrer las <strong>políticas del SO</strong> (fetch, placement, reemplazo, conjunto residente, limpieza y carga) con una pregunta por cada una.',
+		'Responder de memoria las Review Questions 8.1–8.12.',
+	]}
+	prerrequisitos={[
+		{ t: 'Memoria virtual (con práctica)', href: '/final/memoria-virtual/fundamentos/' },
+	]}
+	perfiles={['feynman', 'examen']}
+/>
+
+:::tip[Cómo leer el capítulo sin que se te olvide]
+1. **Antes** de cada sección, lee solo su título y escribe una pregunta que creas que responde (por ejemplo, «¿por qué el banquero exige conocer los máximos?»).
+2. Lee la sección **buscando esa respuesta**.
+3. **Cierra** la página y escribe la idea central en dos líneas.
+4. Al final, responde las **Review Questions sin mirar** y recién después abre cada respuesta.
+
+Releer subrayando da sensación de dominio, pero recuperar la idea de memoria es lo que la fija para la parte teórica del LC3.
 :::
 
 ## 8.1 Hardware y estructuras de control
@@ -558,5 +584,19 @@ Lo mejor es combinarlas con **page buffering**.
 		{ q: 'SLOB está diseñado para…', opts: ['minimizar los fallos de caché', 'ser simple y usar pocas instrucciones', 'ser lo más compacto posible, para sistemas con poca memoria', 'hugepages'], ok: 2 },
 	]}
 />
+
+<Feynman
+	consigna="Nombra las seis políticas del SO para la memoria virtual y di, para cada una, <strong>qué pregunta responde</strong> y una opción concreta."
+	claves={[
+		'Fetch: ¿cuándo traer? Por demanda o prepaging.',
+		'Placement: ¿dónde? Con paginación da igual; importa en segmentación y NUMA.',
+		'Reemplazo: ¿a quién sacar? OPT, LRU, FIFO o Clock, más page buffering.',
+		'Conjunto residente: ¿cuántos frames por proceso y de quién se saca? Fija o variable, local o global.',
+		'Limpieza: ¿cuándo escribir las páginas modificadas? Por demanda o precleaning.',
+		'Control de carga: ¿cuántos procesos en memoria? Working set, L = S o el criterio del 50 %.',
+	]}
+/>
+
+<Dominio client:visible id="stallings-8" />
 
 <Fuente archivos={['Stallings, Operating Systems 9e, cap. 8, §8.1–8.4 y sección 8.8 (Key Terms y Review Questions)', 'Indicaciones del LC3: lectura recomendada', 'Figura 8.14 verificada con un simulador propio']} />

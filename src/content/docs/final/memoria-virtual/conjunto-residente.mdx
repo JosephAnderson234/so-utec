@@ -7,6 +7,13 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Detective from '../../../../components/tutor/Detective.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 La página anterior respondía **a quién** expulsar. Esta responde tres preguntas de **reparto**:
@@ -16,6 +23,20 @@ La página anterior respondía **a quién** expulsar. Esta responde tres pregunt
 
 El **working set** es la idea que une todo: el conjunto de páginas que un proceso **está usando ahora**. Si cada proceso tiene su working set en RAM, todo va bien.
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Clasificar una política como fija o variable y local o global, y explicar por qué <strong>fija + global</strong> es imposible.',
+		'Calcular el <strong>working set W(t, Δ)</strong> de una cadena para un Δ dado y su tamaño promedio.',
+		'Describir cómo PFF y VSWS aproximan el working set, y cuál es el punto débil de PFF.',
+		'Diagnosticar <strong>thrashing</strong> a partir de síntomas y proponer qué hacer (y qué no sirve).',
+	]}
+	prerrequisitos={[
+		{ t: 'Reemplazo de páginas', href: '/final/memoria-virtual/reemplazo/' },
+		{ t: 'Localidad', href: '/final/memoria-virtual/fundamentos/#localidad-por-qué-no-colapsa' },
+	]}
+	perfiles={['laboratorio', 'debate', 'detective']}
+/>
 
 ## Tamaño del conjunto residente
 
@@ -48,6 +69,14 @@ Global es más simple y flexible, pero puede perjudicar a un compañero que nece
 **Variable + global** es simple, pero no tiene forma de saber **a quién** le conviene quitarle un frame: puede quitárselo a un proceso que lo necesitaba. Se compensa con *page buffering*: la página quitada queda un tiempo en una lista y se recupera barato.
 
 **Variable + local** necesita una estrategia para decidir **cuántos** frames dar. Ahí entra el working set.
+
+<Predice titulo="Debate: elige y defiende" pregunta="En la misma máquina corren un reproductor de audio (pocas páginas, siempre las mismas, no puede cortarse) y una compilación enorme que no para de pedir memoria. ¿Usarías reemplazo <strong>local</strong> o <strong>global</strong>? ¿Qué cambia si solo corre la compilación?">
+
+- **Con los dos procesos:** **local** (con asignación variable), porque con reemplazo global la compilación, que falla mucho, le iría quitando frames al reproductor hasta cortarlo. Local **aísla** a los procesos: los fallos de uno no castigan a otro.
+- **Solo la compilación:** **global** es más simple y aprovecha toda la RAM libre sin tener que medir el working set. Por eso es la opción más usada en los UNIX.
+- **Criterio:** global maximiza el uso de la memoria; local da previsibilidad. Ninguno gana siempre.
+
+</Predice>
 
 ## Working set
 
@@ -91,6 +120,38 @@ La regla: un proceso solo se ejecuta si su working set **cabe completo** en la R
 | 18 | 24 18 | 17 24 18 | 24 17 18 | 15 24 17 18 |
 
 **Tamaño promedio:** 1.88 · 2.56 · 3.06 · 3.38. Con Δ más grande, el working set crece, pero cada vez menos.
+
+<Practica nivel={2} titulo="Complétalo: working set con Δ = 3 para la cadena <code>1 2 1 3 2 4 4 1</code>">
+
+| t | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| ref | 1 | 2 | 1 | 3 | 2 | 4 | 4 | 1 |
+| W(t, 3) | 1 | 1 2 | 1 2 | 1 2 3 | ? | ? | ? | ? |
+
+Recuerda: se miran **las últimas 3 referencias** (incluida la actual) y se quitan los repetidos.
+
+<Solucion titulo="Comparar">
+
+| t | 5 | 6 | 7 | 8 |
+| --- | :-: | :-: | :-: | :-: |
+| últimas 3 | 1 3 2 | 3 2 4 | 2 4 4 | 4 4 1 |
+| W(t, 3) | 1 2 3 | 2 3 4 | **2 4** | **1 4** |
+
+Tamaños: 1, 2, 2, 3, 3, 3, 2, 2, así que el promedio es 18 / 8 = **2.25**. Fíjate en t = 7: la referencia repetida (4 4) **achica** el working set.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: la misma cadena con Δ = 2">
+
+Calcula W(t, 2) para cada t y su tamaño promedio. Después verifica la propiedad W(t, 2) ⊆ W(t, 3) en todos los instantes.
+
+<Solucion titulo="Comparar">
+
+W(t, 2): `1 · 12 · 12 · 13 · 23 · 24 · 4 · 14`. Tamaños: 1, 2, 2, 2, 2, 2, 1, 2, así que el promedio es 14 / 8 = **1.75**. En cada t, el conjunto está contenido en el de Δ = 3: una ventana más chica nunca tiene más páginas.
+
+</Solucion>
+</Practica>
 
 **La estrategia del working set:**
 1. Monitorea el working set de cada proceso.
@@ -167,7 +228,7 @@ El **nivel de multiprogramación** es el número de procesos residentes en RAM.
 | el **más grande** | libera más frames de una vez |
 | el que tiene **más tiempo de ejecución restante** | aproxima la política de menor tiempo restante |
 
-<Solucion titulo="Pregunta típica de análisis: «la CPU está al 10 % y el disco de paginación al 98 %. ¿Qué pasa y qué hago?»">
+<Detective titulo="pregunta típica de análisis" sintoma="La CPU está al <strong>10 %</strong> y el disco de paginación al <strong>98 %</strong>. El administrador agrega más procesos para «aprovechar la CPU ociosa» y todo empeora. ¿Qué pasa y qué harías?" pista="Mira la fig. 8.21: ¿qué le pasa al uso de la CPU cuando el nivel de multiprogramación pasa del máximo?">
 
 Es **thrashing**. Hay demasiados procesos para la RAM disponible: ninguno tiene su working set residente, así que todos generan fallos continuamente y esperan al disco. Agregar procesos (para «aprovechar la CPU ociosa») lo **empeora**.
 
@@ -178,7 +239,16 @@ Es **thrashing**. Hay demasiados procesos para la RAM disponible: ninguno tiene 
 
 Lo que **no** sirve: un disco de paginación un poco más rápido o una CPU más rápida. El cuello de botella es la falta de frames.
 
-</Solucion>
+</Detective>
+
+<Errores
+	errores={[
+		{ mal: 'Mirar las <em>próximas</em> Δ referencias al calcular el working set.', bien: 'W(t, Δ) mira hacia <strong>atrás</strong>: las últimas Δ referencias, incluida la de t.' },
+		{ mal: 'Decir que fija + global es «poco eficiente».', bien: 'Es <strong>imposible</strong>: si le quitas una página a otro proceso, su tamaño deja de ser fijo.' },
+		{ mal: 'Ante thrashing, proponer una CPU más rápida o más procesos.', bien: 'Hay que bajar el nivel de multiprogramación (suspender procesos) o dar más RAM. El cuello de botella es la falta de frames.' },
+		{ mal: 'Confundir precleaning con prepaging.', bien: 'Precleaning <strong>escribe</strong> páginas modificadas antes de tiempo. Prepaging <strong>lee</strong> páginas de más.' },
+	]}
+/>
 
 <Quiz
 	client:visible
@@ -193,5 +263,19 @@ Lo que **no** sirve: un disco de paginación un poco más rápido o una CPU más
 		{ q: 'Con thrashing, agregar más procesos…', opts: ['mejora el uso de la CPU', 'lo empeora', 'no cambia nada', 'elimina los fallos'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica qué es el working set y por qué la regla «un proceso solo corre si su working set cabe en RAM» evita el thrashing."
+	claves={[
+		'Es el conjunto de páginas usadas en las últimas Δ referencias: una estimación, basada en el pasado, de lo que el proceso necesita ahora.',
+		'Si un proceso corre con <strong>menos</strong> frames que su working set, falla todo el tiempo.',
+		'Si muchos procesos están así a la vez, la CPU espera al disco: eso es el thrashing.',
+		'La regla limita cuántos procesos entran (control de carga implícito). Un ejemplo con números, como el peldaño 2.',
+		'En la práctica se aproxima con PFF o VSWS, porque medirlo exacto es caro.',
+	]}
+	trampa="decir que el working set son «las páginas que el proceso va a usar». Es lo que <strong>usó</strong> recientemente, y se usa para predecir."
+/>
+
+<Dominio client:visible id="conjunto-residente" />
 
 <Fuente archivos={['Stallings 9e §8.2 (Resident Set Management, Cleaning Policy, Load Control; figs. 8.19–8.21)', 'Working set de la fig. 8.19 calculado con un script propio']} />

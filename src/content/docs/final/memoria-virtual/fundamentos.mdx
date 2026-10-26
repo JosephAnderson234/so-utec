@@ -8,10 +8,30 @@ import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
 import TlbEat from '../../../../components/sim/TlbEat.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Piensa en una **biblioteca enorme** (el disco) y un **escritorio pequeño** (la RAM). No traes todos los libros al escritorio: solo los que estás usando ahora. Si necesitas uno que no está, te levantas a buscarlo (**fallo de página**), y si el escritorio está lleno devuelves otro (**reemplazo**). Funciona porque casi siempre trabajas con los mismos pocos libros por un rato: eso es la **localidad**. La memoria virtual es exactamente eso: cada programa cree que tiene toda la memoria para él, pero en la RAM solo están los pedazos que está usando.
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Explicar por qué la memoria virtual funciona a pesar de que el disco es miles de veces más lento (<strong>localidad</strong>).',
+		'Decir qué hace cada bit de la PTE (<strong>P, M, R</strong>) y qué pasa cuando P = 0.',
+		'Seguir el orden <strong>TLB → tabla → page fault</strong> y calcular el <strong>EAT</strong> con k niveles, con y sin fallos de página.',
+		'Enumerar los 6 pasos del page fault y distinguir <em>page fault</em> de <em>segmentation fault</em>.',
+	]}
+	prerrequisitos={[
+		{ t: 'Paginación simple: VPN y offset', href: '/memoria/paginacion/' },
+		{ t: 'Estados de un proceso (Bloqueado y Listo)', href: '/procesos/estados/' },
+	]}
+	perfiles={['visual', 'laboratorio', 'feynman']}
+/>
 
 Esta página cubre la parte de **hardware y estructuras** (Stallings §8.1). Lo básico de paginación, segmentación y la calculadora de tablas ya está en [Paginación](/memoria/paginacion/) y [Segmentación](/memoria/segmentacion/); aquí está lo que cambia cuando la memoria es **virtual**.
 
@@ -83,6 +103,16 @@ Con paginación simple, la tabla solo decía «la página k está en el frame f�
 
 Las fórmulas y la calculadora están en [Paginación § multinivel](/memoria/paginacion/#tablas-grandes-multinivel-e-invertidas).
 
+<Predice pregunta="Una referencia <strong>falla en la TLB</strong>. ¿Significa eso que hay un page fault? Responde sí o no y justifica antes de seguir.">
+
+**No.** Un fallo de TLB solo significa que la traducción **no está en la caché**. Se lee la PTE de la tabla en memoria:
+- si **P = 1**, la página sí está en RAM: se carga la PTE en la TLB y se reintenta. Cuesta k accesos más a memoria, nada de disco;
+- solo si **P = 0** hay **page fault**, y recién ahí interviene el SO y el disco.
+
+Confundir los dos es uno de los errores más comunes en las preguntas de EAT.
+
+</Predice>
+
 ## TLB: la caché de traducciones
 
 <EnSimple titulo="En simple: el orden en que se pregunta">
@@ -108,6 +138,54 @@ Cada referencia a memoria virtual podría costar **dos accesos**: uno para leer 
 Si la tabla de páginas cambia (cambio de proceso), la TLB se vacía, o cada entrada lleva un identificador de espacio de direcciones (ASID).
 
 <TlbEat client:visible />
+
+Fórmula del curso, con k niveles de tabla y TLB consultada siempre:
+
+$$
+\text{EAT} = h\,(t_{TLB} + t_m) + (1-h)\,(t_{TLB} + k\,t_m + t_m)
+$$
+
+<Practica nivel={1} titulo="Resuelto: 1 nivel, TLB de 20 ns, memoria de 100 ns y h = 0.9">
+
+1. **Acierto** (90 %): TLB y luego el dato, 20 + 100 = **120 ns**.
+2. **Fallo de TLB** (10 %): TLB, luego la PTE (1 nivel) y luego el dato, 20 + 100 + 100 = **220 ns**.
+3. **EAT** = 0.9 · 120 + 0.1 · 220 = 108 + 22 = **130 ns**.
+4. **Interpretación:** sin TLB cada acceso costaría 200 ns (PTE + dato). La TLB ahorra un 35 %.
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: 2 niveles, TLB de 10 ns, memoria de 100 ns y h = 0.95">
+
+El acierto cuesta 10 + 100 = 110 ns. Completa: ¿cuánto cuesta un fallo de TLB con **dos** niveles?, ¿y el EAT?
+
+<Solucion titulo="Comparar">
+
+Fallo: 10 + **2 · 100** + 100 = **310 ns**, porque hay que leer dos PTE (directorio y tabla) antes del dato. EAT = 0.95 · 110 + 0.05 · 310 = 104.5 + 15.5 = **120 ns**.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: 3 niveles, TLB de 5 ns, memoria de 80 ns y h = 0.98">
+
+<Solucion titulo="Comparar">
+
+Acierto: 5 + 80 = 85 ns. Fallo: 5 + 3 · 80 + 80 = 325 ns. EAT = 0.98 · 85 + 0.02 · 325 = 83.3 + 6.5 = **89.8 ns**. Aunque hay 3 niveles, el EAT queda cerca del acierto porque h es alto.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: el mismo sistema del peldaño 1, pero con page faults">
+
+Supón que uno de cada millón de accesos (p = 10⁻⁶) produce un page fault que cuesta **8 ms** en total. ¿Cuánto sube el EAT? ¿Qué p máxima permite que el EAT suba menos de un 10 %?
+
+<Solucion titulo="Comparar">
+
+- EAT ≈ (1 − p) · 130 ns + p · 8 000 000 ns ≈ 130 + 8 = **138 ns**. Un solo fallo por millón de accesos encarece todo un **6 %**.
+- Para subir menos de un 10 % (EAT < 143 ns), se necesita p · 8 000 000 < 13, es decir, **p < 1.6 · 10⁻⁶**.
+- **Lección:** el disco domina todo. Por eso importan tanto la localidad y una buena política de reemplazo, mucho más que unos nanosegundos de TLB.
+
+</Solucion>
+</Practica>
 
 ## Tamaño de página: un compromiso
 
@@ -174,6 +252,12 @@ Linux distingue dos tipos:
 - **Fallo mayor** (*major fault*): hay que leer del disco. Es el que cuesta milisegundos.
 :::
 
+<Predice pregunta="El programa reserva <code>PAGESIZE × N</code> bytes con <code>malloc</code>, después escribe un byte en cada página y finalmente las vuelve a leer todas. ¿En cuál de las tres fases aparecen unos N page faults?">
+
+En la **escritura**. `malloc` solo reserva memoria **virtual**, así que no trae páginas a la RAM. La primera escritura sobre cada página produce **un fallo por página**: eso es la paginación por demanda. La lectura posterior no falla, porque las páginas ya están residentes. La medición de abajo lo confirma.
+
+</Predice>
+
 ### Medición: la paginación por demanda en acción
 
 Basado en la actividad «Paging y TLB» de la guía de Valgrind. El programa reserva `PAGESIZE × N` bytes, los escribe y luego los lee, contando los fallos con `getrusage` (es lo mismo que mide `perf stat -e page-faults`). Página de 4096 B; resultado de la ejecución de prueba:
@@ -199,6 +283,16 @@ Porque después de la primera pasada **todas** las páginas del arreglo están e
 
 </Solucion>
 
+<Errores
+	errores={[
+		{ mal: 'Decir «fallo de TLB, entonces page fault».', bien: 'Fallo de TLB significa ir a la tabla. Solo si ahí P = 0 hay page fault.' },
+		{ mal: 'En el EAT, olvidar sumar t<sub>TLB</sub> en el caso de fallo, o contar un solo acceso a tabla con k niveles.', bien: 'Fallo de TLB = t<sub>TLB</sub> + k · t<sub>m</sub> + t<sub>m</sub>. Escribe la fórmula, define cada variable y recién después sustituye.' },
+		{ mal: 'Responder <em>page fault</em> cuando la dirección no pertenece al proceso.', bien: 'Si la dirección es inválida, el resultado es <em>segmentation fault</em> y el proceso se aborta. El page fault es para direcciones válidas que no están en RAM.' },
+		{ mal: 'Creer que una víctima con M = 0 también se escribe al disco.', bien: 'Con M = 0 el disco ya tiene una copia idéntica: se descarta sin E/S.' },
+		{ mal: 'Decir que la tabla invertida crece con el espacio virtual.', bien: 'Tiene una entrada por <strong>frame</strong>, así que su tamaño depende de la RAM.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="fin-vm-fund"
@@ -212,5 +306,18 @@ Porque después de la primera pasada **todas** las páginas del arreglo están e
 		{ q: 'Páginas más grandes implican…', opts: ['tablas más grandes', 'más fragmentación interna y tablas más chicas', 'menos fragmentación interna', 'más entradas en la TLB'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica a un amigo que no estudia computación por qué un programa de 8 GB puede correr en una máquina con 4 GB de RAM, y qué pasa exactamente cuando toca una parte que no está cargada."
+	claves={[
+		'Solo hace falta en RAM la parte que se usa <strong>ahora</strong>, porque por la localidad el programa trabaja con pocas páginas a la vez.',
+		'Cada página tiene un bit P. Si vale 0, el hardware hace un trap al SO: eso es el <strong>page fault</strong>.',
+		'El SO verifica que la dirección sea válida, busca un marco (o una víctima, que se escribe solo si M = 1), lee la página del disco, pone P = 1 y reinicia la instrucción.',
+		'Mientras el disco trabaja (milisegundos), el proceso está bloqueado y corre otro.',
+	]}
+	trampa="decir que la memoria virtual «usa el disco como RAM» sin explicar que funciona solo porque la localidad hace que los fallos sean raros."
+/>
+
+<Dominio client:visible id="mv-fundamentos" />
 
 <Fuente archivos={['Stallings 9e §8.1 (Hardware and Control Structures)', 'sem_9/Sem9_09-OST-Memory.pdf (diap. 9–14, 48–76)', 'sem_9/10-OSL-Valgrind.pdf («Paging y TLB»)', 'Prueba propia: pagefaults.c (getrusage, ejecución de prueba)']} />

@@ -7,10 +7,32 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import PageReplacement from '../../../../components/sim/PageReplacement.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 Para este tipo de pregunta, dibuja una tabla: **una columna por referencia** y **una fila por frame**. En cada columna escribe qué hay en memoria después de ese acceso y marca con **F** los fallos. La regla de cada algoritmo solo importa cuando la memoria está **llena** y hay que elegir a quién sacar. Practica en el simulador y después compara tu tabla con la solución.
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Simular FIFO, OPT, LRU y Clock en una tabla referencia × frames y contar los fallos sin errores de convención.',
+		'Mostrar la anomalía de Belady con números.',
+		'Calcular el tamaño de una tabla de páginas a partir del espacio virtual, el tamaño de página y el tamaño de la PTE.',
+		'Diseñar una PTE para Clock y simularlo dejando el puntero y los bits de uso explícitos.',
+	]}
+	prerrequisitos={[
+		{ t: 'Reemplazo (con escalera de práctica)', href: '/final/memoria-virtual/reemplazo/' },
+		{ t: 'Paginación', href: '/memoria/paginacion/' },
+	]}
+	perfiles={['examen', 'simulador']}
+/>
+
+:::caution[Modo examen]
+Estas son hojas de **análisis** como las del LC3 (3 pts cada pregunta). Hazlas **cronometradas** (unos 12 minutos por pregunta), en papel y **sin abrir la solución** hasta terminar. Al corregir, clasifica cada error: ¿**conceptual** (no sabías la regla), **procedimental** (sabías la regla pero te saltaste un paso) o de **interpretación** (leíste mal el enunciado)? Repasa según el tipo: si es conceptual, vuelve a la página del tema; si es procedimental, a la escalera de práctica.
+:::
 
 :::note[Convenciones usadas (decláralas en el examen)]
 - Los frames empiezan **vacíos**, y los primeros fallos (que solo **llenan** frames) **sí se cuentan**.
@@ -73,6 +95,23 @@ Por ejemplo, en la cuarta referencia (C) los tres tienen u = 1. El puntero da un
 **Comparación:** OPT (7) < LRU (8) < Clock (9) < FIFO (10). Es el orden esperable: Clock aproxima a LRU con un solo bit.
 
 </Solucion>
+
+<Practica nivel={4} titulo="Variante de P1: la misma cadena con 4 frames (y con 2)">
+
+Antes de simular, **predice**: ¿todos los algoritmos bajan de fallos con 4 frames? Después compruébalo en el simulador cambiando el número de frames.
+
+<Solucion titulo="Comparar (verificado con un script)">
+
+| Frames | FIFO | LRU | OPT | Clock |
+| :-: | :-: | :-: | :-: | :-: |
+| 2 | 13 | 12 | 9 | 13 |
+| 3 | 10 | 8 | 7 | 9 |
+| 4 | 7 | 7 | 6 | 8 |
+
+Con esta cadena todos mejoran al agregar frames: aquí no aparece la anomalía de Belady. Que pueda aparecer con FIFO no significa que aparezca siempre: P2 es una cadena construida justamente para provocarla.
+
+</Solucion>
+</Practica>
 
 ## Pregunta 2 · FIFO con 3 y 4 frames
 
@@ -180,5 +219,16 @@ El puntero queda en el frame 3 (D) y hubo **6 fallos**. Se puede comprobar con e
 **Si tu profesor usa otra convención** (por ejemplo, u = 0 al cargar), el contenido final puede cambiar. Escribe la convención en tu respuesta.
 
 </Solucion>
+
+<Errores
+	errores={[
+		{ mal: 'No escribir la convención de Clock (u al cargar, a dónde queda el puntero).', bien: 'Escríbela al inicio de la respuesta. Con u = 0 al cargar, el contenido final puede cambiar.' },
+		{ mal: 'En OPT, sacar la página que se usó hace más tiempo.', bien: 'Eso es LRU. OPT mira hacia <strong>adelante</strong>: saca la que se vuelve a usar más tarde, o nunca.' },
+		{ mal: 'Calcular el tamaño de la tabla con el número de frames.', bien: 'Entradas = páginas <strong>virtuales</strong>. Tamaño = entradas × bytes por PTE.' },
+	]}
+/>
+
+
+<Dominio client:visible id="ej-page-replacement" />
 
 <Fuente archivos={['sem_9/11-OSL-Ejercicios_Page_Replacement.pdf', 'Soluciones propias verificadas con dos simuladores independientes (el de esta web y un script en Python)']} />

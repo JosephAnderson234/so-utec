@@ -7,12 +7,31 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 - **Deadlock:** dos personas en un pasillo angosto, cada una esperando que la otra retroceda. Nadie se mueve, **para siempre**.
 - **Livelock:** las dos son **demasiado educadas**. Las dos se hacen a un lado al mismo tiempo, luego las dos vuelven al centro, otra vez a un lado… Se mueven todo el tiempo, pero **nadie pasa**.
 - **trylock** es lo que permite ser «educado»: intentar tomar el recurso **sin quedarse esperando**. Si no se puede, soltar lo que tengo y reintentar. Arregla el deadlock, pero si los dos reintentan **sincronizados**, aparece el livelock.
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Explicar por qué un <strong>solo hilo</strong> puede hacer deadlock y qué cambia con un mutex ERRORCHECK o RECURSIVE.',
+		'Usar <code>pthread_mutex_trylock</code> y decir qué condición de Coffman rompe.',
+		'Distinguir <strong>deadlock, livelock y starvation</strong> por tres criterios: ¿ejecutan?, ¿alguien progresa?, ¿se resuelve solo?',
+		'Proponer tres formas de evitar el livelock y elegir la más robusta.',
+	]}
+	prerrequisitos={[
+		{ t: 'Coffman', href: '/semaforos/deadlock/' },
+		{ t: 'Mutex POSIX', href: '/hardware/futex/' },
+	]}
+	perfiles={['detective', 'debate', 'feynman']}
+/>
 
 ## Repaso rápido: semáforos POSIX (diap. 4–7)
 
@@ -21,6 +40,12 @@ Un semáforo es un **contador especial** para recursos compartidos (Dijkstra, 19
 - **V()** (*signal*, *post*, *up*): **nunca bloquea**. Despierta a uno si hay alguno esperando; si no, incrementa.
 
 En POSIX (`man 7 sem_overview`) el valor **nunca baja de 0**. Hay semáforos **con nombre** (`sem_open("/nombre")`, para procesos sin parentesco) y **sin nombre** (`sem_init`). Todo el detalle está en [Mutex POSIX y semáforos](/hardware/futex/#5-semáforos-posix-a-fondo).
+
+<Predice pregunta="¿Se necesitan al menos dos hilos para tener un deadlock? Piensa en un mutex por defecto de Linux antes de seguir.">
+
+**No.** Un hilo que hace `lock` dos veces sobre el **mismo** mutex NORMAL espera a que se libere un lock que él mismo tiene: queda bloqueado para siempre. La «espera circular» es un ciclo de largo 1.
+
+</Predice>
 
 ## Deadlock de un solo hilo (diap. 8–9)
 
@@ -83,6 +108,12 @@ void process1(void) {                          void process2(void) {
 | ¿Se resuelve solo? | nunca | **puede**, si cambian los tiempos | puede, si cambian los tiempos |
 | Ejemplo | los 5 filósofos con un tenedor cada uno | dos procesos educados con `trylock` y espera fija | [filósofo 0 en `tanen-5-1.c`](/final/deadlock/filosofos/#6--starvation-con-alto-paralelismo) |
 
+<Predice pregunta="Si compilas el código de arriba con <code>pthread_mutex_trylock</code> y una espera fija de 1 ms, y lo corres en tu laptop, ¿esperas ver un livelock que dure segundos? ¿Por qué?">
+
+Lo más probable es que **no**. En una máquina real, el planificador, las interrupciones y la caché meten **ruido** en los tiempos, y eso rompe la simetría en uno o dos reintentos. Pero que no lo veas **no prueba** que el código esté bien: el livelock sigue siendo **posible**. «Funcionó en mis pruebas» no demuestra la ausencia de un problema de concurrencia. La ejecución de abajo lo confirma.
+
+</Predice>
+
 ### ¿Qué pasa al ejecutarlo de verdad?
 
 Programé el ejemplo con `pthread_mutex_trylock`: los dos hilos arrancan juntos con una barrera, cada uno espera 1 ms con el primer lock tomado, y luego intenta el segundo. Ejecución de prueba, 5 rondas:
@@ -113,6 +144,15 @@ ronda 0: reintentos P1=1 P2=0
 
 </Solucion>
 
+<Errores
+	errores={[
+		{ mal: 'Decir que el livelock es un deadlock porque nadie avanza.', bien: 'En el livelock los procesos <strong>ejecutan y cambian de estado</strong> (gastan CPU). No están bloqueados.' },
+		{ mal: 'Concluir que el código es correcto porque no apareció el livelock al probarlo.', bien: 'Las pruebas solo muestran algunas intercalaciones. El livelock depende de los tiempos y puede aparecer en otra máquina.' },
+		{ mal: 'Creer que trylock sobre un mutex que ya tiene el propio hilo lo «deja pasar».', bien: 'Retorna <code>EBUSY</code> igual: el mutex está tomado, no importa por quién.' },
+		{ mal: 'Arreglar el livelock alargando la espera fija.', bien: 'Si los dos esperan lo mismo, siguen sincronizados. Hace falta un orden global, una espera aleatoria o asimetría.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="fin-livelock"
@@ -124,5 +164,17 @@ ronda 0: reintentos P1=1 P2=0
 		{ q: 'La solución más robusta al ejemplo de las diapositivas es…', opts: ['esperar más tiempo fijo', 'que ambos tomen los locks en el mismo orden', 'usar sleep(0)', 'quitar el trylock'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica con el ejemplo de las dos personas en el pasillo la diferencia entre deadlock, livelock y starvation, y cuál de las tres puede producir el <code>trylock</code>."
+	claves={[
+		'Deadlock: nadie se mueve, todos bloqueados esperando al otro, para siempre.',
+		'Livelock: todos se mueven (ceden y reintentan), pero sincronizados, así que nadie pasa.',
+		'Starvation: los demás pasan, pero a uno siempre le ganan.',
+		'trylock elimina el deadlock (rompe hold and wait), pero puede producir livelock y starvation. La solución robusta es un <strong>orden global</strong> de los locks.',
+	]}
+/>
+
+<Dominio client:visible id="livelock" />
 
 <Fuente archivos={['sem_9/11-OSL-Deadlock.pdf (diap. 4–14)', 'man pthread_mutex_trylock(3), sem_overview(7)', 'Prueba propia: livelock.c (ejecución de prueba)']} />

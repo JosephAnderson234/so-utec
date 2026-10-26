@@ -7,6 +7,11 @@ import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
 import Quiz from '../../../../components/Quiz.tsx';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
 
 <EnSimple>
 **Valgrind** ejecuta tu programa dentro de una **CPU simulada** que vigila cada lectura y escritura de memoria. Es como un **inspector** que te sigue mientras cocinas: anota cada vez que usas un ingrediente que no compraste, tocas un plato que ya lavaste o te olvidas algo en el horno. Va unas 20–50 veces más lento, pero te dice **la línea exacta** del error.
@@ -14,6 +19,19 @@ import Quiz from '../../../../components/Quiz.tsx';
 - **helgrind** busca condiciones de carrera entre hilos.
 - **perf** es otra herramienta: cuenta eventos del hardware y del kernel, como los page faults.
 </EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Leer un reporte de <strong>memcheck</strong> y decir qué error es, en qué línea está y cómo se corrige.',
+		'Distinguir los tipos de fuga (definitely, indirectly, possibly lost, still reachable).',
+		'Saber qué <strong>no</strong> detecta memcheck (desbordes en el stack) y qué usar en su lugar.',
+		'Explicar por qué helgrind detecta una race aunque el resultado haya salido bien, y medir page faults con <code>perf</code>.',
+	]}
+	prerrequisitos={[
+		{ t: 'malloc y el heap', href: '/final/linux/espacio-direcciones/' },
+	]}
+	perfiles={['detective', 'laboratorio']}
+/>
 
 ## Uso
 
@@ -117,6 +135,50 @@ ERROR SUMMARY: 1 errors from 1 contexts
 
 </Solucion>
 
+<Practica nivel={3} titulo="Solo: ¿qué reporta memcheck y cómo lo corriges?">
+
+Antes de abrir la respuesta, escribe **qué mensajes** dará `valgrind --leak-check=full`, **en qué líneas** y la corrección de cada bug.
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int *leer_notas(int n) {
+    int *notas = malloc(n * sizeof(int));
+    for (int i = 0; i <= n; i++)
+        notas[i] = 10 + i;
+    return notas;
+}
+
+int main(void) {
+    int n = 5;
+    int *notas = leer_notas(n);
+    char *nombre = malloc(16);
+    strcpy(nombre, "Ana");
+    int suma;
+    for (int i = 0; i < n; i++)
+        suma += notas[i];
+    if (suma > 50)
+        printf("%s aprobó con %d\n", nombre, suma);
+    free(notas);
+    return 0;
+}
+```
+
+<Solucion titulo="Comparar (ejecución de prueba con Valgrind 3.22)">
+
+| Línea | Mensaje de memcheck | Bug | Corrección |
+| :-: | --- | --- | --- |
+| 8 | `Invalid write of size 4 … 0 bytes after a block of size 20 alloc'd` | el `for` llega a `i <= n`: escribe `notas[5]`, fuera del bloque | `i < n` |
+| 20 | `Conditional jump or move depends on uninitialised value(s)` | `suma` sin inicializar. El error sale en el **`if`**, no en el `+=` | `int suma = 0;` |
+| 15 | `16 bytes in 1 blocks are definitely lost` | nunca se libera `nombre` | `free(nombre);` |
+
+El resumen dice `ERROR SUMMARY: 9 errors from 7 contexts`, porque el valor no inicializado también «contamina» a `printf` (varios contextos dentro de glibc). **Lo traicionero:** el programa imprimió `Ana aprobó con 60`, que es correcto, porque la basura de `suma` justo valía 0 en esa ejecución. Con las tres correcciones, memcheck da `0 errors` y `3 allocs, 3 frees`.
+
+</Solucion>
+</Practica>
+
 ## Lo que memcheck **no** ve
 
 - **Desbordes en el stack o en globales.** [`memcpy1.c`](/final/linux/espacio-direcciones/#memcpy-y-sus-bugs) copia 1024 bytes a un arreglo local de 20 y memcheck reporta **0 errores**. Memcheck conoce los límites de cada bloque del heap porque intercepta `malloc`, pero no los de cada arreglo del stack. Para eso existe **AddressSanitizer** (`gcc -fsanitize=address`) o `-D_FORTIFY_SOURCE=2`.
@@ -158,6 +220,15 @@ sudo perf stat -e page-faults ./arreglo
 
 Otros eventos útiles: `perf stat -e cycles,instructions,cache-misses,dTLB-load-misses ./prog`. Por ejemplo, recorrer una matriz **por columnas** dispara los fallos de caché y de TLB frente a recorrerla por filas (es la pregunta 5 de [ejercicios de memoria virtual](/final/ejercicios/memoria-virtual/#pregunta-5--recorrido-por-columnas)).
 
+<Errores
+	errores={[
+		{ mal: 'Buscar el error de «valor sin inicializar» en la línea de la aritmética.', bien: 'Memcheck lo reporta donde el valor <strong>decide algo</strong>: un <code>if</code>, una dirección o una syscall.' },
+		{ mal: 'Concluir que no hay bug porque memcheck dio 0 errores.', bien: 'Memcheck no ve los desbordes en el stack ni en las globales, y analiza solo el camino que se ejecutó.' },
+		{ mal: 'Compilar sin <code>-g</code>.', bien: 'Sin <code>-g</code> el reporte no trae <code>archivo.c:línea</code>.' },
+		{ mal: 'Pensar que helgrind solo ve la race si el resultado sale mal.', bien: 'Usa happens-before: si no hay un lock común que ordene los accesos, la reporta igual.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="fin-valgrind"
@@ -171,5 +242,17 @@ Otros eventos útiles: `perf stat -e cycles,instructions,cache-misses,dTLB-load-
 		{ q: '¿Qué comando cuenta page faults?', opts: ['valgrind --tool=perf', 'perf stat -e page-faults ./prog', 'getconf PAGESIZE', 'gdb bt'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica qué hace Valgrind para encontrar un <code>a[10] = 7</code> en un arreglo de 10 enteros pedido con <code>malloc</code>, y por qué no lo encuentra si el arreglo es local."
+	claves={[
+		'Ejecuta el programa en una CPU simulada que revisa <strong>cada acceso</strong> a memoria.',
+		'Intercepta <code>malloc</code> y <code>free</code>, así que conoce el inicio y el fin exactos de cada bloque del heap. Por eso dice «0 bytes after a block of size 40».',
+		'Un arreglo local es solo una zona del stack, sin límites registrados. Escribir más allá cae en otra parte válida del stack.',
+		'Para el stack se usa AddressSanitizer (<code>-fsanitize=address</code>).',
+	]}
+/>
+
+<Dominio client:visible id="valgrind" />
 
 <Fuente archivos={['sem_9/10-OSL-Valgrind.pdf (actividad de laboratorio)', 'Código del curso sem9/valgrind/: hello.c, mem1.c, mem2.c, mem3.c (ejecuciones de prueba con memcheck)', 'Pruebas propias: errores.c (6 tipos de error), race.c (helgrind)', 'Valgrind User Manual (memcheck, helgrind)']} />

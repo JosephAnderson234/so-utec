@@ -9,10 +9,31 @@ import EnSimple from '../../../components/EnSimple.astro';
 import Quiz from '../../../components/Quiz.tsx';
 import Solucion from '../../../components/Solucion.astro';
 import Fuente from '../../../components/Fuente.astro';
+import Objetivos from '../../../components/tutor/Objetivos.astro';
+import Predice from '../../../components/tutor/Predice.astro';
+import Practica from '../../../components/tutor/Practica.astro';
+import Errores from '../../../components/tutor/Errores.astro';
+import Feynman from '../../../components/tutor/Feynman.astro';
+import Dominio from '../../../components/tutor/Dominio.tsx';
 
 :::note
 La diapositiva de memoria de 2026-II termina en segmentación («more about pages in next session»). Aun así, la paginación **cayó en el E1 2022 y en el E1 2025-2**, así que conviene dominar el cálculo.
 :::
+
+
+<Objetivos
+	objetivos={[
+		'Partir una dirección en <strong>VPN | offset</strong> (offset = log<sub>2</sub> del tamaño de página) y traducirla a física concatenando el PFN.',
+		'Calcular bits de VPN y PFN, número de entradas y <strong>tamaño de la tabla</strong> (entradas × tamaño de PTE).',
+		'Diseñar una tabla de <strong>dos niveles</strong> (cuántos bits por nivel) y decir cuándo ocupa menos que la de un nivel.',
+		'Reconocer cuándo la respuesta es <em>page fault</em> (P = 0) en vez de una dirección física.',
+	]}
+	prerrequisitos={[
+		{ t: 'Potencias de 2 y conversión binario ↔ hexadecimal', href: '/formulario/' },
+		{ t: 'MMU y dirección lógica vs física', href: '/memoria/segmentacion/' },
+	]}
+	perfiles={['visual', 'laboratorio', 'examen']}
+/>
 
 ## Paginación simple (Stallings §7.3)
 
@@ -51,6 +72,54 @@ $$
 - La dirección relativa **1502** = `000001 0111011110` es la **página 1**, **offset 478**.
 - Si la tabla dice página 1 → **marco 6** (`000110`), la dirección física es `000110 0111011110` = 6·1024 + 478 = **6622**.
 
+<Practica nivel={1} titulo="Resuelto: el ejemplo del libro (1502 → 6622)">
+
+Es el ejemplo de arriba. Repásalo con este orden fijo, que sirve para **cualquier** traducción:
+1. **Bits de offset** = log<sub>2</sub>(página) = log<sub>2</sub>(1024) = 10.
+2. **Partir la dirección:** VPN = 1502 ÷ 1024 = **1** y offset = 1502 mod 1024 = **478**.
+3. **Mirar la tabla:** página 1 → marco 6, con P = 1. Si P = 0, la respuesta sería *page fault* y aquí terminaría.
+4. **Armar la física:** 6 · 1024 + 478 = **6622**. En binario es solo concatenar `000110 | 0111011110`.
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: direcciones de 16 bits, páginas de 512 B, dirección <code>0x1A3C</code>; la tabla dice página 13 → marco 5">
+
+El paso 1 ya está: el offset tiene **9 bits** (2<sup>9</sup> = 512). Completa los pasos 2 a 4: calcula el VPN, el offset y la dirección física, en decimal y en hexadecimal.
+
+<Solucion titulo="Comparar">
+
+- `0x1A3C` = `0001 1010 0011 1100` = 6716.
+- Los 9 bits bajos son `0 0011 1100`, así que el **offset = 60**. Los 7 bits altos son `0001101`, así que el **VPN = 13**. Comprobación: 6716 = 13 · 512 + 60.
+- Física = 5 · 512 + 60 = **2620** = `0000101 | 000111100` = **`0x0A3C`**.
+
+Ojo: como 9 no es múltiplo de 4, el límite entre VPN y offset **corta un dígito hexadecimal**. Por eso conviene pasar a binario.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: 32 bits y páginas de 4 KB">
+
+La tabla tiene: VPN `0x12345` → PFN `0x00ABC` con P = 1, y VPN `0x00010` con **P = 0**. Traduce `0x12345678` y `0x00010FFF`.
+
+<Solucion titulo="Comparar">
+
+- Offset de 12 bits = 3 dígitos hexadecimales. `0x12345678` → VPN `0x12345`, offset `0x678` → física **`0x00ABC678`**.
+- `0x00010FFF` → VPN `0x00010`, que tiene P = 0 → **page fault**. No se calcula ninguna dirección física. Es la trampa que marcó la profesora: «primero la página, después la tabla, después la física».
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: la misma dirección <code>0x12345678</code>, pero con páginas de 8 KB">
+
+¿Sigue siendo `0x12345` el VPN? Calcula el VPN y el offset nuevos.
+
+<Solucion titulo="Comparar">
+
+**No.** Ahora el offset tiene **13 bits**, no 12, así que el corte ya no cae entre dígitos hexadecimales. Offset = `0x12345678 & 0x1FFF` = **`0x1678`** y VPN = `0x12345678 >> 13` = **`0x91A2`** (37282). **Lección:** el VPN depende del tamaño de página. Primero calcula los bits de offset y después corta.
+
+</Solucion>
+</Practica>
+
 ## La entrada de la tabla (PTE)
 
 <EnSimple titulo="En simple: la ficha de cada página">
@@ -87,6 +156,12 @@ Una tabla de páginas de un solo nivel tiene **una fila por cada página posible
 La **tabla invertida** da vuelta la pregunta: en vez de «¿dónde está cada página de cada proceso?» guarda «¿**quién ocupa cada marco**?», como la lista de asientos de un cine. Si la RAM tiene 8 marcos, la tabla tiene **8 filas**, haya los procesos que haya.
 </EnSimple>
 
+
+<Predice pregunta="Antes de seguir: ¿una tabla de <strong>dos</strong> niveles ocupa siempre menos memoria que una de un nivel? Piensa en un proceso pequeño y en uno que usa todo su espacio virtual.">
+
+**No siempre.** Para un proceso **pequeño o disperso** ocupa mucho menos: la raíz más una o dos tablas hoja, unos 8 KB en vez de 4 MB. Pero si el proceso usa **todo** su espacio, se necesitan todas las tablas hoja **más** la raíz: 4 MB + 4 KB, un poco **más** que un nivel. Además, cada traducción cuesta un acceso a memoria más. La ventaja depende de que los procesos usen solo una parte de su espacio, que es lo habitual.
+
+</Predice>
 
 **El problema:** la tabla es proporcional al **espacio virtual**. En una VAX: 2 GB con páginas de 512 B dan $2^{22}$ PTE **por proceso**. Por eso las tablas se guardan en **memoria virtual** (también se paginan) y se usan jerarquías.
 
@@ -205,6 +280,17 @@ Direcciones virtuales de 38 bits y físicas de 32. (1) Ventaja o desventaja de m
 
 </Solucion>
 
+<Errores
+	errores={[
+		{ mal: 'Sacar los bits de offset del tamaño de la RAM.', bien: 'El offset sale del <strong>tamaño de página</strong>. La RAM determina los bits de PFN.' },
+		{ mal: 'Usar 1 KB = 1000.', bien: 'Todo es en base 2: 1 KB = 2<sup>10</sup> = 1024.' },
+		{ mal: 'Calcular la física como PFN + offset.', bien: 'Es PFN × tamaño de página + offset, es decir, concatenar. Sumar base + offset es la regla de la <strong>segmentación</strong>.' },
+		{ mal: 'Calcular el número de entradas con los marcos.', bien: 'Una tabla convencional tiene una entrada por <strong>página virtual</strong>. Una entrada por marco es la tabla invertida.' },
+		{ mal: 'Dar 21 bits de PTE como tamaño en bytes sin redondear.', bien: 'Redondea a bytes enteros: 21 bits ocupan 3 B. Tamaño de la tabla = entradas × bytes por PTE.' },
+		{ mal: 'Traducir sin mirar el bit de validez.', bien: 'Primero la página, después la tabla (¿P = 1?) y recién después la física.' },
+	]}
+/>
+
 <Quiz
 	client:visible
 	id="paginacion"
@@ -215,5 +301,18 @@ Direcciones virtuales de 38 bits y físicas de 32. (1) Ventaja o desventaja de m
 		{ q: 'Principal desventaja de una tabla de 4 niveles:', opts: ['Ocupa más memoria que la de 1 nivel', 'Hasta 4 accesos extra a memoria por traducción (sin TLB)', 'No permite compartir páginas', 'Fragmentación externa'], ok: 1 },
 	]}
 />
+
+<Feynman
+	consigna="Explica por qué en paginación el offset «pasa igual» de la dirección virtual a la física, y qué pasaría si el tamaño de página no fuera una potencia de 2."
+	claves={[
+		'La página y el marco tienen el <strong>mismo tamaño</strong>: el byte k de la página es el byte k del marco.',
+		'Como el tamaño es 2<sup>o</sup>, el offset son exactamente los o bits bajos, y basta reemplazar los bits altos (VPN → PFN).',
+		'Si no fuera potencia de 2, habría que dividir y multiplicar de verdad en cada acceso, y el hardware sería mucho más lento.',
+		'Un ejemplo con números, como 1502 → 6622.',
+	]}
+	trampa="decir que «el offset se suma a la base». Eso es segmentación."
+/>
+
+<Dominio client:visible id="paginacion" />
 
 <Fuente archivos={['for_partial/E1_OS_20252.pdf (P2)', 'for_partial/E1_OS_2021_2022_Solver.pdf (E1 2022 P3)', 'sem_6/Class 1.md']} />

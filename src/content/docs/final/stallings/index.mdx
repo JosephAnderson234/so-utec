@@ -7,6 +7,7 @@ import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 import EnSimple from '../../../../components/EnSimple.astro';
 import Solucion from '../../../../components/Solucion.astro';
 import Fuente from '../../../../components/Fuente.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
 
 <EnSimple>
 El LC3 tiene **4 preguntas teóricas «del libro»** que valen 5 puntos y pueden ser **de desarrollo**: no basta con marcar, hay que **justificar**. Para eso, más que memorizar definiciones sueltas, hay que poder decir **por qué**: por qué best-fit rinde mal, por qué no se puede combinar fija con global, por qué la protección la hace el hardware. Esta sección resume el libro en ese formato.
@@ -17,6 +18,12 @@ El LC3 tiene **4 preguntas teóricas «del libro»** que valen 5 puntos y pueden
 	<LinkCard title="Cap. 7 · Gestión de memoria (completo)" href="/final/stallings/cap7/" description="5 requisitos, particiones, placement, buddy, relocalización, paginación y segmentación simples, y carga y enlace (7A). Review Questions 7.1–7.9." />
 	<LinkCard title="Cap. 8 · Memoria virtual (§8.1–8.4)" href="/final/stallings/cap8/" description="PTE, tablas de 2 niveles e invertidas, TLB, tamaño de página, las 6 políticas, working set, PFF, VSWS, UNIX/Solaris y Linux. Review Questions 8.1–8.12." />
 </CardGrid>
+
+<Predice titulo="Antes de leer" pregunta="Sin abrir el libro: ¿cuántas de las <strong>listas</strong> que el libro enumera puedes escribir completas? (las 4 condiciones de Coffman, los 5 requisitos de la memoria, las 6 políticas del SO para memoria virtual). Escríbelas en 3 minutos.">
+
+Las tres listas están en la sección «Las listas que el libro enumera», más abajo. Las que no te salieron completas son las primeras que tienes que repasar: las teóricas del LC3 suelen pedir justamente estas enumeraciones, y además **justificarlas**.
+
+</Predice>
 
 ## Plan de lectura (unas 6 horas en total)
 
