@@ -172,6 +172,14 @@ Una tabla de páginas de un solo nivel tiene **una fila por cada página posible
 La **tabla invertida** da vuelta la pregunta: en vez de «¿dónde está cada página de cada proceso?» guarda «¿**quién ocupa cada marco**?», como la lista de asientos de un cine. Si la RAM tiene 8 marcos, la tabla tiene **8 filas**, haya los procesos que haya.
 </EnSimple>
 
+<PaginacionFig fig="niveles">
+**Cómo leerlo:** el mismo proceso de 2 MB (512 páginas) con las dos organizaciones. Con **un nivel**, la tabla trae una fila para cada una de las 2²⁰ páginas posibles; solo la franja verde de arriba se usa, pero todo lo rayado también ocupa memoria. Con **dos niveles**, los primeros 10 bits eligen una fila de la raíz y solo la fila 0 apunta a algo: a **una** tabla de 2.º nivel, que cubre 4 MB y alcanza para los 2 MB del proceso. Las otras 1023 filas de la raíz quedan vacías y sus tablas no se crean. Abajo, las dos cantidades dibujadas a la misma escala.
+</PaginacionFig>
+
+<PaginacionFig fig="cine">
+**Cómo leerlo:** a la izquierda, cada proceso tiene su propia tabla enorme, casi vacía. A la derecha, la tabla invertida es la **lista de asientos** del cine: una fila por butaca (marco), que dice qué proceso y qué página la ocupa. Su tamaño solo depende de cuántas butacas hay. Los procesos y páginas son un **ejemplo propio**.
+</PaginacionFig>
+
 <PaginacionFig fig="ahorro">
 **Cómo leerlo:** cada cuadradito es **una página de tabla** (4 KB, con 1024 PTE) y cubre 4 MB del espacio virtual. Hay 1024 cuadraditos para cubrir los 4 GB. Con un nivel existen **todos** (gris), aunque el proceso solo use el primero (verde). Con dos niveles, la raíz marca cuáles existen y los vacíos ni se crean (contorno). Supuesto: el proceso usa 2 MB **contiguos**, así que le basta una tabla. Si usara código abajo y pila arriba, serían dos tablas: 12 KB, que sigue siendo poquísimo.
 </PaginacionFig>

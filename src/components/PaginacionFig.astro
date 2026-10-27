@@ -2,7 +2,7 @@
 /** Diagramas de paginación: marcos, traducción por bits, PTE, tablas multinivel, invertida, TLB y tamaño de página. */
 import '../styles/svgfig.css';
 interface Props {
-	fig: 'marcos' | 'bits' | 'pte' | 'ahorro' | 'dosniveles' | 'invertida' | 'tlb' | 'tamano';
+	fig: 'marcos' | 'bits' | 'pte' | 'ahorro' | 'niveles' | 'cine' | 'dosniveles' | 'invertida' | 'tlb' | 'tamano';
 }
 const { fig } = Astro.props;
 const grid = Array.from({ length: 1024 }, (_, i) => ({ x: (i % 32) * 8, y: Math.floor(i / 32) * 8, i }));
@@ -11,6 +11,10 @@ const frames = [
 	['D.0', 'c4'], ['D.1', 'c4'], ['D.2', 'c4'],
 	['C.0', 'c3'], ['C.1', 'c3'], ['C.2', 'c3'], ['C.3', 'c3'],
 	['D.3', 'c4'], ['D.4', 'c4'], ['libre', ''], ['libre', ''],
+];
+const seats = [
+	['A·0', 'c1'], ['B·3', 'c3'], ['', ''], ['A·1', 'c1'],
+	['C·0', 'c5'], ['B·0', 'c3'], ['A·7', 'c1'], ['', ''],
 ];
 const tablaD = [4, 5, 6, 11, 12];
 const inv = [
@@ -145,6 +149,119 @@ const inv = [
 				<text x="568" y="328" class="t s">raíz 4 KB + 1 tabla 4 KB = <tspan class="b">8 KB</tspan></text>
 				<text x="188" y="344" class="t s mu">existen todas, aunque estén vacías</text>
 				<text x="568" y="344" class="t s mu">las tablas vacías no se crean</text>
+			</svg>
+		)}
+
+		{fig === 'niveles' && (
+			<svg viewBox="0 0 760 450" role="img" aria-label="Un nivel: tabla de 2 a la 20 filas, 4 MB, casi toda vacía. Dos niveles: raíz de 4 KB con una fila usada que apunta a una tabla de 4 KB; total 8 KB">
+				<defs>
+					<marker id="pf-a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+					<pattern id="pf-h9" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" class="hatch" /></pattern>
+				</defs>
+				<text x="140" y="24" class="cap">un nivel</text>
+				<rect x="60" y="50" width="110" height="280" class="hole" fill="url(#pf-h9)" />
+				<rect x="60" y="50" width="110" height="7" class="cell-on" />
+				<rect x="60" y="50" width="110" height="280" class="frame" />
+				<text x="178" y="58" class="t s l ok b">512 filas usadas</text>
+				<text x="178" y="74" class="t s l ok">(los 2 MB del proceso)</text>
+				<text x="178" y="186" class="t s l">1 048 064 filas</text>
+				<text x="178" y="202" class="t s l">vacías, pero</text>
+				<text x="178" y="218" class="t s l b">existen igual</text>
+				<text x="178" y="326" class="t s l mu">fila 1 048 575</text>
+				<text x="115" y="44" class="t s mu">fila 0</text>
+				<text x="140" y="356" class="t s">2²⁰ filas × 4 B = <tspan class="b bad">4 MB</tspan></text>
+
+				<line x1="310" y1="20" x2="310" y2="360" class="sep" stroke-dasharray="4 6" />
+
+				<text x="540" y="24" class="cap">dos niveles</text>
+				<rect x="340" y="40" width="100" height="30" rx="4" class="c1" /><text x="390" y="60" class="t s b">10 bits → raíz</text>
+				<rect x="440" y="40" width="110" height="30" rx="4" class="c3" /><text x="495" y="60" class="t s b">10 bits → tabla</text>
+				<rect x="550" y="40" width="110" height="30" rx="4" class="c2" /><text x="605" y="60" class="t s b">12 bits → offset</text>
+
+				<text x="395" y="100" class="t s b">raíz · 1024 filas</text>
+				<rect x="345" y="110" width="100" height="22" class="c1" />
+				<text x="395" y="126" class="t s b">fila 0</text>
+				<rect x="345" y="132" width="100" height="198" class="cell-off" stroke-dasharray="4 4" />
+				<text x="395" y="210" class="t s">filas 1–1023:</text>
+				<text x="395" y="226" class="t s">vacías, sus</text>
+				<text x="395" y="242" class="t s">tablas <tspan class="b">no se</tspan></text>
+				<text x="395" y="258" class="t s b">crean</text>
+				<text x="395" y="350" class="t s">1024 × 4 B = <tspan class="b">4 KB</tspan></text>
+
+				<path d="M445 121 H518" class="ln" marker-end="url(#pf-a9)" />
+
+				<text x="575" y="100" class="t s b">tabla de 2.º nivel · 1024 filas</text>
+				<rect x="520" y="110" width="110" height="110" class="c4" />
+				<text x="575" y="160" class="t s b">512 filas usadas</text>
+				<text x="575" y="176" class="t s">= los 2 MB</text>
+				<rect x="520" y="220" width="110" height="110" class="cell-off" />
+				<text x="575" y="280" class="t s mu">512 libres</text>
+				<rect x="520" y="110" width="110" height="220" class="frame" />
+				<text x="575" y="350" class="t s">1024 × 4 B = <tspan class="b">4 KB</tspan></text>
+				<path d="M636 112 h10 v216 h-10" class="ln dash" />
+				<text x="652" y="204" class="t s l">la tabla</text>
+				<text x="652" y="220" class="t s l">entera</text>
+				<text x="652" y="260" class="t s l">cubre</text>
+				<text x="652" y="276" class="t s l">1024 × 4 KB</text>
+				<text x="652" y="292" class="t s l b">= 4 MB</text>
+
+				<text x="20" y="397" class="t s l b">un nivel</text>
+				<rect x="120" y="384" width="560" height="16" rx="3" class="trap" />
+				<text x="688" y="397" class="t s l b bad">4 MB</text>
+				<text x="20" y="429" class="t s l b">dos niveles</text>
+				<rect x="120" y="416" width="3" height="16" class="cell-on" />
+				<text x="132" y="429" class="t s l"><tspan class="b ok">8 KB</tspan> (raíz + 1 tabla): 512 veces menos, dibujado a escala</text>
+			</svg>
+		)}
+
+		{fig === 'cine' && (
+			<svg viewBox="0 0 760 330" role="img" aria-label="Tablas normales: una de 2 a la 20 filas por proceso. Tabla invertida: una fila por marco, como la lista de asientos de un cine de 8 butacas">
+				<defs>
+					<marker id="pf-a10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+				</defs>
+				<text x="130" y="24" class="cap">tablas normales</text>
+				{['A', 'B', 'C'].map((p, i) => (
+					<>
+						<rect x={40 + i * 64} y="44" width="48" height="220" class="cell" />
+						<rect x={40 + i * 64} y={44 + i * 30} width="48" height="10" class={['c1', 'c3', 'c5'][i]} />
+						<rect x={40 + i * 64} y="44" width="48" height="220" class="frame" />
+						<text x={64 + i * 64} y="282" class="t b">{p}</text>
+					</>
+				))}
+				<text x="130" y="304" class="t s">una tabla de 2²⁰ filas <tspan class="b">por proceso</tspan></text>
+				<text x="130" y="322" class="t s bad">más procesos → más tablas</text>
+
+				<line x1="262" y1="20" x2="262" y2="320" class="sep" stroke-dasharray="4 6" />
+
+				<text x="378" y="24" class="cap">la RAM: 8 butacas</text>
+				<rect x="283" y="40" width="190" height="16" rx="4" class="os" />
+				<text x="378" y="52" class="t s mu">pantalla</text>
+				{seats.map(([who, cls], k) => (
+					<>
+						<rect x={288 + (k % 4) * 46} y={72 + Math.floor(k / 4) * 74} width="40" height="44" rx="10" class={cls || 'cell-off'} />
+						<text x={308 + (k % 4) * 46} y={98 + Math.floor(k / 4) * 74} class={who ? 't s b' : 't s mu'}>{who || 'libre'}</text>
+						<text x={308 + (k % 4) * 46} y={132 + Math.floor(k / 4) * 74} class="t s mu">{k}</text>
+					</>
+				))}
+				<text x="378" y="240" class="t s mu">dentro: proceso · página</text>
+				<text x="378" y="256" class="t s mu">debajo: número de marco</text>
+				<path d="M476 150 H516" class="ln" marker-end="url(#pf-a10)" />
+
+				<text x="630" y="24" class="cap">tabla invertida</text>
+				<rect x="520" y="36" width="220" height="234" rx="6" class="box" />
+				<text x="560" y="56" class="t s b">marco</text>
+				<text x="630" y="56" class="t s b">proceso</text>
+				<text x="700" y="56" class="t s b">página</text>
+				<line x1="520" y1="64" x2="740" y2="64" class="sep" />
+				{seats.map(([who], k) => (
+					<>
+						<text x="560" y={86 + k * 24} class="t s b">{k}</text>
+						<text x="630" y={86 + k * 24} class={who ? 't s' : 't s mu'}>{who ? who.split('·')[0] : 'libre'}</text>
+						<text x="700" y={86 + k * 24} class="t s mono">{who ? who.split('·')[1] : ''}</text>
+					</>
+				))}
+				<text x="630" y="300" class="t s b ok">8 marcos → 8 filas,</text>
+				<text x="630" y="318" class="t s ok">haya 3 procesos o 300</text>
 			</svg>
 		)}
 
