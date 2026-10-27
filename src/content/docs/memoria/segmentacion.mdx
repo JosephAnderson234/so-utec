@@ -14,6 +14,7 @@ import Errores from '../../../components/tutor/Errores.astro';
 import Feynman from '../../../components/tutor/Feynman.astro';
 import Dominio from '../../../components/tutor/Dominio.tsx';
 import Solucion from '../../../components/Solucion.astro';
+import SegmentacionFig from '../../../components/SegmentacionFig.astro';
 
 
 <Objetivos
@@ -94,13 +95,37 @@ El programa se ve como un conjunto de **segmentos lógicos** de tamaño variable
 
 ### Arquitectura de la segmentación (diapositivas)
 
-- La dirección lógica es el par **⟨número de segmento, offset⟩**.
-- La **tabla de segmentos** tiene, por entrada, la **base** (dirección física de inicio) y el **límite** (largo del segmento).
-- **STBR** (*Segment-Table Base Register*) apunta a la tabla en memoria. **STLR** (*Segment-Table Length Register*) indica cuántos segmentos hay: el segmento s es legal si **s < STLR**.
-- **Protección:** cada entrada tiene un **bit de validez** (0 = segmento ilegal) y permisos de **lectura, escritura y ejecución**. La **compartición de código se hace a nivel de segmento**.
-- Como los segmentos tienen largos distintos, asignarlos es un problema de **asignación dinámica**, igual que en las particiones dinámicas.
-- **Mapa multisegmento:** el mapa de segmentos vive **en el procesador**. El segmento sale de los bits altos de la dirección, o de la propia instrucción (en x86, `mov [es:bx], ax`). Las entradas marcadas **N** (no válidas) disparan un error de acceso.
-- En x86 (80386), los **registros de segmento** (CS, DS, SS, ES, FS, GS) apuntan a descriptores en la GDT o la LDT. El **RPL** del CS es el nivel de privilegio actual.
+#### 1. Cómo traduce el hardware una dirección
+
+<SegmentacionFig fig="traduccion">
+Se usa el ejemplo de arriba, (1, 50). El hardware hace **dos controles** antes de sumar. Primero mira si el segmento existe (**s &lt; STLR**). Luego, en la entrada de la tabla, mira si es válida y si el permiso alcanza, y si el offset cabe (**d &lt; límite**). Si algo falla, hay trampa al SO. Si todo pasa, física = base + d.
+</SegmentacionFig>
+
+- La dirección lógica es el par **⟨número de segmento s, offset d⟩**.
+- **STLR** (*Segment-Table Length Register*) dice **cuántos segmentos hay**. **STBR** (*Segment-Table Base Register*) dice **dónde está la tabla** en la RAM. La entrada de s se encuentra en STBR + s.
+- Cada entrada guarda la **base** (dónde empieza el segmento en la RAM), el **límite** (cuánto mide), un **bit de validez** V (0 = segmento ilegal) y permisos **R/W/X**.
+
+#### 2. Lo que ve el programa vs dónde queda en la RAM
+
+<SegmentacionFig fig="mapa">
+Para el programa, cada segmento empieza en 0. En la RAM, los segmentos quedan **donde haya espacio**, en cualquier orden y sin estar juntos. Como miden distinto, ubicarlos es un problema de **asignación dinámica** (first-fit, best-fit…), igual que en las particiones dinámicas, y entre ellos quedan huecos.
+</SegmentacionFig>
+
+#### 3. Protección y compartición por segmento
+
+<SegmentacionFig fig="compartir">
+Dos procesos que usan el mismo editor apuntan su segmento de código a la **misma base** (4000). El código se carga **una sola vez**. Cada uno tiene sus **datos propios**. Como el permiso va por segmento, el código queda R-X (nadie lo puede modificar) y los datos RW-.
+</SegmentacionFig>
+
+#### 4. El caso real: x86 (80386)
+
+<SegmentacionFig fig="x86">
+En x86, el segmento no sale de los bits de la dirección: lo nombra la **instrucción**, mediante un registro de segmento. El registro guarda un **selector**, que elige un **descriptor** de la GDT (global) o de la LDT (local del proceso). El descriptor aporta la base y el límite, y base + offset da la **dirección lineal**, que después pasa por la paginación.
+</SegmentacionFig>
+
+- En las diapositivas, el **mapa de segmentos vive en el procesador**. El segmento sale de los **bits altos** de la dirección, o de la propia instrucción (`mov [es:bx], ax`).
+- Las entradas marcadas **N** (no válidas) en el mapa disparan un **error de acceso**, como la fila V = 0 del diagrama 1.
+- En CS, el campo **RPL** del selector es el **nivel de privilegio actual** (CPL: 0 = kernel, 3 = usuario).
 
 **Ventajas para el programador (Stallings §8.1):**
 1. Maneja **estructuras que crecen**: el SO agranda el segmento (o lo mueve o hace swap).
