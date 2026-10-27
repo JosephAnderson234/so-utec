@@ -15,6 +15,7 @@ import Practica from '../../../components/tutor/Practica.astro';
 import Errores from '../../../components/tutor/Errores.astro';
 import Feynman from '../../../components/tutor/Feynman.astro';
 import Dominio from '../../../components/tutor/Dominio.tsx';
+import PaginacionFig from '../../../components/PaginacionFig.astro';
 
 :::note
 La diapositiva de memoria de 2026-II termina en segmentación («more about pages in next session»). Aun así, la paginación **cayó en el E1 2022 y en el E1 2025-2**, así que conviene dominar el cálculo.
@@ -56,6 +57,11 @@ La memoria física se divide en **marcos** (*frames*) pequeños y de tamaño fij
 2. **B sale** (*swap out*).
 3. Llega D, que necesita **5** páginas: recibe los marcos 4, 5, 6, 11 y 12, que **no son contiguos**, y no importa.
 
+<PaginacionFig fig="marcos">
+**Cómo leerlo:** cada fila de la tabla de D es una flecha hacia un marco. Las páginas de D son consecutivas (0, 1, 2, 3, 4), pero sus marcos no (4, 5, 6, 11, 12). Nadie lo nota: el programa solo ve sus páginas, y la tabla se encarga del resto. Como cualquier marco libre sirve, nunca queda un hueco «demasiado chico»: **no hay fragmentación externa**.
+</PaginacionFig>
+
+
 - **Sin fragmentación externa**, porque cualquier marco sirve. La interna se limita a **una fracción de la última página**.
 - El SO mantiene una **lista de marcos libres** y **una tabla de páginas por proceso** (página → marco).
 - Es **transparente** para el programador, el ensamblador y el *linker*: la dirección lógica (página, offset) **es** la dirección relativa.
@@ -71,6 +77,11 @@ $$
 **Ejemplo del libro:** direcciones de 16 bits y páginas de 1 KB, así que el offset tiene 10 bits y la página 6 bits (64 páginas).
 - La dirección relativa **1502** = `000001 0111011110` es la **página 1**, **offset 478**.
 - Si la tabla dice página 1 → **marco 6** (`000110`), la dirección física es `000110 0111011110` = 6·1024 + 478 = **6622**.
+
+<PaginacionFig fig="bits">
+**Cómo leerlo:** la dirección se corta en dos. La parte alta (página) **entra a la tabla** y sale cambiada por el marco. La parte baja (offset) **baja derecho**, sin tocarse. Pegar marco y offset es lo mismo que calcular marco · tamaño + offset, pero sin sumar: solo se concatenan bits.
+</PaginacionFig>
+
 
 <Practica nivel={1} titulo="Resuelto: el ejemplo del libro (1502 → 6622)">
 
@@ -140,6 +151,11 @@ Cada fila de la tabla es una **ficha** con datos de una página:
 | Protección y compartición | lectura, escritura, ejecución y usuario/kernel |
 | **Número de marco** (PFN) | la traducción propiamente dicha |
 
+<PaginacionFig fig="pte">
+Cada caja es un campo de la misma fila. Arriba va la pregunta que responde y abajo quién la usa. El hardware mira primero **P**: si vale 0, los demás campos no sirven.
+</PaginacionFig>
+
+
 Normalmente el **número de página** (n bits) es **más largo** que el **número de marco** (m bits): n > m, porque un proceso puede tener más páginas que marcos haya en la RAM.
 
 ## Tablas grandes: multinivel e invertidas
@@ -156,6 +172,11 @@ Una tabla de páginas de un solo nivel tiene **una fila por cada página posible
 La **tabla invertida** da vuelta la pregunta: en vez de «¿dónde está cada página de cada proceso?» guarda «¿**quién ocupa cada marco**?», como la lista de asientos de un cine. Si la RAM tiene 8 marcos, la tabla tiene **8 filas**, haya los procesos que haya.
 </EnSimple>
 
+<PaginacionFig fig="ahorro">
+**Cómo leerlo:** cada cuadradito es **una página de tabla** (4 KB, con 1024 PTE) y cubre 4 MB del espacio virtual. Hay 1024 cuadraditos para cubrir los 4 GB. Con un nivel existen **todos** (gris), aunque el proceso solo use el primero (verde). Con dos niveles, la raíz marca cuáles existen y los vacíos ni se crean (contorno). Supuesto: el proceso usa 2 MB **contiguos**, así que le basta una tabla. Si usara código abajo y pila arriba, serían dos tablas: 12 KB, que sigue siendo poquísimo.
+</PaginacionFig>
+
+
 
 <Predice pregunta="Antes de seguir: ¿una tabla de <strong>dos</strong> niveles ocupa siempre menos memoria que una de un nivel? Piensa en un proceso pequeño y en uno que usa todo su espacio virtual.">
 
@@ -170,10 +191,20 @@ La **tabla invertida** da vuelta la pregunta: en vez de «¿dónde está cada p�
 - Esas páginas se mapean con una **tabla raíz** (*page directory*) de $2^{10}$ PTE = **4 KB**, que **siempre está en RAM**.
 - La dirección se divide en `| 10 bits: raíz | 10 bits: tabla de usuario | 12 bits: offset |`. Si la página de la tabla de usuario **no** está en RAM, hay un page fault **antes** de llegar al dato: un **doble fallo** posible.
 
+<PaginacionFig fig="dosniveles">
+**Cómo leerlo:** es la misma dirección `0x12345678` de la práctica de arriba, ahora con dos niveles. Los primeros 10 bits (72) eligen una fila de la **raíz**, que dice dónde está la tabla de 2.º nivel. Los 10 siguientes (837) eligen una fila de **esa** tabla, que da el marco. El offset baja sin tocarse, como antes. Los marcos `0x00200` y `0x00ABC` son **valores de ejemplo** (el segundo coincide con la práctica nivel 3).
+</PaginacionFig>
+
+
 **Tabla de páginas invertida** (PowerPC, UltraSPARC, IA-64):
 - Tiene **una entrada por marco físico**, no por página virtual. Su tamaño es **fijo**, proporcional a la RAM, sin importar cuántos procesos ni cuántas páginas virtuales haya.
 - Se busca con un **hash** del número de página, con encadenamiento para las colisiones (cadenas típicas de 1 a 2 entradas).
 - Cada entrada tiene el **número de página**, el **PID** del dueño, bits de control y un **puntero de cadena**.
+
+<PaginacionFig fig="invertida">
+**Cómo leerlo:** se busca al revés que en la tabla normal. El hash de (PID, página) da una fila **candidata**. Si esa fila no es la buscada (aquí la 2), se sigue el puntero de cadena hasta encontrarla (la 5). **El número de la fila es el marco.** El hash y el contenido de la tabla son un **ejemplo propio**.
+</PaginacionFig>
+
 
 ## TLB (Translation Lookaside Buffer)
 
@@ -199,6 +230,11 @@ Sin ayuda, cada referencia virtual cuesta **dos accesos** a memoria (la PTE y el
 
 El TLB solo contiene **algunas** entradas, así que **no se puede indexar** por número de página. Cada entrada guarda **el número de página y la PTE completa**, y el hardware compara **todas a la vez**: es un **mapeo asociativo**, frente al mapeo **directo** (indexado) de la tabla. Después del TLB se consulta la **caché** con la dirección **real**.
 
+<PaginacionFig fig="tlb">
+**Cómo leerlo:** hay tres caminos. **Verde arriba (hit):** la TLB ya sabe el marco y se va directo a la física. **Miss:** se lee la tabla en RAM (un acceso más). Si P = 1, se arma la física y la traducción **se copia a la TLB** para la próxima vez (flecha punteada). **Rojo abajo:** si P = 0, es page fault y el SO toma el control. Los tiempos son los del ejemplo trivial de arriba.
+</PaginacionFig>
+
+
 <TlbEat client:visible />
 
 ## Tamaño de página: el compromiso
@@ -216,6 +252,11 @@ Por eso no hay un tamaño perfecto: 4 KB es el compromiso típico.
 | ✔ menos fragmentación interna | ✔ tablas más chicas y cada entrada del TLB cubre más memoria |
 | ✔ con muchas páginas en RAM, la localidad hace que falle poco | ✔ transferencias de disco más eficientes |
 | ✘ **tablas enormes**, que pueden tener que estar en memoria virtual (con doble fallo) | ✘ cada página incluye datos lejos de la referencia reciente, así que la localidad pierde efecto y **suben los fallos**, hasta que la página es tan grande como el proceso (fig. 8.10) |
+
+<PaginacionFig fig="tamano">
+**Cómo leerlo** (con una cantidad fija de RAM para el proceso): con páginas chicas caben muchas, y la localidad hace que casi siempre esté la que hace falta. Al agrandarlas, cada página trae datos que no se van a usar pronto y ocupa espacio de otras que sí: **suben los fallos**. En el extremo P, una sola página es todo el proceso y, una vez cargada, ya no falla. Es la forma de la curva, **no** datos medidos.
+</PaginacionFig>
+
 
 La tasa de fallos también **baja** al dar **más marcos** al proceso (tamaño del *working set*). Los tamaños reales van de 512 B (VAX) a 4 KB (x86); Pentium e Itanium soportan de 4 KB a 1 GB. Varios procesadores admiten **varios tamaños de página** (por ejemplo, páginas grandes para el código y chicas para las pilas), pero la mayoría de los SO usan uno solo.
 

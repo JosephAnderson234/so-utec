@@ -3,11 +3,12 @@
 interface Props {
 	fig: 'traduccion' | 'mapa' | 'compartir' | 'x86';
 }
+import '../styles/svgfig.css';
 const { fig } = Astro.props;
 ---
 
-<figure class="segfig not-content">
-	<div class="segfig__scroll">
+<figure class="svgfig not-content">
+	<div class="svgfig__scroll">
 		{fig === 'traduccion' && (
 			<svg viewBox="0 0 760 420" role="img" aria-label="Traducción de la dirección lógica (1, 50) a la física 3050 con STLR, STBR y la tabla de segmentos">
 				<defs>
@@ -234,135 +235,3 @@ const { fig } = Astro.props;
 	</div>
 	<figcaption><slot /></figcaption>
 </figure>
-
-<style>
-	.segfig {
-		margin: 1.4rem 0;
-		border: 1px solid var(--pg-border);
-		border-radius: var(--pg-radius-sm);
-		background: var(--pg-surface);
-		padding: 0.8rem 0.8rem 0.6rem;
-	}
-	.segfig__scroll {
-		overflow-x: auto;
-	}
-	.segfig svg {
-		display: block;
-		width: 100%;
-		min-width: 560px;
-		height: auto;
-		font-family: var(--sl-font);
-	}
-	.segfig figcaption {
-		margin-top: 0.5rem;
-		font-size: 0.86rem;
-		color: var(--pg-muted);
-		line-height: 1.55;
-	}
-	.t {
-		fill: var(--sl-color-white);
-		font-size: 14px;
-		text-anchor: middle;
-	}
-	.t.s {
-		font-size: 12px;
-	}
-	.t.b {
-		font-weight: 700;
-	}
-	.t.l {
-		text-anchor: start;
-	}
-	.t.r {
-		text-anchor: end;
-	}
-	.t.mono {
-		font-family: var(--__sl-font-mono);
-	}
-	.t.mu,
-	.cap {
-		fill: var(--pg-muted);
-	}
-	.cap {
-		font-size: 12px;
-		text-anchor: middle;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-	}
-	.cap.l {
-		text-anchor: start;
-	}
-	.t.ok {
-		fill: var(--pg-ok);
-	}
-	.t.bad {
-		fill: var(--pg-bad);
-	}
-	.box {
-		fill: var(--pg-surface-2);
-		stroke: var(--pg-border);
-		stroke-width: 1.5;
-	}
-	.frame {
-		fill: none;
-		stroke: var(--sl-color-gray-4);
-		stroke-width: 1.5;
-	}
-	.os {
-		fill: var(--sl-color-gray-5);
-	}
-	.hole {
-		stroke: none;
-	}
-	.hatch {
-		stroke: var(--sl-color-gray-4);
-		stroke-width: 2;
-	}
-	.sep {
-		stroke: var(--pg-border);
-	}
-	.hl {
-		fill: color-mix(in srgb, var(--sl-color-accent) 18%, transparent);
-	}
-	.q {
-		fill: color-mix(in srgb, var(--pg-c6) 14%, var(--pg-surface));
-		stroke: var(--pg-c6);
-		stroke-width: 1.5;
-	}
-	.trap {
-		fill: color-mix(in srgb, var(--pg-bad) 12%, var(--pg-surface));
-		stroke: var(--pg-bad);
-		stroke-width: 1.2;
-	}
-	.c1,
-	.c2,
-	.c3,
-	.c4,
-	.c5,
-	.c6 {
-		stroke-width: 1.5;
-	}
-	.c1 { fill: color-mix(in srgb, var(--pg-c1) 22%, var(--pg-surface)); stroke: var(--pg-c1); }
-	.c2 { fill: color-mix(in srgb, var(--pg-c2) 22%, var(--pg-surface)); stroke: var(--pg-c2); }
-	.c3 { fill: color-mix(in srgb, var(--pg-c3) 22%, var(--pg-surface)); stroke: var(--pg-c3); }
-	.c4 { fill: color-mix(in srgb, var(--pg-c4) 22%, var(--pg-surface)); stroke: var(--pg-c4); }
-	.c5 { fill: color-mix(in srgb, var(--pg-c5) 22%, var(--pg-surface)); stroke: var(--pg-c5); }
-	.c6 { fill: color-mix(in srgb, var(--pg-c6) 22%, var(--pg-surface)); stroke: var(--pg-c6); }
-	.ln {
-		fill: none;
-		stroke: var(--sl-color-gray-3);
-		stroke-width: 1.6;
-	}
-	.ln.bad {
-		stroke: var(--pg-bad);
-	}
-	.ln.dash {
-		stroke-dasharray: 5 4;
-	}
-	.head {
-		fill: var(--sl-color-gray-3);
-	}
-	.head-bad {
-		fill: var(--pg-bad);
-	}
-</style>

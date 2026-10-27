@@ -1,0 +1,321 @@
+---
+/** Diagramas de paginación: marcos, traducción por bits, PTE, tablas multinivel, invertida, TLB y tamaño de página. */
+import '../styles/svgfig.css';
+interface Props {
+	fig: 'marcos' | 'bits' | 'pte' | 'ahorro' | 'dosniveles' | 'invertida' | 'tlb' | 'tamano';
+}
+const { fig } = Astro.props;
+const grid = Array.from({ length: 1024 }, (_, i) => ({ x: (i % 32) * 8, y: Math.floor(i / 32) * 8, i }));
+const frames = [
+	['A.0', 'c1'], ['A.1', 'c1'], ['A.2', 'c1'], ['A.3', 'c1'],
+	['D.0', 'c4'], ['D.1', 'c4'], ['D.2', 'c4'],
+	['C.0', 'c3'], ['C.1', 'c3'], ['C.2', 'c3'], ['C.3', 'c3'],
+	['D.3', 'c4'], ['D.4', 'c4'], ['libre', ''], ['libre', ''],
+];
+const tablaD = [4, 5, 6, 11, 12];
+const inv = [
+	['3', '0x10', '—'], ['7', '0x05', '—'], ['7', '0x31', '→ 5'], ['', 'libre', ''],
+	['2', '0x2A', '—'], ['7', '0x2A', '—'], ['3', '0x11', '—'], ['', 'libre', ''],
+];
+---
+
+<figure class="svgfig not-content">
+	<div class="svgfig__scroll">
+		{fig === 'marcos' && (
+			<svg viewBox="0 0 760 410" role="img" aria-label="Las cinco páginas del proceso D quedan en los marcos 4, 5, 6, 11 y 12, que no son contiguos">
+				<defs>
+					<marker id="pf-a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+					<pattern id="pf-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" class="hatch" /></pattern>
+				</defs>
+				<text x="140" y="36" class="cap">tabla de páginas de D</text>
+				<rect x="40" y="48" width="200" height="200" rx="6" class="box" />
+				<text x="90" y="66" class="t s b">página</text>
+				<text x="190" y="66" class="t s b">marco</text>
+				<line x1="40" y1="74" x2="240" y2="74" class="sep" />
+				{tablaD.map((m, i) => (
+					<>
+						<text x="90" y={98 + i * 34} class="t">{i}</text>
+						<text x="190" y={98 + i * 34} class="t b">{m}</text>
+						<path d={`M240 ${93 + i * 34} C 380 ${93 + i * 34}, 380 ${51 + m * 22}, 514 ${51 + m * 22}`} class="ln" marker-end="url(#pf-a1)" />
+					</>
+				))}
+				<rect x="40" y="276" width="200" height="44" rx="8" class="box" />
+				<text x="140" y="296" class="t s b">lista de marcos libres</text>
+				<text x="140" y="312" class="t s">13, 14</text>
+
+				<text x="605" y="28" class="cap">memoria física (15 marcos)</text>
+				{frames.map(([t, c], k) => (
+					<>
+						<rect x="520" y={40 + k * 22} width="170" height="22" class={c || 'hole'} fill={c ? undefined : 'url(#pf-hatch)'} />
+						<text x="605" y={55 + k * 22} class={c ? 't s b' : 't s mu'}>{t}</text>
+						<text x="698" y={55 + k * 22} class="t s l mu">{k}</text>
+					</>
+				))}
+				<rect x="520" y="40" width="170" height="330" class="frame" />
+				<text x="380" y="398" class="t s mu">B salió y dejó libres los marcos 4–6. D los usa y además el 11 y el 12: no son contiguos y da igual.</text>
+			</svg>
+		)}
+
+		{fig === 'bits' && (
+			<svg viewBox="0 0 760 350" role="img" aria-label="La dirección 1502 se parte en página 1 y offset 478; la tabla da el marco 6; la física es 6622">
+				<defs>
+					<marker id="pf-a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+				</defs>
+				<text x="195" y="32" class="t s mu">6 bits</text>
+				<text x="420" y="32" class="t s mu">10 bits</text>
+				<text x="20" y="62" class="t b l">lógica</text>
+				<text x="20" y="80" class="t s l mu">1502</text>
+				<rect x="120" y="40" width="150" height="48" rx="6" class="c1" />
+				<text x="195" y="62" class="t mono b">000001</text>
+				<text x="195" y="80" class="t s">página 1</text>
+				<rect x="270" y="40" width="300" height="48" rx="6" class="c2" />
+				<text x="420" y="62" class="t mono b">0111011110</text>
+				<text x="420" y="80" class="t s">offset 478</text>
+
+				<line x1="195" y1="88" x2="195" y2="118" class="ln" marker-end="url(#pf-a2)" />
+				<rect x="20" y="120" width="180" height="120" rx="6" class="box" />
+				<text x="50" y="140" class="t s b">pág.</text>
+				<text x="100" y="140" class="t s b">P</text>
+				<text x="155" y="140" class="t s b">marco</text>
+				<line x1="20" y1="148" x2="200" y2="148" class="sep" />
+				<text x="50" y="170" class="t">0</text><text x="100" y="170" class="t">1</text><text x="155" y="170" class="t">2</text>
+				<rect x="21" y="180" width="178" height="27" class="hl" />
+				<text x="50" y="198" class="t b">1</text><text x="100" y="198" class="t b ok">1</text><text x="155" y="198" class="t b">6</text>
+				<text x="50" y="226" class="t">2</text><text x="100" y="226" class="t bad">0</text><text x="155" y="226" class="t mu">—</text>
+				<text x="110" y="258" class="t s mu">tabla de páginas</text>
+
+				<path d="M200 194 H240 V266" class="ln" marker-end="url(#pf-a2)" />
+				<line x1="420" y1="88" x2="420" y2="266" class="ln dash" marker-end="url(#pf-a2)" />
+				<text x="432" y="170" class="t s l">el offset se copia igual</text>
+				<text x="432" y="188" class="t s l mu">(no se suma nada)</text>
+
+				<text x="20" y="292" class="t b l">física</text>
+				<rect x="120" y="270" width="150" height="48" rx="6" class="c4" />
+				<text x="195" y="292" class="t mono b">000110</text>
+				<text x="195" y="310" class="t s">marco 6</text>
+				<rect x="270" y="270" width="300" height="48" rx="6" class="c2" />
+				<text x="420" y="292" class="t mono b">0111011110</text>
+				<text x="420" y="310" class="t s">offset 478</text>
+				<text x="665" y="292" class="t s">6 · 1024 + 478</text>
+				<text x="665" y="312" class="t b">= 6622</text>
+				<text x="380" y="342" class="t s mu">Si la fila tuviera P = 0 (como la página 2), aquí habría page fault y no se calcula ninguna física.</text>
+			</svg>
+		)}
+
+		{fig === 'pte' && (
+			<svg viewBox="0 0 760 170" role="img" aria-label="Campos de una entrada de la tabla de páginas: P, M, R, protección y número de marco">
+				<text x="380" y="24" class="cap">una entrada de la tabla (PTE)</text>
+				<rect x="60" y="40" width="80" height="48" rx="4" class="c5" /><text x="100" y="70" class="t b">P</text>
+				<rect x="140" y="40" width="80" height="48" rx="4" class="c2" /><text x="180" y="70" class="t b">M</text>
+				<rect x="220" y="40" width="80" height="48" rx="4" class="c3" /><text x="260" y="70" class="t b">R</text>
+				<rect x="300" y="40" width="140" height="48" rx="4" class="c6" /><text x="370" y="70" class="t b">R W X · U/S</text>
+				<rect x="440" y="40" width="260" height="48" rx="4" class="c4" /><text x="570" y="70" class="t b">número de marco (PFN)</text>
+				<text x="100" y="110" class="t s">¿en RAM?</text>
+				<text x="180" y="110" class="t s">¿se escribió?</text>
+				<text x="260" y="110" class="t s">¿se usó?</text>
+				<text x="370" y="110" class="t s">¿qué se permite?</text>
+				<text x="570" y="110" class="t s">¿dónde está?</text>
+				<text x="100" y="128" class="t s mu">page fault</text>
+				<text x="180" y="128" class="t s mu">guardar a disco</text>
+				<text x="260" y="128" class="t s mu">reemplazo</text>
+				<text x="370" y="128" class="t s mu">protección</text>
+				<text x="570" y="128" class="t s mu">la traducción</text>
+				<text x="380" y="158" class="t s bad">Si P = 0, el resto de la entrada no sirve: hay page fault y el SO toma el control.</text>
+			</svg>
+		)}
+
+		{fig === 'ahorro' && (
+			<svg viewBox="0 0 760 350" role="img" aria-label="Un nivel necesita las 1024 páginas de tabla; dos niveles solo la raíz y una tabla">
+				<defs>
+					<marker id="pf-a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+				</defs>
+				<text x="188" y="32" class="cap">un nivel</text>
+				<text x="568" y="32" class="cap">dos niveles</text>
+				<g transform="translate(60 50)">
+					{grid.map((c) => <rect x={c.x} y={c.y} width="7" height="7" class={c.i === 0 ? 'cell-on' : 'cell'} />)}
+				</g>
+				<g transform="translate(440 50)">
+					{grid.map((c) => <rect x={c.x} y={c.y} width="7" height="7" class={c.i === 0 ? 'cell-on' : 'cell-off'} />)}
+				</g>
+				<rect x="334" y="44" width="80" height="44" rx="6" class="c1" />
+				<text x="374" y="63" class="t s b">raíz</text>
+				<text x="374" y="80" class="t s">4 KB</text>
+				<path d="M414 54 H438" class="ln" marker-end="url(#pf-a3)" />
+				<text x="188" y="328" class="t s">1024 páginas de tabla × 4 KB = <tspan class="b">4 MB</tspan></text>
+				<text x="568" y="328" class="t s">raíz 4 KB + 1 tabla 4 KB = <tspan class="b">8 KB</tspan></text>
+				<text x="188" y="344" class="t s mu">existen todas, aunque estén vacías</text>
+				<text x="568" y="344" class="t s mu">las tablas vacías no se crean</text>
+			</svg>
+		)}
+
+		{fig === 'dosniveles' && (
+			<svg viewBox="0 0 760 410" role="img" aria-label="La dirección 0x12345678 se parte en 72, 837 y 0x678; CR3 lleva a la raíz, la raíz a la tabla de segundo nivel y esta al marco 0x00ABC">
+				<defs>
+					<marker id="pf-a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+				</defs>
+				<text x="20" y="67" class="t mono b l">0x12345678</text>
+				<text x="195" y="32" class="t s mu">10 bits</text>
+				<text x="345" y="32" class="t s mu">10 bits</text>
+				<text x="510" y="32" class="t s mu">12 bits</text>
+				<rect x="120" y="40" width="150" height="48" rx="6" class="c1" />
+				<text x="195" y="62" class="t mono s b">0001001000</text>
+				<text x="195" y="80" class="t s">raíz: 72</text>
+				<rect x="270" y="40" width="150" height="48" rx="6" class="c3" />
+				<text x="345" y="62" class="t mono s b">1101000101</text>
+				<text x="345" y="80" class="t s">tabla: 837</text>
+				<rect x="420" y="40" width="180" height="48" rx="6" class="c2" />
+				<text x="510" y="62" class="t mono s b">011001111000</text>
+				<text x="510" y="80" class="t s">offset 0x678</text>
+
+				<rect x="20" y="150" width="100" height="44" rx="8" class="box" />
+				<text x="70" y="170" class="t b">CR3</text>
+				<text x="70" y="186" class="t s mu">dónde está la raíz</text>
+				<line x1="120" y1="172" x2="148" y2="172" class="ln" marker-end="url(#pf-a4)" />
+
+				<text x="220" y="340" class="cap">directorio (raíz)</text>
+				<rect x="150" y="122" width="140" height="200" rx="6" class="c1" />
+				<text x="220" y="150" class="t s">0</text>
+				<text x="220" y="182" class="t mu">⋮</text>
+				<rect x="151" y="200" width="138" height="28" class="hl" />
+				<text x="220" y="219" class="t s b">72 → 0x00200</text>
+				<text x="220" y="256" class="t mu">⋮</text>
+				<text x="220" y="300" class="t s">1023</text>
+				<path d="M195 88 V120" class="ln" marker-end="url(#pf-a4)" />
+
+				<text x="430" y="340" class="cap">tabla de 2.º nivel</text>
+				<rect x="360" y="122" width="140" height="200" rx="6" class="c3" />
+				<text x="430" y="150" class="t s">0</text>
+				<text x="430" y="182" class="t mu">⋮</text>
+				<rect x="361" y="200" width="138" height="28" class="hl" />
+				<text x="430" y="219" class="t s b">837 → 0x00ABC</text>
+				<text x="430" y="256" class="t mu">⋮</text>
+				<text x="430" y="300" class="t s">1023</text>
+				<path d="M345 88 V100 H400 V120" class="ln" marker-end="url(#pf-a4)" />
+				<line x1="290" y1="214" x2="358" y2="214" class="ln" marker-end="url(#pf-a4)" />
+				<text x="324" y="206" class="t s mu">marco</text>
+
+				<path d="M510 88 V100 H695 V188" class="ln dash" marker-end="url(#pf-a4)" />
+				<line x1="500" y1="214" x2="543" y2="214" class="ln" marker-end="url(#pf-a4)" />
+				<rect x="545" y="190" width="100" height="48" rx="6" class="c4" />
+				<text x="595" y="219" class="t mono s b">0x00ABC</text>
+				<rect x="645" y="190" width="100" height="48" rx="6" class="c2" />
+				<text x="695" y="219" class="t mono s b">678</text>
+				<text x="645" y="260" class="t s">física = <tspan class="mono b">0x00ABC678</tspan></text>
+
+				<text x="380" y="372" class="t s">Sin TLB, cada acceso lee 3 veces la memoria: la raíz, la tabla de 2.º nivel y el dato.</text>
+				<text x="380" y="394" class="t s bad">Si la tabla de 2.º nivel no está en RAM, hay page fault antes de llegar al dato.</text>
+			</svg>
+		)}
+
+		{fig === 'invertida' && (
+			<svg viewBox="0 0 760 330" role="img" aria-label="Tabla invertida: el hash de PID y página apunta a una fila; si no coincide se sigue la cadena; el índice de la fila es el marco">
+				<defs>
+					<marker id="pf-a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+				</defs>
+				<rect x="20" y="40" width="160" height="44" rx="8" class="box" />
+				<text x="100" y="67" class="t s b">PID 7 · página 0x2A</text>
+				<line x1="180" y1="62" x2="218" y2="62" class="ln" marker-end="url(#pf-a5)" />
+				<rect x="220" y="40" width="80" height="44" rx="8" class="c6" />
+				<text x="260" y="67" class="t b">hash</text>
+				<path d="M260 84 V136 H358" class="ln" marker-end="url(#pf-a5)" />
+				<text x="270" y="122" class="t s l">fila 2</text>
+				<text x="305" y="156" class="t s bad">✗ no coincide</text>
+
+				<text x="530" y="28" class="cap">tabla invertida: una fila por marco</text>
+				<rect x="360" y="38" width="340" height="252" rx="6" class="box" />
+				<text x="400" y="56" class="t s b">marco</text>
+				<text x="480" y="56" class="t s b">PID</text>
+				<text x="560" y="56" class="t s b">página</text>
+				<text x="650" y="56" class="t s b">cadena</text>
+				<line x1="360" y1="66" x2="700" y2="66" class="sep" />
+				<rect x="361" y="122" width="338" height="28" class="trap" />
+				<rect x="361" y="206" width="338" height="28" class="hl" />
+				{inv.map(([pid, vpn, ch], r) => (
+					<>
+						<text x="400" y={85 + r * 28} class="t b">{r}</text>
+						<text x="480" y={85 + r * 28} class="t">{pid}</text>
+						<text x="560" y={85 + r * 28} class={vpn === 'libre' ? 't s mu' : 't mono'}>{vpn}</text>
+						<text x="650" y={85 + r * 28} class="t s">{ch}</text>
+					</>
+				))}
+				<path d="M700 136 C 744 136, 744 220, 702 220" class="ln" marker-end="url(#pf-a5)" />
+
+				<path d="M358 220 H330 V262 H302" class="ln ok" marker-end="url(#pf-a5)" />
+				<text x="290" y="212" class="t s ok">✓ coincide</text>
+				<rect x="20" y="240" width="280" height="44" rx="8" class="c4" />
+				<text x="160" y="267" class="t s b">marco = 5 (el número de la fila)</text>
+				<text x="380" y="318" class="t s mu">La fila 4 tiene la misma página 0x2A, pero de otro proceso: por eso cada fila guarda el PID.</text>
+			</svg>
+		)}
+
+		{fig === 'tlb' && (
+			<svg viewBox="0 0 760 340" role="img" aria-label="Flujo de la TLB: si hay hit se obtiene el marco; si no, se lee la tabla; si P es 0 hay page fault">
+				<defs>
+					<marker id="pf-a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+					<marker id="pf-r6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head-bad" /></marker>
+				</defs>
+				<rect x="20" y="40" width="100" height="44" rx="8" class="box" />
+				<text x="70" y="60" class="t b">CPU</text>
+				<text x="70" y="76" class="t s mu">página | offset</text>
+				<line x1="120" y1="62" x2="168" y2="62" class="ln" marker-end="url(#pf-a6)" />
+
+				<text x="250" y="18" class="cap">TLB (asociativa)</text>
+				<rect x="170" y="26" width="160" height="84" rx="6" class="c1" />
+				<text x="250" y="46" class="t s mono">0x12 → 7</text>
+				<text x="250" y="66" class="t s mono b">0x2A → 5</text>
+				<text x="250" y="86" class="t s mono">0x03 → 9</text>
+				<text x="250" y="102" class="t s mu">compara todas a la vez</text>
+
+				<line x1="330" y1="62" x2="598" y2="62" class="ln ok" marker-end="url(#pf-a6)" />
+				<text x="464" y="54" class="t s ok b">hit: ~10 ns</text>
+				<rect x="600" y="40" width="140" height="44" rx="8" class="c4" />
+				<text x="670" y="60" class="t s b">marco | offset</text>
+				<text x="670" y="76" class="t s mu">dirección física</text>
+
+				<line x1="250" y1="110" x2="250" y2="158" class="ln bad" marker-end="url(#pf-r6)" />
+				<text x="262" y="140" class="t s bad l">miss</text>
+				<rect x="170" y="160" width="160" height="60" rx="8" class="box" />
+				<text x="250" y="184" class="t s b">tabla de páginas</text>
+				<text x="250" y="204" class="t s mu">en RAM: +100 ns</text>
+				<line x1="330" y1="190" x2="378" y2="190" class="ln" marker-end="url(#pf-a6)" />
+
+				<polygon points="380,190 450,155 520,190 450,225" class="q" />
+				<text x="450" y="195" class="t b">¿P = 1?</text>
+				<path d="M520 190 H670 V86" class="ln ok" marker-end="url(#pf-a6)" />
+				<text x="580" y="182" class="t s ok l">sí</text>
+				<path d="M450 155 V90 H332" class="ln dash" marker-end="url(#pf-a6)" />
+				<text x="458" y="124" class="t s l mu">se copia la PTE a la TLB</text>
+
+				<line x1="450" y1="225" x2="450" y2="250" class="ln bad" marker-end="url(#pf-r6)" />
+				<text x="462" y="242" class="t s bad l">no</text>
+				<rect x="345" y="252" width="210" height="48" rx="8" class="trap" />
+				<text x="450" y="272" class="t s b bad">page fault → SO</text>
+				<text x="450" y="290" class="t s">E/S de disco, proceso Blocked</text>
+				<text x="380" y="330" class="t s mu">Con 90 % de hits: 0.9 · 110 + 0.1 · 210 = 120 ns por acceso, casi lo mismo que la RAM sola.</text>
+			</svg>
+		)}
+
+		{fig === 'tamano' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Gráfico cualitativo: la tasa de fallos sube con el tamaño de página y vuelve a bajar cuando una página contiene todo el proceso">
+				<defs>
+					<marker id="pf-a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+				</defs>
+				<line x1="80" y1="240" x2="80" y2="30" class="axis" marker-end="url(#pf-a7)" />
+				<line x1="80" y1="240" x2="720" y2="240" class="axis" marker-end="url(#pf-a7)" />
+				<text x="70" y="40" class="t s r">tasa de</text>
+				<text x="70" y="56" class="t s r">fallos</text>
+				<text x="400" y="264" class="t s">tamaño de página →</text>
+				<path d="M90 205 C 230 200, 300 70, 420 68 C 540 70, 600 190, 680 232" class="curve" />
+				<line x1="680" y1="236" x2="680" y2="244" class="axis" />
+				<text x="680" y="262" class="t s b">P</text>
+				<text x="160" y="140" class="t s">chicas: muchas en RAM,</text>
+				<text x="160" y="156" class="t s mu">la localidad ayuda</text>
+				<text x="420" y="52" class="t s">medianas: cada una trae datos lejanos</text>
+				<text x="560" y="210" class="t s r">una página = todo el proceso:</text>
+				<text x="560" y="226" class="t s r mu">casi no hay fallos</text>
+				<text x="380" y="296" class="t s mu">Forma cualitativa (Stallings, fig. 8.10a): sin datos medidos.</text>
+			</svg>
+		)}
+	</div>
+	<figcaption><slot /></figcaption>
+</figure>
