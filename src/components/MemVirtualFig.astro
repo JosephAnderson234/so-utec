@@ -6,7 +6,7 @@ type Fig =
 	| 'clock' | 'clockmej' | 'belady' | 'buffering'
 	| 'marcosfallos' | 'localglobal' | 'ventana' | 'wsprom' | 'thrashing'
 	| 'cow' | 'manecillas' | 'lazybuddy' | 'linux4' | 'splitlru' | 'slab'
-	| 'columnas' | 'bits46' | 'pte32' | 'binario';
+	| 'columnas' | 'bits46' | 'pte32' | 'binario' | 'clockhit' | 'fallos';
 interface Props {
 	fig: Fig;
 }
@@ -34,6 +34,10 @@ const pos = (cx: number, cy: number, r: number, k: number, n: number) => {
 };
 const antes = [['3', 0], ['8', 1], ['5', 1], ['2', 0], ['9', 1], ['6', 0]] as const;
 const despues = [['3', 0], ['8', 0], ['5', 0], ['4', 1], ['9', 1], ['6', 0]] as const;
+const hitPanels = [
+	{ cx: 190, p: 2, fr: [['A', '1', 'box'], ['B', '0 → 1', 'c4'], ['C', '1', 'box'], ['D', '0', 'box']] },
+	{ cx: 570, p: 0, fr: [['A', '1', 'box'], ['B', '0', 'box'], ['C', '1 → 0', 'c2'], ['X (era D)', '1', 'c4']] },
+];
 const clsDespues = ['box', 'c2', 'c2', 'c4', 'box', 'box'];
 const rbits = ['0', '0', '1', '0', '1', '1', '0', '1', '1', '1', '0', '1'];
 const slots = Array.from({ length: 32 }, (_, i) => ({ x: 230 + (i % 16) * 30, y: 60 + Math.floor(i / 16) * 30, used: [0, 1, 2, 4, 5, 8, 9, 10, 13, 17, 18, 20, 24, 25, 29].includes(i) }));
@@ -201,6 +205,74 @@ const slots = Array.from({ length: 32 }, (_, i) => ({ x: 230 + (i % 16) * 30, y:
 				<text x="380" y="170" class="t s">busca víctima</text>
 				<text x="380" y="336" class="t s">pág. 8 y pág. 5 tenían u = 1: gastan su segunda oportunidad (u = 0) y se salvan.</text>
 				<text x="380" y="356" class="t s">pág. 2 tenía u = 0: sale, entra la 4 con u = 1, y el puntero queda en el marco siguiente.</text>
+			</svg>
+		)}
+
+		{fig === 'clockhit' && (
+			<svg viewBox="0 0 760 360" role="img" aria-label="Clock: en un acierto solo se pone u en 1 y el puntero no se mueve; en un fallo el puntero avanza apagando bits hasta encontrar u igual a 0">
+				<Fragment set:html={defs} />
+				<text x="190" y="24" class="cap">acierto: llega B (ya está)</text>
+				<text x="570" y="24" class="cap">fallo: llega X (no está)</text>
+				{hitPanels.map((c) => (
+					<>
+						<circle cx={c.cx} cy="160" r="90" class="frame" />
+						{c.fr.map(([pg, u, cls], k) => {
+							const q = pos(c.cx, 160, 90, k, 4);
+							return (
+								<>
+									<rect x={q.x - 50} y={q.y - 22} width="100" height="44" rx="6" class={cls} />
+									<text x={q.x} y={q.y - 4} class="t s b">pág. {pg}</text>
+									<text x={q.x} y={q.y + 13} class={String(u).endsWith('1') ? 't s ok' : 't s mu'}>u = {u}</text>
+								</>
+							);
+						})}
+						<circle cx={c.cx} cy="160" r="5" class="head" />
+						<line x1={c.cx} y1="160" x2={pos(c.cx, 160, 48, c.p, 4).x} y2={pos(c.cx, 160, 48, c.p, 4).y} class="ln" stroke-width="3" marker-end={A} />
+					</>
+				))}
+				<text x="190" y="296" class="t s ok b">solo cambia el bit de B: u = 1</text>
+				<text x="190" y="314" class="t s">el puntero se queda en C</text>
+				<text x="190" y="332" class="t s">nadie baja a 0</text>
+				<text x="570" y="296" class="t s b">el puntero sale de C: u = 1 → 0, salta</text>
+				<text x="570" y="314" class="t s bad b">D tiene u = 0: sale D, entra X con u = 1</text>
+				<text x="570" y="332" class="t s">el puntero queda en el siguiente (A)</text>
+				<text x="380" y="354" class="t s mu">Mismo estado inicial en los dos lados: A u=1, B u=0, C u=1, D u=0, puntero en C. Ejemplo propio.</text>
+			</svg>
+		)}
+
+		{fig === 'fallos' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Referencia: si está en RAM es acierto; si no, fallo; con marco libre se carga ahí; si no, el algoritmo elige una víctima">
+				<Fragment set:html={defs} />
+				<rect x="20" y="110" width="130" height="44" rx="8" class="box" />
+				<text x="85" y="137" class="t s b">referencia a X</text>
+				<line x1="150" y1="132" x2="178" y2="132" class="ln" marker-end={A} />
+				<polygon points="180,132 250,92 320,132 250,172" class="q" />
+				<text x="250" y="128" class="t s b">¿X está</text>
+				<text x="250" y="144" class="t s b">en RAM?</text>
+				<path d="M250 92 V40 H368" class="ln ok" marker-end={A} />
+				<text x="258" y="66" class="t s l ok">sí</text>
+				<rect x="370" y="18" width="370" height="44" rx="8" class="c4" />
+				<text x="555" y="38" class="t s b">acierto</text>
+				<text x="555" y="54" class="t s">no hay fallo; en Clock, u = 1</text>
+				<line x1="320" y1="132" x2="368" y2="132" class="ln bad" marker-end={R} />
+				<text x="344" y="124" class="t s bad">no</text>
+				<polygon points="370,132 450,92 530,132 450,172" class="q" />
+				<text x="450" y="128" class="t s b">¿hay marco</text>
+				<text x="450" y="144" class="t s b">libre?</text>
+				<line x1="530" y1="132" x2="568" y2="132" class="ln" marker-end={A} />
+				<text x="549" y="124" class="t s">sí</text>
+				<rect x="570" y="104" width="170" height="56" rx="8" class="c2" />
+				<text x="655" y="126" class="t s b">fallo «de arranque»</text>
+				<text x="655" y="144" class="t s">se carga en el libre</text>
+				<path d="M450 172 V210 H568" class="ln" marker-end={A} />
+				<text x="458" y="196" class="t s l">no (memoria llena)</text>
+				<rect x="570" y="186" width="170" height="70" rx="8" class="trap" />
+				<text x="655" y="206" class="t s b">fallo con reemplazo</text>
+				<text x="655" y="224" class="t s">el algoritmo elige víctima;</text>
+				<text x="655" y="240" class="t s">si M = 1, se escribe a disco</text>
+				<text x="20" y="214" class="t s l bad b">Las dos cajas de la derecha abajo</text>
+				<text x="20" y="232" class="t s l bad">son fallos de página: los dos se cuentan.</text>
+				<text x="380" y="290" class="t s mu">FIFO, LRU, Clock y OPT solo deciden en la caja de abajo a la derecha.</text>
 			</svg>
 		)}
 

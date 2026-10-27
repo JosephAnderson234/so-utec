@@ -13,6 +13,7 @@ import Errores from '../../../components/tutor/Errores.astro';
 import Feynman from '../../../components/tutor/Feynman.astro';
 import Practica from '../../../components/tutor/Practica.astro';
 import Dominio from '../../../components/tutor/Dominio.tsx';
+import SchedFig from '../../../components/SchedFig.astro';
 
 <EnSimple>
 Stallings divide la planificación en tres **niveles de tiempo**. El de **largo plazo** decide quién **entra** al sistema (como el portero de una discoteca), el de **mediano plazo** decide quién se queda **en memoria** y quién se va a swap (como mandar a alguien a esperar afuera un rato) y el de **corto plazo** decide quién usa la CPU **ahora** (quién baila). El capítulo es casi entero sobre el de corto plazo: qué criterios hay y cómo se comporta cada algoritmo con el mismo ejemplo de 5 procesos.
@@ -53,9 +54,20 @@ El de **largo plazo** decide **cuándo** admitir (si hay más procesos, a cada u
 
 El de **corto plazo** se invoca ante cualquier evento que pueda bloquear al proceso actual o permitir expropiarlo: **interrupciones de reloj**, **interrupciones de E/S**, **llamadas al sistema** y **señales** (por ejemplo, de semáforos).
 
+<SchedFig fig="colas">
+**Cómo leerlo:** sigue a un proceso de izquierda a derecha. El largo plazo lo deja entrar a la cola de listos; el corto plazo lo pasa a la CPU; de ahí sale porque termina, porque lo expropian (vuelve a listos) o porque espera una E/S (va a bloqueados). El mediano plazo, abajo, puede mandarlo a disco y traerlo de vuelta.
+</SchedFig>
+
+
 ## 9.2 Criterios
 
 Dos ejes: **usuario o sistema** y **rendimiento o no**.
+
+**En simple, con un restaurante:**
+- **Response time:** desde que pides hasta que llega **el primer plato**. Es lo que siente un usuario interactivo: que algo empiece a pasar.
+- **Turnaround:** desde que entras hasta que **te vas**. Importa en un trabajo batch, donde solo cuenta el resultado final.
+- **Throughput:** cuántas mesas atiende el local por hora. Mira al sistema, no a un cliente.
+- **Fairness:** que ninguna mesa se quede sin atender (sin starvation).
 
 | | Relacionado con el rendimiento | Otros |
 | --- | --- | --- |
@@ -68,33 +80,173 @@ Los criterios **compiten**: un buen response time exige cambiar de proceso a men
 
 Hay varias colas de listos, RQ0, RQ1, …, en orden **descendente** de prioridad, y se elige de la más alta que no esté vacía. **Convención del libro:** como en UNIX, un **valor menor es una prioridad mayor** (Windows usa la convención opuesta). El problema es la **starvation** de los de baja prioridad; la solución es que la prioridad cambie con la **edad** o la historia del proceso.
 
+<SchedFig fig="prioridad">
+**Cómo leerlo:** cada cola es un nivel de prioridad. El dispatcher no mira el orden de llegada global: baja por las colas hasta encontrar una con alguien, y toma al primero de esa cola.
+</SchedFig>
+
+
 :::caution[Ojo con la convención]
 Stallings: valor menor = más prioridad. La **hoja de ejercicios del lab** y el framework: valor **mayor** = más prioridad. Si una teórica pregunta por el libro, responde con la convención del libro y **dilo**.
 :::
 
 ### Las políticas (tabla 9.3)
 
-Términos: **w** = tiempo esperando hasta ahora, **e** = tiempo ejecutado hasta ahora, **s** = tiempo de servicio total (incluye e).
+Cada política se describe con dos cosas:
+- **La función de selección:** la regla que elige al siguiente entre los listos. Usa tres números de cada proceso: **w**, el tiempo que lleva esperando; **e**, el tiempo que lleva ejecutado; y **s**, su tiempo de servicio total (incluye e).
+- **El modo de decisión:** **no expropiativo** (el proceso corre hasta terminar o bloquearse) o **expropiativo** (el SO puede sacarlo a la mitad).
 
-- **FCFS:** max[w]. No expropiativo. Rinde mucho mejor con procesos largos que con cortos (en el ejemplo W, X, Y, Z, el proceso Y, de 1 unidad, tiene **Tr/Ts = 100**) y **favorece a los CPU-bound** sobre los IO-bound, con lo que los dispositivos de E/S pueden quedar ociosos. Solo no es atractivo; combinado con prioridades (una cola FCFS por nivel) sí.
-- **Round Robin (time slicing):** expropia con una interrupción de reloj periódica. Con un quantum **muy corto** hay mucho overhead; la guía es que q sea **un poco mayor que una interacción típica**. Si q supera al proceso más largo, **degenera en FCFS**. Su debilidad: los IO-bound usan poco su quantum y vuelven tarde, y los CPU-bound se llevan más CPU de la que les toca.
-- **Virtual Round Robin (VRR):** agrega una **cola auxiliar FCFS** para los procesos que vuelven de una E/S. Esa cola tiene **preferencia** sobre la principal, y quien sale de ella corre solo **lo que le quedaba** de su quantum. Es más justo con los IO-bound.
-- **SPN (Shortest Process Next):** min[s], no expropiativo. Mejora el response time global, pero aumenta su **variabilidad** (baja la predictibilidad), hay que **estimar s** y puede haber **starvation** de los largos.
-- **SRT (Shortest Remaining Time):** min[s − e], expropia **al llegar** un proceso. No penaliza a los cortos como FCFS ni genera interrupciones extra como RR, pero debe registrar los tiempos de servicio transcurridos. Mejor turnaround que SPN.
-- **HRRN:** max[(w + s)/s], no expropiativo. Favorece a los cortos, pero la espera sube R y los largos terminan pasando: **no hay starvation**.
-- **Feedback (multinivel):** si **no se conocen** las duraciones, se penaliza a quien **lleva más tiempo ejecutando**. Un proceso nuevo entra a RQ0 y en cada expropiación baja un nivel; en la última cola, RR. Una variante da **q = 2<sup>i</sup>** en RQi para que los largos no se estiren tanto. Aun así puede haber starvation, y se corrige **promoviendo** a quien espera mucho.
+**El ejemplo del libro (tabla 9.4)**, que se usa para todas las políticas:
+
+| Proceso | A | B | C | D | E |
+| --- | :-: | :-: | :-: | :-: | :-: |
+| Llega en | 0 | 2 | 4 | 6 | 8 |
+| Servicio (s) | 3 | 6 | 4 | 5 | 2 |
+
+Los Gantt de abajo los recalculé con un simulador propio y coinciden con la figura 9.5 y la tabla 9.5 del libro. Para leerlos: cada casilla es una unidad de tiempo y la letra es el proceso que usa la CPU en ella. Las rayas de arriba marcan cuándo llega cada uno, y entre paréntesis va su servicio.
+
+#### FCFS: la fila del banco
+
+**En simple:** atiende en orden de llegada y no interrumpe a nadie. Si delante tuyo hay alguien con un trámite de una hora, esperas una hora aunque lo tuyo sea un minuto.
+
+- **Regla:** max[w], no expropiativo.
+- **Problema 1, los cortos sufren:** rinde mucho mejor con procesos largos que con cortos. En el ejemplo W, X, Y, Z del libro, Y dura 1 unidad y aun así tiene **Tr/Ts = 100**.
+- **Problema 2, favorece a los CPU-bound:** mientras uno de ellos usa la CPU, los IO-bound esperan en la cola y los dispositivos de E/S quedan **ociosos**.
+- Solo no conviene, pero combinado con prioridades (una cola FCFS por nivel) sí se usa.
+
+<SchedFig fig="gantt" filas={['FCFS']}>
+**Cómo leerlo:** cada proceso corre de un tirón, en orden de llegada. E solo necesita 2 unidades, pero llega en 8 y espera hasta 18: Tr = 12, seis veces su servicio.
+</SchedFig>
+
+#### Round Robin: el turno de micrófono
+
+**En simple:** cada uno habla como máximo q unidades; si no terminó, vuelve al final de la fila. Nadie monopoliza el micrófono.
+
+- **Regla:** FCFS más una **interrupción de reloj** periódica que expropia (*time slicing*).
+- **El tamaño de q es la decisión clave:**
+  - **q muy corto:** muchos cambios de proceso y mucho overhead.
+  - **q más grande que el proceso más largo:** nadie es expropiado y se **degenera en FCFS**.
+  - **La guía del libro:** q **un poco mayor que una interacción típica**, para que una petición corta termine en un solo turno.
+- **Convención del libro para empates:** si en el mismo instante llega un proceso nuevo y otro es expropiado, el **nuevo va primero** en la cola.
+- **Debilidad:** un IO-bound usa un pedacito de su quantum, se bloquea y vuelve **al final** de la cola. Un CPU-bound usa su quantum entero cada vez. Resultado: el CPU-bound se lleva más CPU de la que le toca. Para eso existe VRR.
+
+<SchedFig fig="quantum">
+**Cómo leerlo:** arriba, la interacción cabe en un quantum y la respuesta llega en s. Abajo, el quantum la corta en dos y, entre medio, corren todos los demás: la respuesta tarda mucho más que s.
+</SchedFig>
+
+<SchedFig fig="gantt" filas={['RR1', 'RR4']}>
+**Cómo leerlo:** con q = 1 los procesos se intercalan unidad por unidad. En t = 2 llega B y, por la convención de empates, pasa delante de A, que vuelve a correr en t = 3. Con q = 4, B corre 4 seguidas, va al final y retoma en t = 15.
+</SchedFig>
+
+#### VRR: la fila preferencial
+
+**En simple:** a quien tuvo que salir a buscar un papel (una E/S) no lo mandas al final de la fila: entra por una fila preferencial y termina lo que le quedaba de su turno.
+
+- **Regla:** RR más una **cola auxiliar FCFS** para los procesos que vuelven de una E/S.
+- La auxiliar tiene **preferencia** sobre la principal.
+- Quien sale de la auxiliar corre solo **lo que le quedaba** de su quantum, no uno nuevo.
+- **Efecto:** el libro muestra que es **más justo con los IO-bound** que RR.
+
+<SchedFig fig="vrr">
+**Cómo leerlo:** hay dos caminos de vuelta a la CPU. Quien agotó su quantum vuelve a la cola principal; quien se bloqueó por E/S vuelve por la cola auxiliar verde, que se atiende primero.
+</SchedFig>
+
+#### SPN: el cajero de «pocos artículos»
+
+**En simple:** cuando la caja se libera, pasa el que lleva menos artículos. Mientras alguien está pagando, nadie lo interrumpe.
+
+- **Regla:** min[s], no expropiativo.
+- **Ventaja:** mejora mucho el tiempo de respuesta promedio.
+- **Problema 1:** hay que **estimar s**, porque nadie sabe de antemano cuánto va a durar un proceso. Más abajo se ve cómo.
+- **Problema 2:** aumenta la **variabilidad** de los tiempos, es decir, baja la predictibilidad.
+- **Problema 3:** los largos pueden sufrir **starvation** si siguen llegando cortos.
+
+<SchedFig fig="gantt" filas={['SPN']}>
+**Cómo leerlo:** en t = 9, cuando termina B, están listos C (4), D (5) y E (2). Gana E, el más corto, aunque llegó último. Compárala con FCFS: E pasa de Tr = 12 a Tr = 3.
+</SchedFig>
+
+#### SRT: SPN que sí interrumpe
+
+**En simple:** igual que SPN, pero si llega alguien con menos trabajo **pendiente** que el que está en caja, se le cede el lugar en ese momento.
+
+- **Regla:** min[s − e], expropiativo **solo al llegar** un proceso.
+- No penaliza a los cortos como FCFS ni genera interrupciones de reloj como RR.
+- Debe registrar cuánto lleva ejecutado cada proceso (e), y también necesita estimar s.
+- Da **mejor turnaround que SPN**: en el ejemplo, 7.2 contra 7.6.
+
+<SchedFig fig="gantt" filas={['SRT']}>
+**Cómo leerlo:** en t = 4 llega C (4) y B ya solo lleva 1 de 6: le quedan 5 > 4, así que C lo expropia. En t = 8 termina C y, entre B (le quedan 5), D (5) y E (2), gana E. B recién retoma en t = 10.
+</SchedFig>
+
+#### HRRN: el que más «se merece» el turno
+
+**En simple:** el turno se lo gana quien tiene la espera más **desproporcionada** respecto de lo que pide. Un trámite corto que espera mucho sube rápido; uno largo también sube si espera lo suficiente.
+
+- **Regla:** max[R], con **R = (w + s) / s**. No expropiativo.
+- **Recién llegado:** w = 0, así que R = 1.
+- **Con el tiempo:** w crece y R crece. Para el mismo w, el corto (s chico) sube más rápido.
+- **Sin starvation:** un largo que espera suficiente termina teniendo el R más alto y gana.
+
+<SchedFig fig="gantt" filas={['HRRN']}>
+**Cómo leerlo:** en t = 13 quedan D (llegó en 6, s = 5) y E (llegó en 8, s = 2). R(D) = (7 + 5)/5 = 2.4 y R(E) = (5 + 2)/2 = 3.5, así que gana E. En t = 9 había ganado C: R(C) = (5 + 4)/4 = 2.25 contra R(D) = (3 + 5)/5 = 1.6 y R(E) = (1 + 2)/2 = 1.5.
+</SchedFig>
+
+#### Feedback: aprender de la historia
+
+**En simple:** como no sabes cuánto va a durar cada uno, castigas a quien **ya lleva mucho** corriendo. Todos empiezan arriba; el que agota su turno baja un escalón. Los cortos terminan antes de bajar mucho.
+
+- **Regla:** colas RQ0, RQ1, … de prioridad decreciente. Un proceso nuevo entra a **RQ0**; cada vez que es expropiado **baja** una cola. En la última cola se usa RR.
+- **No necesita estimar s:** usa solo lo que ya ejecutó.
+- **Variante q = 2ⁱ:** en RQi el quantum es 2ⁱ, para que los largos no se estiren tanto.
+- **Puede haber starvation** de los largos. Se corrige **promoviendo** a quien espera mucho.
+- **Convención del libro:** si no hay nadie más listo, el proceso **no baja** de cola (fig. 9.5).
+
+<SchedFig fig="feedback">
+**Cómo leerlo:** la flecha roja es la expropiación: el proceso vuelve una cola más abajo. Un IO-bound se bloquea antes de agotar el quantum, así que no baja y se queda en las colas de arriba.
+</SchedFig>
+
+<SchedFig fig="gantt" filas={['FB1', 'FB2']}>
+**Cómo leerlo:** en las dos filas, A corre 2 unidades seguidas al principio porque está solo y no baja. Con q = 2ⁱ, los procesos que ya bajaron reciben turnos más largos: B corre 3 unidades seguidas al final (t = 14 a 17).
+</SchedFig>
 
 ### Estimar la ráfaga
 
 Promedio simple: $S_{n+1} = \frac{1}{n}\sum_{i=1}^{n} T_i$. Promedio exponencial: $S_{n+1} = \alpha T_n + (1-\alpha) S_n$. Con α = 0.8 casi todo el peso está en las **4 últimas** observaciones; con α = 0.2 se reparte en unas **8**. Un α alto reacciona rápido a los cambios, pero se vuelve «nervioso» ante picos breves.
 
+**Por qué funciona:** la estimación nueva es una mezcla entre lo que **acaba de pasar** (Tₙ) y lo que **creías antes** (Sₙ). α dice cuánto le crees a lo último.
+
+**Ejemplo propio** con α = 0.5 y una estimación inicial S₁ = 10, para ráfagas reales de 6, 4 y 13:
+- S₂ = 0.5 · 6 + 0.5 · 10 = **8**;
+- S₃ = 0.5 · 4 + 0.5 · 8 = **6**;
+- S₄ = 0.5 · 13 + 0.5 · 6 = **9.5**. La estimación sube, pero no salta hasta 13 de golpe.
+
+<SchedFig fig="alfa">
+**Cómo leerlo:** al desarrollar la fórmula, la ráfaga de hace k pasos pesa α(1 − α)ᵏ. Con α = 0.8 el peso cae casi a cero después de 3 o 4 ráfagas; con α = 0.2 baja despacio y hasta la octava todavía cuenta.
+</SchedFig>
+
+
 ### Comparación de rendimiento
+
+Primero, todas las políticas juntas con el ejemplo del libro:
+
+<SchedFig fig="gantt">
+**Cómo leerlo:** la columna de la derecha es el turnaround medio de la tabla 9.5. Las que favorecen a los cortos (SRT 7.2 y SPN 7.6) ganan; las que reparten la CPU sin mirar duraciones (RR y FB) pierden en promedio, pero ninguna deja a un proceso esperando mucho tiempo sin correr.
+</SchedFig>
+
+**Ojo:** con 5 procesos el resultado depende mucho del ejemplo. Por eso el libro también compara con teoría de colas y con simulación de miles de procesos:
+
 
 - **Teoría de colas:** para **cualquier** disciplina que elija **sin mirar** el tiempo de servicio, $T_r/T_s = 1/(1-\rho)$, donde ρ es la utilización. Una prioridad que no depende de la duración da el **mismo** turnaround promedio que FCFS, con o sin expropiación.
 - **Prioridad según la duración (dos clases):** el promedio global mejora poco, pero los **cortos** mejoran mucho (más todavía con expropiación) y los **largos** empeoran.
 - **Simulación** (50 000 procesos, ρ = 0.8): FCFS es muy desfavorable con los cortos (un tercio de los procesos tiene Tr/Ts > 10); RR con q = 1 da Tr/Ts ≈ 5 para casi todos; SPN es mejor que RR salvo para los más cortos; SRT es mejor que SPN salvo para el 7 % más largo; HRRN queda entre FCFS y SPN; FB funciona muy bien con los cortos.
 
+<SchedFig fig="rho">
+**Cómo leerlo:** Tr/Ts es cuántas veces más tarda un proceso respecto de su servicio puro. Mientras la CPU está poco ocupada casi no hay cola; pasado ρ ≈ 0.8, cada poco de carga extra dispara la espera. Con ρ = 0.8, el promedio ya es 5 veces el servicio, que es justo el valor de RR en la simulación.
+</SchedFig>
+
+
 ### Fair-share scheduling (FSS)
+
+**En simple:** primero se reparte la CPU entre **grupos** (por ejemplo, usuarios) y después, dentro de cada grupo, entre sus procesos. Un usuario que lanza 10 procesos no se queda con 10 veces más CPU que otro con uno solo.
 
 Planifica por **grupos** de procesos (un usuario o un departamento), no por proceso suelto. Cada grupo tiene un peso $W_k$ y la prioridad del proceso j del grupo k es:
 
@@ -103,6 +255,11 @@ P_j(i) = Base_j + \frac{CPU_j(i)}{2} + \frac{GCPU_k(i)}{4 \times W_k}
 $$
 
 donde $CPU_j(i) = CPU_j(i-1)/2$ y $GCPU_k(i) = GCPU_k(i-1)/2$ (un valor menor es más prioridad). En la fig. 9.16, A está en un grupo y B y C en otro, ambos con peso 0.5: el orden resulta A, B, A, C, A, B…, y **A recibe el 50 %**, igual que B y C **juntos**.
+
+<SchedFig fig="fss">
+**Cómo leerlo:** cada casilla es la prioridad del proceso al empezar ese segundo; corre el valor menor (▶). Cuando corre B, sube también la prioridad de C, porque comparten el uso del grupo (GCPU). Por eso A corre uno de cada dos segundos. Valores recalculados con la fórmula; coinciden con la fig. 9.16.
+</SchedFig>
+
 
 ## 9.3 UNIX tradicional
 
@@ -114,6 +271,7 @@ $$
 
 El reloj interrumpe **60 veces por segundo** e incrementa el contador del proceso que corre. Las **bandas** de prioridad base son, de mayor a menor: **swapper**, control de dispositivos de bloque, manipulación de archivos, control de dispositivos de caracteres y **procesos de usuario**. El uso reciente de CPU **penaliza a los CPU-bound** y favorece a los IO-bound.
 
+
 <Practica nivel={2} titulo="Complétalo: la fig. 9.17 (A, B y C con base 60, sin nice)">
 
 En el segundo 0 corre A, y su contador llega a 60. Al recalcular: $CPU_A = 60/2 = 30$ y $P_A = 60 + 30/2 = 75$. B y C siguen con prioridad 60. ¿Quién corre en el segundo 1? ¿Y cuánto valen las prioridades al final del segundo 1?
@@ -124,6 +282,10 @@ Corre **B** (60 < 75; empata con C y gana el primero). Al final del segundo 1: $
 
 </Solucion>
 </Practica>
+
+<SchedFig fig="unix">
+**Cómo leerlo:** el que corre en un segundo suma 60 a su contador, que al recalcular se divide entre 2; su prioridad sube (empeora) y le cede el turno al siguiente. Al segundo siguiente su contador se vuelve a dividir entre 2 y su prioridad mejora. Valores de la fig. 9.17, recalculados con la fórmula.
+</SchedFig>
 
 ## Review Questions 9.1–9.11
 

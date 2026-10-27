@@ -66,6 +66,19 @@ La memoria física se divide en **marcos** (*frames*) pequeños y de tamaño fij
 - El SO mantiene una **lista de marcos libres** y **una tabla de páginas por proceso** (página → marco).
 - Es **transparente** para el programador, el ensamblador y el *linker*: la dirección lógica (página, offset) **es** la dirección relativa.
 
+### Antes de calcular: bytes para tamaños, bits para direcciones
+
+Este es el error de unidades más común. Las dos cosas aparecen juntas («páginas de 4 KB, 12 bits»), pero miden cosas distintas:
+- **Los tamaños** (de página, de RAM, de tabla) se miden **en bytes**. La memoria es una fila de casillas de 1 byte, cada una con su número.
+- **Los campos de una dirección** (offset, VPN, PFN) se miden **en bits**: cuántos bits hacen falta para escribir el número de una casilla.
+- **La relación:** si algo tiene 2ⁿ bytes, numerarlos necesita **n bits**. Es decir, bits = log₂(tamaño en bytes).
+
+<PaginacionFig fig="unidades">
+**Cómo leerlo:** a la izquierda, cuánto **mide** cada cosa; a la derecha, cuántos bits hacen falta para **elegir un byte** dentro de ella. Se pasa de un lado al otro con log₂. Una frase como «4 GB son 32 bits» es una abreviatura de «un espacio de 4 GB necesita direcciones de 32 bits».
+</PaginacionFig>
+
+**¿GB o GiB?** En rigor, 1 GB decimal son 10⁹ B y 1 GiB son 2³⁰ B, un 7 % más. En este curso, como en Stallings, **KB, MB y GB significan siempre potencias de 2**: 4 KB = 4096 B, no 4000. Si un enunciado no aclara, asume potencias de 2.
+
 **Traducción sin sumas:** como el tamaño de página es una potencia de 2, basta **concatenar** el marco con el offset:
 
 $$
@@ -158,6 +171,18 @@ Cada caja es un campo de la misma fila. Arriba va la pregunta que responde y aba
 
 Normalmente el **número de página** (n bits) es **más largo** que el **número de marco** (m bits): n > m, porque un proceso puede tener más páginas que marcos haya en la RAM.
 
+### Cuánto mide una PTE: de bits a bytes
+
+La PTE es el único lugar donde se pasa de bits a bytes. Se **arma en bits**, juntando sus campos (PFN + bits de estado), pero la tabla se mide **en bytes**: tamaño de la tabla = número de entradas × bytes por PTE. Por eso se divide entre 8 (1 byte = 8 bits).
+
+- **Se redondea hacia arriba** (⌈ ⌉): la memoria se lee por bytes enteros, no hay «2,6 bytes». Si sobran bits, se rellenan: eso es el **pad** (*padding*), bits que no guardan nada.
+- **En hardware real** el diseño va al revés: primero se fija el tamaño de la PTE (4 B en x86 de 32 bits, 8 B en x86-64) y después se reparten los campos. Los bits que sobran no se llaman pad sino **libres** (*available*, AVL), y el SO puede usarlos.
+- **En los ejercicios** cada enunciado inventa una máquina y dice cuántos bits de estado hay. Algunos redondean al byte (21 bits → 3 B) y otros a la potencia de 2 (21 bits → 4 B). Si no lo dice, aclara qué supuesto usas.
+
+<PaginacionFig fig="ptebytes">
+**Cómo leerlo:** arriba, los 21 bits que de verdad se usan. En el medio, la misma PTE guardada en 3 bytes: los 3 bits rayados del final son el pad. Abajo, la variante de 4 bytes: sobran 11 bits, que una máquina real dejaría libres para el SO.
+</PaginacionFig>
+
 ## Tablas grandes: multinivel e invertidas
 
 <EnSimple titulo="En simple: el índice de un libro en dos niveles">
@@ -202,6 +227,21 @@ La **tabla invertida** da vuelta la pregunta: en vez de «¿dónde está cada p�
 <PaginacionFig fig="dosniveles">
 **Cómo leerlo:** es la misma dirección `0x12345678` de la práctica de arriba, ahora con dos niveles. Los primeros 10 bits (72) eligen una fila de la **raíz**, que dice dónde está la tabla de 2.º nivel. Los 10 siguientes (837) eligen una fila de **esa** tabla, que da el marco. El offset baja sin tocarse, como antes. Los marcos `0x00200` y `0x00ABC` son **valores de ejemplo** (el segundo coincide con la práctica nivel 3).
 </PaginacionFig>
+
+**¿Para qué sirven los primeros 10 bits si los segundos ya eligen la fila?** Porque hay hasta 1024 tablas de 2.º nivel y **todas tienen una fila 837**. Los primeros 10 bits dicen **en cuál** de ellas buscar; los segundos, **qué fila** leer dentro de ella. Es como «piso 72, oficina 837»: el número de oficina se repite en cada piso. Juntos forman el número de página virtual (los 20 bits altos): con un nivel se usaría entero como índice de una tabla de 2²⁰ filas; con dos, se parte en «qué tabla» y «qué fila».
+
+<Predice pregunta="Otra dirección tiene los mismos primeros 10 bits (72), pero los siguientes valen 5. ¿Qué tabla de 2.º nivel usa y qué fila lee?">
+
+Usa **la misma** tabla de 2.º nivel (la del marco `0x00200`, porque la fila 72 de la raíz no cambió) y lee su **fila 5** en vez de la 837. Direcciones con el mismo «qué tabla» caen en la misma tabla de 2.º nivel: es la localidad que hace barato el multinivel.
+
+</Predice>
+
+**¿Y en la memoria física?** No hay ninguna distribución especial:
+
+<PaginacionFig fig="ram2niv">
+**Cómo leerlo:** no hay una zona especial para las tablas. La raíz, la tabla de 2.º nivel y el dato son marcos comunes de 4 KB, en cualquier lugar y sin orden. Cada tabla ocupa **justo un marco** (1024 filas × 4 B = 4 KB): por eso se eligieron 10 bits por nivel. Los números en círculos son el orden de los accesos.
+</PaginacionFig>
+
 
 
 **Tabla de páginas invertida** (PowerPC, UltraSPARC, IA-64):

@@ -71,6 +71,11 @@ Con **paginación** (y con segmentación paginada) la ubicación es **irrelevant
 
 Se marcan con un bit de bloqueo en la tabla de frames o en la PTE.
 
+<MemVirtualFig fig="fallos">
+**Cómo leerlo:** un **fallo de página** es cualquier referencia a una página que no está en RAM. Si queda un marco libre (típico al principio), se carga ahí y no corre ningún algoritmo. Solo cuando la memoria está llena hay que elegir una **página** víctima, que puede ser del mismo proceso o de otro (reemplazo local o global). Sacar un **proceso entero** es otra cosa: swapping.
+</MemVirtualFig>
+
+
 <Predice pregunta="Antes de ver la tabla: con 3 marcos y la cadena <code>1 2 3 1 4</code>, ¿cuántos fallos da FIFO y cuántos LRU? ¿Cuál de los dos expulsa al 1, y por qué eso es una mala idea?">
 
 Los dos dan **4 fallos**: los tres de arranque y el del 4. La diferencia está en **a quién** sacan para meter el 4. FIFO saca al **1**, porque llegó primero, aunque se acaba de usar. LRU saca al **2**, que es el que lleva más tiempo sin usarse. Si la cadena siguiera con otro 1, FIFO fallaría de nuevo y LRU acertaría.
@@ -106,6 +111,16 @@ Por eso FIFO suele ser malo: no le importa si la página se está usando, solo c
 
 <MemVirtualFig fig="clock">
 **Cómo leerlo:** a la izquierda, el estado cuando llega la página 4 y no está. El puntero empieza en la pág. 8 y avanza en sentido horario: a las que tienen u = 1 les apaga el bit y sigue; en la primera con u = 0 (la pág. 2) se detiene y la reemplaza. A la derecha, el resultado: en amarillo, los bits que cambiaron; en verde, la página nueva. Ejemplo propio.
+</MemVirtualFig>
+
+**Acierto contra fallo: quién sube y quién baja el bit.** Es la duda más común con Clock:
+- **Acierto** (la página ya está en RAM): el hardware pone su u en **1**. Si ya era 1, queda en 1. **El puntero no se mueve** y ningún otro bit cambia.
+- **Fallo** (la página no está): recién ahí se mueve el puntero. Baja a 0 **solo** los bits de las páginas por las que pasa, hasta encontrar la víctima. Las que quedan más adelante conservan su u.
+
+El bit de uso es una **segunda oportunidad**: un acierto se la devuelve a la página; el paso del puntero en un fallo se la quita.
+
+<MemVirtualFig fig="clockhit">
+**Cómo leerlo:** los dos lados parten del mismo estado. A la izquierda llega B, que ya está: solo su bit pasa a 1 y el puntero sigue apuntando a C. A la derecha llega X, que no está: el puntero apaga el bit de C, encuentra a D con u = 0 y la reemplaza.
 </MemVirtualFig>
 
 

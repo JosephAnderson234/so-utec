@@ -2,7 +2,7 @@
 /** Diagramas de paginación: marcos, traducción por bits, PTE, tablas multinivel, invertida, TLB y tamaño de página. */
 import '../styles/svgfig.css';
 interface Props {
-	fig: 'marcos' | 'bits' | 'pte' | 'ahorro' | 'niveles' | 'cine' | 'dosniveles' | 'invertida' | 'tlb' | 'tamano';
+	fig: 'marcos' | 'bits' | 'pte' | 'ahorro' | 'niveles' | 'cine' | 'dosniveles' | 'unidades' | 'ptebytes' | 'ram2niv' | 'invertida' | 'tlb' | 'tamano';
 }
 const { fig } = Astro.props;
 const grid = Array.from({ length: 1024 }, (_, i) => ({ x: (i % 32) * 8, y: Math.floor(i / 32) * 8, i }));
@@ -11,6 +11,22 @@ const frames = [
 	['D.0', 'c4'], ['D.1', 'c4'], ['D.2', 'c4'],
 	['C.0', 'c3'], ['C.1', 'c3'], ['C.2', 'c3'], ['C.3', 'c3'],
 	['D.3', 'c4'], ['D.4', 'c4'], ['libre', ''], ['libre', ''],
+];
+const unidades = [
+	['página', '4 KB', '2¹²', 12, 'offset'],
+	['RAM', '2 GB', '2³¹', 31, 'dirección física'],
+	['espacio virtual', '4 GB', '2³²', 32, 'dirección virtual'],
+];
+const ram2 = [
+	['0x00000', 'kernel', 'os'],
+	['…', '', 'cell'],
+	['0x00042', 'RAÍZ del proceso', 'c1'],
+	['0x00043', 'página de otro proceso', 'box'],
+	['…', '', 'cell'],
+	['0x00200', 'tabla de 2.º nivel', 'c3'],
+	['0x00201', 'libre', 'cell-off'],
+	['0x00ABC', 'página de datos', 'c4'],
+	['…', '', 'cell'],
 ];
 const seats = [
 	['A·0', 'c1'], ['B·3', 'c3'], ['', ''], ['A·1', 'c1'],
@@ -262,6 +278,94 @@ const inv = [
 				))}
 				<text x="630" y="300" class="t s b ok">8 marcos → 8 filas,</text>
 				<text x="630" y="318" class="t s ok">haya 3 procesos o 300</text>
+			</svg>
+		)}
+
+		{fig === 'unidades' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Los tamaños se miden en bytes; los campos de la dirección en bits; bits es el logaritmo en base 2 del tamaño">
+				<defs>
+					<marker id="pf-a11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+				</defs>
+				<text x="170" y="24" class="cap">tamaño (bytes)</text>
+				<text x="590" y="24" class="cap">dirección (bits)</text>
+				{unidades.map(([que, tam, pot, bits, campo], i) => (
+					<>
+						<rect x="40" y={40 + i * 62} width="260" height="46" rx="8" class="c1" />
+						<text x="170" y={60 + i * 62} class="t s b">{que} = {tam}</text>
+						<text x="170" y={77 + i * 62} class="t s mono">= {pot} bytes</text>
+						<line x1="300" y1={63 + i * 62} x2="458" y2={63 + i * 62} class="ln" marker-end="url(#pf-a11)" />
+						<text x="380" y={56 + i * 62} class="t s">log₂</text>
+						<rect x="460" y={40 + i * 62} width="260" height="46" rx="8" class="c3" />
+						<text x="590" y={60 + i * 62} class="t s b">{bits} bits</text>
+						<text x="590" y={77 + i * 62} class="t s">{campo}</text>
+					</>
+				))}
+				<text x="380" y="240" class="t s">Para numerar 4096 bytes alcanzan 12 bits: del <tspan class="mono">000000000000</tspan> (0) al <tspan class="mono">111111111111</tspan> (4095).</text>
+				<text x="380" y="262" class="t s b">La página <tspan class="bad">no mide</tspan> 12 bits: mide 4096 bytes. 12 es el largo del número que elige un byte dentro de ella.</text>
+				<text x="380" y="284" class="t s mu">KB, MB y GB en potencias de 2 (1 KB = 1024 B), como en Stallings.</text>
+			</svg>
+		)}
+
+		{fig === 'ptebytes' && (
+			<svg viewBox="0 0 760 330" role="img" aria-label="Una PTE de 21 bits ocupa 3 bytes con 3 bits de relleno; redondeando a potencia de 2 ocupa 4 bytes con 11 bits libres">
+				<defs>
+					<pattern id="pf-h12" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="hatch" /></pattern>
+				</defs>
+				<text x="40" y="28" class="t s l b">1. Se arma en bits: estado + PFN</text>
+				<rect x="40" y="40" width="40" height="34" rx="4" class="c6" /><text x="60" y="62" class="t s b">2</text>
+				<rect x="80" y="40" width="380" height="34" rx="4" class="c5" /><text x="270" y="62" class="t s b">PFN · 19 bits</text>
+				<text x="470" y="62" class="t s l">= 21 bits útiles</text>
+				<text x="60" y="90" class="t s mu">estado</text>
+
+				<text x="40" y="128" class="t s l b">2. Se pasa a bytes: ⌈21 / 8⌉ = 3 bytes = 24 bits</text>
+				{Array.from({ length: 24 }, (_, k) => (
+					<rect x={40 + k * 20 + Math.floor(k / 8) * 8} y="140" width="18" height="30" rx="2" class={k < 2 ? 'c6' : k < 21 ? 'c5' : 'hole'} fill={k >= 21 ? 'url(#pf-h12)' : undefined} />
+				))}
+				{[0, 1, 2].map((b) => <text x={40 + b * 168 + 80} y="188" class="t s mu">byte {b}</text>)}
+				<text x="560" y="160" class="t s l bad b">pad: 3 bits</text>
+				<text x="560" y="176" class="t s l bad">de relleno</text>
+
+				<text x="40" y="226" class="t s l b">3. Variante: redondear a potencia de 2 → 4 bytes = 32 bits</text>
+				{Array.from({ length: 32 }, (_, k) => (
+					<rect x={40 + k * 15 + Math.floor(k / 8) * 6} y="238" width="13" height="30" rx="2" class={k < 2 ? 'c6' : k < 21 ? 'c5' : 'hole'} fill={k >= 21 ? 'url(#pf-h12)' : undefined} />
+				))}
+				<text x="560" y="258" class="t s l">11 bits libres</text>
+				<text x="560" y="274" class="t s l mu">(en hardware real: «AVL»)</text>
+				<text x="380" y="314" class="t s mu">Valores de la calculadora: RAM de 2³¹ B, páginas de 4 KB (PFN = 31 − 12 = 19) y 2 bits de estado.</text>
+			</svg>
+		)}
+
+		{fig === 'ram2niv' && (
+			<svg viewBox="0 0 760 380" role="img" aria-label="En la RAM, la raíz, la tabla de segundo nivel y la página de datos son marcos comunes en cualquier lugar; CR3 apunta a la raíz">
+				<defs>
+					<marker id="pf-a13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head" /></marker>
+				</defs>
+				<rect x="20" y="94" width="150" height="56" rx="8" class="c6" />
+				<text x="95" y="116" class="t s b">CPU · registro CR3</text>
+				<text x="95" y="136" class="t s mono">CR3 = 0x00042</text>
+				<text x="95" y="176" class="t s mu">cada proceso tiene</text>
+				<text x="95" y="192" class="t s mu">su propia raíz: al cambiar</text>
+				<text x="95" y="208" class="t s mu">de proceso, cambia CR3</text>
+				<text x="360" y="24" class="cap">memoria física: marcos de 4 KB</text>
+				{ram2.map(([fr, txt, cls], i) => (
+					<>
+						<rect x="230" y={38 + i * 32} width="260" height="30" rx="3" class={cls} />
+						<text x="238" y={57 + i * 32} class="t s l mono mu">{fr}</text>
+						<text x="390" y={58 + i * 32} class={cls === 'cell' || cls === 'cell-off' ? 't s mu' : 't s b'}>{txt}</text>
+					</>
+				))}
+				<path d="M170 122 H200 V117 H226" class="ln" stroke-width="2" marker-end="url(#pf-a13)" />
+				<text x="198" y="108" class="t s b">①</text>
+				<path d="M490 117 C 570 117, 570 213, 492 213" class="ln" stroke-width="2" marker-end="url(#pf-a13)" />
+				<text x="574" y="160" class="t s l b">② fila 72</text>
+				<text x="574" y="176" class="t s l mu">da el marco</text>
+				<text x="574" y="192" class="t s l mu">de la tabla</text>
+				<path d="M490 213 C 610 213, 610 277, 492 277" class="ln" stroke-width="2" marker-end="url(#pf-a13)" />
+				<text x="614" y="244" class="t s l b">③ fila 837</text>
+				<text x="614" y="260" class="t s l mu">da el marco</text>
+				<text x="614" y="276" class="t s l mu">del dato</text>
+				<text x="380" y="356" class="t s">Sin TLB, leer un dato cuesta <tspan class="b">3 accesos</tspan>: raíz, tabla de 2.º nivel y el dato.</text>
+				<text x="380" y="374" class="t s mu">0x00042 es ejemplo propio; 0x00200 y 0x00ABC son los marcos de la figura de dos niveles.</text>
 			</svg>
 		)}
 
