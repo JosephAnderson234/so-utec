@@ -1,7 +1,9 @@
 ---
 /** Diagramas de planificación en monoprocesador (Stallings cap. 9): colas, quantum, prioridades, Gantt, VRR, feedback, α, ρ, UNIX y fair-share. */
 import '../styles/svgfig.css';
-type Fig = 'colas' | 'quantum' | 'prioridad' | 'gantt' | 'vrr' | 'feedback' | 'alfa' | 'rho' | 'unix' | 'fss';
+type Fig =
+	| 'colas' | 'quantum' | 'prioridad' | 'gantt' | 'vrr' | 'feedback' | 'alfa' | 'rho' | 'unix' | 'fss'
+	| 'inttrap' | 'manejo' | 'anidadas' | 'mitades' | 'spinirq' | 'rafagas' | 'convoy' | 'decide' | 'dispatcher' | 'metricas' | 'tau';
 type Pol = 'FCFS' | 'RR1' | 'RR4' | 'SPN' | 'SRT' | 'HRRN' | 'FB1' | 'FB2';
 interface Props {
 	fig: Fig;
@@ -10,7 +12,8 @@ interface Props {
 const { fig, filas } = Astro.props;
 const A = `url(#sca-${fig})`;
 const R = `url(#scr-${fig})`;
-const defs = `<defs><marker id="sca-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head"/></marker><marker id="scr-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head-bad"/></marker></defs>`;
+const defs = `<defs><marker id="sca-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head"/></marker><marker id="scr-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head-bad"/></marker><pattern id="sch-${fig}" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" class="hatch"/></pattern></defs>`;
+const H = `url(#sch-${fig})`;
 
 const procs = [
 	{ n: 'A', a: 0, s: 3 },
@@ -350,6 +353,331 @@ const prioTabla = fig === 'unix' ? unix : fss;
 				</text>
 			</svg>
 		)}
+		{fig === 'inttrap' && (
+			<svg viewBox="0 0 760 230" role="img" aria-label="Interrupción: llega desde afuera del proceso. Trap: lo provoca la propia instrucción que se ejecuta">
+				<Fragment set:html={defs} />
+				<rect x="130" y="14" width="180" height="40" rx="8" class="c6" />
+				<text x="220" y="31" class="t s b">reloj · disco · red</text>
+				<text x="220" y="46" class="t s">(fuera del proceso)</text>
+				<rect x="40" y="90" width="680" height="34" rx="6" class="c1" />
+				<text x="60" y="112" class="t s l b">proceso en modo usuario</text>
+				<rect x="470" y="94" width="110" height="26" rx="4" class="trap" />
+				<text x="525" y="112" class="t s mono b">x = a / 0</text>
+				<line x1="220" y1="54" x2="220" y2="168" class="ln bad" stroke-width="2.5" marker-end={R} />
+				<text x="230" y="76" class="t s l bad b">interrupción</text>
+				<text x="230" y="146" class="t s l">llega en cualquier momento,</text>
+				<text x="230" y="162" class="t s l">sin que el proceso haga nada</text>
+				<line x1="525" y1="124" x2="525" y2="168" class="ln bad" stroke-width="2.5" marker-end={R} />
+				<text x="535" y="146" class="t s l bad b">trap</text>
+				<text x="572" y="146" class="t s l">lo causa la instrucción</text>
+				<text x="572" y="162" class="t s l">que se está ejecutando</text>
+				<rect x="40" y="170" width="680" height="34" rx="6" class="os" />
+				<text x="380" y="192" class="t s b">SO en modo kernel: atiende y, si corresponde, llama al scheduler</text>
+				<text x="380" y="224" class="t s mu">Syscall, instrucción inválida y división por cero son traps; fin del time slice y E/S terminada son interrupciones.</text>
+			</svg>
+		)}
+
+		{fig === 'manejo' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Pasos del manejo de una interrupción: cuatro los hace el hardware y cuatro el handler del SO">
+				<Fragment set:html={defs} />
+				<text x="20" y="30" class="t s l b">lo hace el hardware, solo</text>
+				{['1 · guarda el PC', '2 · apaga interrupciones', '3 · pasa a modo kernel', '4 · salta por el vector'].map((s, i) => (
+					<>
+						<rect x={20 + i * 184} y="40" width="168" height="44" rx="8" class="c3" />
+						<text x={104 + i * 184} y="67" class="t s b">{s}</text>
+						{i < 3 && <line x1={188 + i * 184} y1="62" x2={202 + i * 184} y2="62" class="ln" marker-end={A} />}
+					</>
+				))}
+				<path d="M656 84 V110 H104 V128" class="ln" marker-end={A} />
+				<text x="20" y="152" class="t s l b">lo hace el código del SO (el handler)</text>
+				{['5 · guarda registros', '6 · atiende el evento', '7 · restaura registros y PC', '8 · vuelve a usuario'].map((s, i) => (
+					<>
+						<rect x={20 + i * 184} y="160" width="168" height="44" rx="8" class={i === 1 ? 'c4' : 'c1'} />
+						<text x={104 + i * 184} y="187" class="t s b">{s}</text>
+						{i < 3 && <line x1={188 + i * 184} y1="182" x2={202 + i * 184} y2="182" class="ln" marker-end={A} />}
+					</>
+				))}
+				<text x="288" y="222" class="t s">puede llamar al scheduler</text>
+				<text x="380" y="256" class="t s">Los registros se guardan en la <tspan class="b">pila de kernel</tspan> del hilo, no en la de usuario.</text>
+				<text x="380" y="276" class="t s ok b">Si en el paso 6 el scheduler elige a otro, en el 7 se cargan los registros del otro: eso es el cambio de contexto.</text>
+			</svg>
+		)}
+
+		{fig === 'anidadas' && (
+			<svg viewBox="0 0 760 260" role="img" aria-label="Interrupciones anidadas: B interrumpe al handler de A y la pila de kernel crece un nivel por cada una">
+				<Fragment set:html={defs} />
+				<text x="84" y="74" class="t s r b">handler B</text>
+				<text x="84" y="124" class="t s r b">handler A</text>
+				<text x="84" y="174" class="t s r b">proceso</text>
+				<rect x="90" y="156" width="120" height="28" rx="4" class="c1" />
+				<rect x="210" y="106" width="100" height="28" rx="4" class="c3" />
+				<rect x="310" y="56" width="110" height="28" rx="4" class="c5" />
+				<rect x="420" y="106" width="70" height="28" rx="4" class="c3" />
+				<rect x="490" y="156" width="40" height="28" rx="4" class="c1" />
+				<line x1="210" y1="152" x2="210" y2="138" class="ln bad" marker-end={R} />
+				<text x="216" y="212" class="t s l bad">llega A</text>
+				<line x1="210" y1="200" x2="210" y2="186" class="ln bad" />
+				<line x1="310" y1="102" x2="310" y2="88" class="ln bad" marker-end={R} />
+				<text x="316" y="152" class="t s l bad">llega B en medio de A</text>
+				<line x1="90" y1="230" x2="530" y2="230" class="axis" marker-end={A} />
+				<text x="530" y="250" class="t s r mu">tiempo →</text>
+				<text x="640" y="24" class="cap">pila de kernel</text>
+				<rect x="560" y="150" width="160" height="36" rx="4" class="c1" />
+				<text x="640" y="173" class="t s b">registros del proceso</text>
+				<rect x="560" y="112" width="160" height="36" rx="4" class="c3" />
+				<text x="640" y="135" class="t s b">registros de A</text>
+				<rect x="560" y="74" width="160" height="36" rx="4" class="c5" />
+				<text x="640" y="97" class="t s b">B en curso</text>
+				<path d="M550 186 V60" class="ln bad" marker-end={R} />
+				<text x="640" y="212" class="t s bad">cada nivel apila más:</text>
+				<text x="640" y="228" class="t s bad">riesgo de desborde</text>
+			</svg>
+		)}
+
+		{fig === 'mitades' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Top half breve con interrupciones apagadas; softirq con interrupciones encendidas que puede ser interrumpido; work queue en un hilo de kernel que puede dormir">
+				<Fragment set:html={defs} />
+				<line x1="120" y1="22" x2="120" y2="54" class="ln bad" marker-end={R} />
+				<text x="126" y="24" class="t s l bad">llega la interrupción 1</text>
+				<line x1="270" y1="22" x2="270" y2="54" class="ln bad" marker-end={R} />
+				<text x="276" y="24" class="t s l bad">llega la 2</text>
+				<text x="34" y="80" class="t s r b">CPU</text>
+				<rect x="40" y="60" width="80" height="32" rx="3" class="c1" /><text x="80" y="81" class="t s">proceso</text>
+				<rect x="120" y="60" width="50" height="32" rx="3" class="trap" /><text x="145" y="81" class="t s b">top</text>
+				<rect x="170" y="60" width="100" height="32" rx="3" class="c2" /><text x="220" y="81" class="t s">softirq</text>
+				<rect x="270" y="60" width="40" height="32" rx="3" class="trap" /><text x="290" y="81" class="t s b">top</text>
+				<rect x="310" y="60" width="90" height="32" rx="3" class="c2" /><text x="355" y="81" class="t s">softirq</text>
+				<rect x="400" y="60" width="110" height="32" rx="3" class="c1" /><text x="455" y="81" class="t s">proceso</text>
+				<rect x="510" y="60" width="90" height="32" rx="3" class="c3" /><text x="555" y="81" class="t s">work queue</text>
+				<rect x="600" y="60" width="60" height="32" rx="3" class="hole" fill={H} /><text x="630" y="81" class="t s b">duerme</text>
+				<rect x="660" y="60" width="60" height="32" rx="3" class="c3" /><text x="690" y="81" class="t s">sigue</text>
+				<text x="34" y="122" class="t s r b">interr.</text>
+				{[[40, 120, 1], [120, 170, 0], [170, 270, 1], [270, 310, 0], [310, 720, 1]].map(([a, b, on]) => (
+					<rect x={a} y="108" width={(b as number) - (a as number)} height="18" class={on ? 'cell-on' : 'trap'} opacity={on ? 0.5 : 1} />
+				))}
+				<text x="40" y="146" class="t s l ok">verde: habilitadas</text>
+				<text x="180" y="146" class="t s l bad">rojo: deshabilitadas (solo durante el top half)</text>
+				<rect x="20" y="166" width="230" height="96" rx="8" class="trap" />
+				<text x="135" y="186" class="t s b">top half</text>
+				<text x="135" y="204" class="t s">lo urgente: leer el dato,</text>
+				<text x="135" y="220" class="t s">avisar «hay trabajo».</text>
+				<text x="135" y="236" class="t s">Microsegundos.</text>
+				<text x="135" y="252" class="t s mu">recepcionista que anota</text>
+				<rect x="265" y="166" width="230" height="96" rx="8" class="c2" />
+				<text x="380" y="186" class="t s b">softirq / tasklet</text>
+				<text x="380" y="204" class="t s">trabajo medio que no duerme.</text>
+				<text x="380" y="220" class="t s">Lo pueden interrumpir:</text>
+				<text x="380" y="236" class="t s">la 2 se atiende enseguida.</text>
+				<text x="380" y="252" class="t s mu">cocinero que prepara</text>
+				<rect x="510" y="166" width="230" height="96" rx="8" class="c3" />
+				<text x="625" y="186" class="t s b">work queue</text>
+				<text x="625" y="204" class="t s">trabajo lento, en un hilo</text>
+				<text x="625" y="220" class="t s">de kernel: puede dormir</text>
+				<text x="625" y="236" class="t s">(esperar disco, un lock…).</text>
+				<text x="625" y="252" class="t s mu">pedido que espera insumos</text>
+				<text x="380" y="290" class="t s mu">Cronología ilustrativa, no a escala.</text>
+			</svg>
+		)}
+
+		{fig === 'spinirq' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Con spin_lock el handler gira para siempre en el mismo núcleo; con spin_lock_irqsave la interrupción espera a que se suelte el lock">
+				<Fragment set:html={defs} />
+				<text x="20" y="14" class="t s l b bad">(a) spin_lock: deadlock en un solo núcleo</text>
+				<rect x="40" y="40" width="200" height="32" rx="4" class="c1" />
+				<text x="140" y="61" class="t s b">tarea: toma runq_lock</text>
+				<line x1="240" y1="22" x2="240" y2="38" class="ln bad" marker-end={R} />
+				<text x="246" y="33" class="t s l bad">reloj</text>
+				<rect x="240" y="40" width="420" height="32" rx="4" class="trap" />
+				<text x="450" y="61" class="t s b">handler: spin_lock(runq_lock) … gira … gira …</text>
+				<path d="M664 48 a10 10 0 1 1 0 16" class="ln bad" marker-end={R} />
+				<rect x="240" y="80" width="420" height="22" rx="4" class="cell-off" stroke-dasharray="4 4" />
+				<text x="450" y="96" class="t s mu">la tarea quedó en pausa con el lock: nunca vuelve a correr</text>
+				<text x="40" y="126" class="t s l">El handler espera a la tarea, y la tarea espera a que termine el handler.</text>
+
+				<text x="20" y="150" class="t s l b ok">(b) spin_lock_irqsave: se apagan las interrupciones mientras se tiene el lock</text>
+				<rect x="40" y="184" width="300" height="32" rx="4" class="c1" />
+				<text x="190" y="205" class="t s b">tarea: irqsave + runq_lock … unlock</text>
+				<rect x="40" y="220" width="300" height="10" class="trap" />
+				<text x="190" y="246" class="t s bad">interrupciones apagadas</text>
+				<line x1="200" y1="160" x2="200" y2="181" class="ln dash" marker-end={A} />
+				<text x="206" y="174" class="t s l mu">reloj: queda pendiente</text>
+				<rect x="340" y="184" width="200" height="32" rx="4" class="c4" />
+				<text x="440" y="205" class="t s b">handler: toma el lock ✓</text>
+				<rect x="540" y="184" width="180" height="32" rx="4" class="c1" />
+				<text x="630" y="205" class="t s">sigue todo normal</text>
+				<text x="380" y="280" class="t s mu">Sin multinúcleo, un spinlock de Linux se reduce justamente a guardar y apagar las interrupciones.</text>
+			</svg>
+		)}
+
+		{fig === 'rafagas' && (
+			<svg viewBox="0 0 760 390" role="img" aria-label="Ciclo de ráfagas: el IO-bound tiene ráfagas de CPU cortas y el CPU-bound largas; el histograma tiene muchas ráfagas cortas y pocas largas">
+				<Fragment set:html={defs} />
+				<text x="110" y="44" class="t s r b">IO-bound</text>
+				{[[0, 1, 'c'], [1, 7, 'e'], [7, 8, 'c'], [8, 14, 'e'], [14, 15, 'c'], [15, 21, 'e'], [21, 22, 'c']].map(([a, b, k]) => (
+					<rect x={120 + (a as number) * 28} y="26" width={((b as number) - (a as number)) * 28} height="28" rx="3" class={k === 'c' ? 'c3' : 'hole'} fill={k === 'e' ? H : undefined} />
+				))}
+				<text x="110" y="94" class="t s r b">CPU-bound</text>
+				{[[0, 9, 'c'], [9, 10, 'e'], [10, 19, 'c'], [19, 20, 'e'], [20, 22, 'c']].map(([a, b, k]) => (
+					<rect x={120 + (a as number) * 28} y="76" width={((b as number) - (a as number)) * 28} height="28" rx="3" class={k === 'c' ? 'c3' : 'hole'} fill={k === 'e' ? H : undefined} />
+				))}
+				<rect x="120" y="120" width="20" height="14" class="c3" /><text x="146" y="132" class="t s l">ráfaga de CPU</text>
+				<rect x="270" y="120" width="20" height="14" class="hole" fill={H} /><text x="296" y="132" class="t s l">ráfaga de E/S (esperando)</text>
+				<text x="380" y="176" class="t s b">¿Cuánto duran las ráfagas de CPU? (forma típica)</text>
+				<line x1="120" y1="350" x2="680" y2="350" class="axis" marker-end={A} />
+				<line x1="120" y1="350" x2="120" y2="190" class="axis" marker-end={A} />
+				{[0.25, 0.95, 0.7, 0.42, 0.26, 0.16, 0.1, 0.07, 0.05, 0.035, 0.025, 0.018].map((h, k) => (
+					<rect x={130 + k * 44} y={350 - h * 150} width="34" height={h * 150} class={k < 4 ? 'c4' : 'c3'} />
+				))}
+				<text x="680" y="372" class="t s r">duración de la ráfaga →</text>
+				<text x="128" y="186" class="t s l">cuántas</text>
+				<text x="250" y="200" class="t s l ok b">muchísimas ráfagas cortas</text>
+				<text x="560" y="300" class="t s bad">pocas largas</text>
+			</svg>
+		)}
+
+		{fig === 'convoy' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Convoy effect: con el CPU-bound primero, el disco queda ocioso; con los IO-bound primero, CPU y disco trabajan a la vez">
+				<Fragment set:html={defs} />
+				{[
+					{ y: 40, t: '(a) FCFS, llega primero el CPU-bound', cpu: [[0, 20, 'P1', 'c3'], [20, 21, 'P2', 'c1'], [21, 22, 'P3', 'c1'], [22, 23, 'P4', 'c1']], disk: [[0, 21, 'ocioso', 'idle'], [21, 26, 'P2', 'c2'], [26, 31, 'P3', 'c2'], [31, 36, 'P4', 'c2']] },
+					{ y: 170, t: '(b) primero los IO-bound', cpu: [[0, 1, 'P2', 'c1'], [1, 2, 'P3', 'c1'], [2, 3, 'P4', 'c1'], [3, 23, 'P1', 'c3']], disk: [[1, 6, 'P2', 'c2'], [6, 11, 'P3', 'c2'], [11, 16, 'P4', 'c2']] },
+				].map((s) => (
+					<>
+						<text x="20" y={s.y - 12} class="t s l b">{s.t}</text>
+						<text x="70" y={s.y + 20} class="t s r b">CPU</text>
+						<text x="70" y={s.y + 58} class="t s r b">disco</text>
+						{s.cpu.map(([a, b, n, c]) => (
+							<>
+								<rect x={80 + (a as number) * 18} y={s.y} width={((b as number) - (a as number)) * 18} height="28" rx="3" class={c as string} />
+								<text x={80 + (((a as number) + (b as number)) / 2) * 18} y={s.y + 19} class="t s b">{(b as number) - (a as number) > 1 ? n : ''}</text>
+							</>
+						))}
+						{s.disk.map(([a, b, n, c]) => (
+							<>
+								<rect x={80 + (a as number) * 18} y={s.y + 38} width={((b as number) - (a as number)) * 18} height="28" rx="3" class={c === 'idle' ? 'trap' : (c as string)} />
+								<text x={80 + (((a as number) + (b as number)) / 2) * 18} y={s.y + 57} class={c === 'idle' ? 't s b bad' : 't s b'}>{n}</text>
+							</>
+						))}
+					</>
+				))}
+				<text x="80" y="128" class="t s l bad">P2–P4 esperan 20 detrás de P1, y mientras tanto el disco no hace nada.</text>
+				<text x="80" y="258" class="t s l ok">Los IO-bound usan la CPU un instante y el disco trabaja mientras corre P1.</text>
+				<text x="380" y="290" class="t s mu">Ejemplo propio: P1 necesita 20 de CPU; P2–P4, 1 de CPU y luego 5 de disco (un acceso a la vez).</text>
+			</svg>
+		)}
+
+		{fig === 'decide' && (
+			<svg viewBox="0 0 760 350" role="img" aria-label="Diagrama de estados con los cuatro momentos en que decide el scheduler: 1 y 4 no expropiativos, 2 y 3 expropiativos">
+				<Fragment set:html={defs} />
+				{[
+					[90, 60, 'nuevo', 'box'],
+					[260, 150, 'listo', 'c1'],
+					[540, 150, 'ejecutando', 'c4'],
+					[400, 260, 'esperando', 'c2'],
+					[690, 60, 'terminado', 'box'],
+				].map(([x, y, t, c]) => (
+					<>
+						<rect x={(x as number) - 60} y={(y as number) - 20} width="120" height="40" rx="20" class={c as string} />
+						<text x={x} y={(y as number) + 5} class="t s b">{t}</text>
+					</>
+				))}
+				<path d="M120 80 L230 130" class="ln" marker-end={A} />
+				<text x="150" y="122" class="t s mu">admitido</text>
+				<path d="M320 142 H478" class="ln" marker-end={A} />
+				<text x="400" y="134" class="t s">dispatch</text>
+				<path d="M480 162 H322" class="ln" stroke-width="2.5" marker-end={A} />
+				<text x="400" y="182" class="t s b">② reloj</text>
+				<path d="M560 170 L455 240" class="ln ok" stroke-width="2.5" marker-end={A} />
+				<text x="540" y="222" class="t s l ok b">① pide E/S, wait</text>
+				<path d="M345 240 L265 172" class="ln" stroke-width="2.5" marker-end={A} />
+				<text x="190" y="222" class="t s b">③ terminó la E/S</text>
+				<path d="M570 130 L660 80" class="ln ok" stroke-width="2.5" marker-end={A} />
+				<text x="640" y="120" class="t s l ok b">④ termina</text>
+				<text x="40" y="320" class="t s l ok">① y ④: decide también el no expropiativo (la CPU se libera sola)</text>
+				<text x="40" y="340" class="t s l">② y ③: solo el expropiativo (le quita la CPU a alguien que quería seguir)</text>
+			</svg>
+		)}
+
+		{fig === 'dispatcher' && (
+			<svg viewBox="0 0 760 210" role="img" aria-label="Dispatch latency: tiempo entre que se detiene P0 y empieza a correr P1, guardando y cargando estados">
+				<Fragment set:html={defs} />
+				<text x="60" y="64" class="t s r b">P0</text>
+				<text x="60" y="144" class="t s r b">P1</text>
+				<rect x="70" y="46" width="230" height="28" rx="4" class="c1" />
+				<text x="185" y="65" class="t s">corre</text>
+				<line x1="300" y1="60" x2="720" y2="60" class="ln dash" />
+				<text x="620" y="52" class="t s mu">en espera</text>
+				<line x1="70" y1="140" x2="460" y2="140" class="ln dash" />
+				<text x="160" y="132" class="t s mu">en espera</text>
+				<rect x="460" y="126" width="260" height="28" rx="4" class="c3" />
+				<text x="590" y="145" class="t s">corre</text>
+				<rect x="300" y="84" width="80" height="32" rx="4" class="trap" />
+				<text x="340" y="104" class="t s b">guarda P0</text>
+				<rect x="380" y="84" width="80" height="32" rx="4" class="trap" />
+				<text x="420" y="104" class="t s b">carga P1</text>
+				<path d="M300 184 V176 H460 V184" class="ln bad" />
+				<text x="380" y="200" class="t s bad b">dispatch latency</text>
+				<text x="480" y="104" class="t s l">guardar en PCB₀ · cargar de PCB₁ y saltar al PC</text>
+				<text x="300" y="30" class="t s">el scheduler ya eligió a P1; el dispatcher hace el cambio</text>
+			</svg>
+		)}
+
+		{fig === 'metricas' && (
+			<svg viewBox="0 0 760 260" role="img" aria-label="Métricas de P4 en el RR del ejemplo: response 6, waiting 7 y turnaround 11">
+				<Fragment set:html={defs} />
+				<text x="56" y="44" class="t s r b">CPU</text>
+				{[[0, 3, 'P1', 'c1'], [3, 6, 'P2', 'c3'], [6, 9, 'P1', 'c1'], [9, 11, 'P3', 'c5'], [11, 14, 'P4', 'c4'], [14, 15, 'P1', 'c1'], [15, 16, 'P4', 'c4']].map(([a, b, n, c]) => (
+					<>
+						<rect x={60 + (a as number) * 40} y="26" width={((b as number) - (a as number)) * 40} height="28" rx="3" class={c as string} />
+						<text x={60 + (((a as number) + (b as number)) / 2) * 40} y="45" class="t s b">{n}</text>
+					</>
+				))}
+				<text x="56" y="114" class="t s r b">P4</text>
+				<rect x="260" y="96" width="240" height="28" rx="3" class="hole" fill={H} />
+				<rect x="500" y="96" width="120" height="28" rx="3" class="c4" />
+				<rect x="620" y="96" width="40" height="28" rx="3" class="hole" fill={H} />
+				<rect x="660" y="96" width="40" height="28" rx="3" class="c4" />
+				<text x="380" y="88" class="t s">en la cola de listos</text>
+				<text x="560" y="88" class="t s b">corre</text>
+				<line x1="260" y1="66" x2="260" y2="94" class="ln" marker-end={A} />
+				<text x="252" y="80" class="t s r">llega (5)</text>
+				<path d="M260 140 V148 H500 V140" class="ln" />
+				<text x="380" y="164" class="t s b">response = 11 − 5 = 6</text>
+				<text x="380" y="186" class="t s">waiting = 6 + 1 = <tspan class="b">7</tspan> (las dos zonas rayadas)</text>
+				<path d="M260 204 V212 H700 V204" class="ln" />
+				<text x="480" y="230" class="t s b">turnaround = 16 − 5 = 11</text>
+				{[0, 5, 10, 15, 16].map((t) => <text x={60 + t * 40} y="252" class="t s mu">{t}</text>)}
+			</svg>
+		)}
+
+		{fig === 'tau' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Ráfagas reales y estimaciones con alfa 0.5: la estimación sigue a la real con retraso">
+				<Fragment set:html={defs} />
+				<line x1="70" y1="250" x2="720" y2="250" class="axis" marker-end={A} />
+				<line x1="70" y1="250" x2="70" y2="40" class="axis" marker-end={A} />
+				{[2, 4, 6, 8, 10, 12].map((v) => (
+					<>
+						<line x1="70" y1={250 - v * 14} x2="700" y2={250 - v * 14} class="sep" stroke-dasharray="2 6" />
+						<text x="62" y={254 - v * 14} class="t s r mu">{v}</text>
+					</>
+				))}
+				{[6, 4, 6, 4, 13, 13, 13].map((v, i) => (
+					<rect x={88 + i * 76} y={250 - v * 14} width="28" height={v * 14} class="c3" opacity="0.8" />
+				))}
+				<polyline points={[10, 8, 6, 6, 5, 9, 11, 12].map((v, i) => `${102 + i * 76},${250 - v * 14}`).join(' ')} class="ln ok" fill="none" stroke-width="2.5" />
+				{[10, 8, 6, 6, 5, 9, 11, 12].map((v, i) => (
+					<>
+						<circle cx={102 + i * 76} cy={250 - v * 14} r="5" class="cell-on" />
+						<text x={102 + i * 76} y={240 - v * 14} class="t s ok b">{v}</text>
+						<text x={102 + i * 76} y="270" class="t s mu">{i}</text>
+					</>
+				))}
+				<text x="720" y="270" class="t s r">n →</text>
+				<rect x="440" y="20" width="16" height="12" class="c3" /><text x="462" y="31" class="t s l">ráfaga real tₙ</text>
+				<circle cx="590" cy="26" r="5" class="cell-on" /><text x="600" y="31" class="t s l ok">estimación τₙ</text>
+			</svg>
+		)}
+
 	</div>
 	<figcaption><slot /></figcaption>
 </figure>
