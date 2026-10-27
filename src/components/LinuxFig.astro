@@ -1,0 +1,277 @@
+---
+/** Diagramas del lab 10: espacio de direcciones, stack, bugs de memcpy, malloc y Valgrind. */
+import '../styles/svgfig.css';
+type Fig = 'vas' | 'stack' | 'overflow' | 'segv' | 'brkmmap' | 'short' | 'bloque' | 'fugas' | 'race' | 've';
+interface Props {
+	fig: Fig;
+}
+const { fig } = Astro.props;
+const A = `url(#lxa-${fig})`;
+const R = `url(#lxr-${fig})`;
+const H = `url(#lxh-${fig})`;
+const defs = `<defs><marker id="lxa-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head"/></marker><marker id="lxr-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head-bad"/></marker><pattern id="lxh-${fig}" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" class="hatch"/></pattern></defs>`;
+const vas = [
+	{ y: 30, h: 50, c: 'trap', t: 'kernel', p: '—', d: 'inaccesible en modo usuario (la MMU lo bloquea)' },
+	{ y: 80, h: 50, c: 'c4', t: 'stack ↓', p: 'rw-', d: 'variables locales y direcciones de retorno' },
+	{ y: 130, h: 45, c: '', t: '', p: '', d: '' },
+	{ y: 175, h: 50, c: 'c6', t: 'librerías y mmap', p: 'r-x / rw-', d: 'libc, ld.so y los malloc grandes' },
+	{ y: 225, h: 65, c: '', t: '', p: '', d: '' },
+	{ y: 290, h: 50, c: 'c2', t: 'heap ↑', p: 'rw-', d: 'malloc / free; crece moviendo brk' },
+	{ y: 340, h: 45, c: 'c3', t: 'data / bss', p: 'rw-', d: 'globales y static' },
+	{ y: 385, h: 45, c: 'c1', t: 'text (código)', p: 'r-x', d: 'instrucciones: escribir aquí da SIGSEGV' },
+];
+const frames = [
+	{ n: 'main', a: '0x7ffdb32528d4', y: 40, h: 72, g: '#4' },
+	{ n: 'foo', a: '0x7ffdb32528a4', y: 112, h: 48, g: '#3' },
+	{ n: 'bar', a: '0x7ffdb3252884', y: 160, h: 48, g: '#2' },
+	{ n: 'bar_is_now_closed', a: '0x7ffdb3252864', y: 208, h: 48, g: '#1' },
+];
+---
+
+<figure class="svgfig not-content">
+	<div class="svgfig__scroll">
+		{fig === 'vas' && (
+			<svg viewBox="0 0 760 460" role="img" aria-label="Espacio de direcciones de un proceso: kernel, stack, librerías, heap, data y text, con sus permisos">
+				<Fragment set:html={defs} />
+				<text x="320" y="20" class="t s mu">direcciones altas</text>
+				{vas.map((r) => (
+					<>
+						<rect x="200" y={r.y} width="240" height={r.h} class={r.c || 'hole'} fill={r.c ? undefined : H} />
+						{r.t && <text x="320" y={r.y + r.h / 2 + 5} class={r.c === 'trap' ? 't b bad' : 't b'}>{r.t}</text>}
+						{r.p && <text x="456" y={r.y + r.h / 2 - 3} class="t s l mono b">{r.p}</text>}
+						{r.d && <text x="456" y={r.y + r.h / 2 + 13} class="t s l mu">{r.d}</text>}
+					</>
+				))}
+				<rect x="200" y="30" width="240" height="400" class="frame" />
+				<line x1="320" y1="133" x2="320" y2="168" class="ln dash" marker-end={A} />
+				<line x1="320" y1="287" x2="320" y2="250" class="ln dash" marker-end={A} />
+				<line x1="160" y1="290" x2="200" y2="290" class="ln" stroke-width="2.5" />
+				<text x="154" y="294" class="t s r b">brk</text>
+				<text x="154" y="310" class="t s r mu">fin del heap</text>
+				<text x="320" y="448" class="t s mu">direcciones bajas</text>
+			</svg>
+		)}
+
+		{fig === 'stack' && (
+			<svg viewBox="0 0 760 320" role="img" aria-label="Marcos del stack de main, foo, bar y bar_is_now_closed con las direcciones reales de localvar">
+				<Fragment set:html={defs} />
+				<text x="380" y="24" class="t s mu">direcciones altas ↑</text>
+				{frames.map((f, i) => (
+					<>
+						<rect x="270" y={f.y} width="220" height={f.h} class={i === 3 ? 'c4' : 'c1'} />
+						<text x="380" y={f.y + f.h / 2 + 5} class="t s b">{f.n}</text>
+						<text x="480" y={f.y + 16} class="t s r mu">{f.g}</text>
+						<text x="258" y={f.y + f.h / 2 + 5} class="t s r mono">{f.a}</text>
+					</>
+				))}
+				<rect x="270" y="256" width="220" height="30" class="hole" fill={H} />
+				<text x="380" y="276" class="t s mu">pause() · #0</text>
+				<text x="506" y="116" class="t s l">−0x30 (48 B)</text>
+				<text x="506" y="164" class="t s l">−0x20 (32 B)</text>
+				<text x="506" y="212" class="t s l">−0x20 (32 B)</text>
+				<line x1="740" y1="44" x2="740" y2="280" class="ln" stroke-width="2.5" marker-end={A} />
+				<text x="728" y="150" class="t s r">el stack</text>
+				<text x="728" y="166" class="t s r">crece hacia abajo</text>
+				<text x="258" y="34" class="t s r mu">&amp;localvar</text>
+				<text x="380" y="312" class="t s mu">Direcciones de la ejecución de prueba. #k es el número de marco que muestra bt en GDB.</text>
+			</svg>
+		)}
+
+		{fig === 'overflow' && (
+			<svg viewBox="0 0 760 230" role="img" aria-label="memcpy de 1024 bytes sobre un arreglo de 20 pisa lo que está a continuación en el stack">
+				<Fragment set:html={defs} />
+				<line x1="40" y1="30" x2="740" y2="30" class="ln" marker-end={A} />
+				<text x="40" y="22" class="t s l mu">direcciones crecientes →</text>
+				<rect x="40" y="60" width="160" height="56" class="c1" /><text x="120" y="84" class="t s b">dest[20]</text><text x="120" y="102" class="t s">20 B legítimos</text>
+				<rect x="200" y="60" width="150" height="56" class="box" /><text x="275" y="92" class="t s">otras locales</text>
+				<rect x="350" y="60" width="160" height="56" class="c6" /><text x="430" y="84" class="t s b">dir. de retorno</text><text x="430" y="102" class="t s">de main</text>
+				<rect x="510" y="60" width="230" height="56" class="box" /><text x="625" y="92" class="t s">marcos de quien llamó a main…</text>
+				<rect x="40" y="128" width="700" height="18" class="trap" />
+				<text x="390" y="141" class="t s b bad">memcpy(dest, src, 1024): escribe 1024 B desde dest</text>
+				<text x="200" y="176" class="t s"><tspan class="bad b">memcheck: 0 errores</tspan> (no conoce los límites del stack)</text>
+				<text x="560" y="176" class="t s"><tspan class="ok b">FORTIFY_SOURCE:</tspan> buffer overflow detected</text>
+				<text x="380" y="216" class="t s mu">Orden ilustrativo: la posición exacta de cada variable la decide el compilador.</text>
+			</svg>
+		)}
+
+		{fig === 'segv' && (
+			<svg viewBox="0 0 760 230" role="img" aria-label="La MMU rechaza la escritura en una dirección de kernel y el proceso recibe SIGSEGV">
+				<Fragment set:html={defs} />
+				<rect x="20" y="70" width="180" height="60" rx="8" class="box" />
+				<text x="110" y="94" class="t s mono b">memcpy(dest, …)</text>
+				<text x="110" y="114" class="t s mono">dest = 0xff…601000</text>
+				<line x1="200" y1="100" x2="228" y2="100" class="ln" marker-end={A} />
+				<polygon points="230,100 320,56 410,100 320,144" class="q" />
+				<text x="320" y="94" class="t s b">MMU: ¿mapeada</text>
+				<text x="320" y="111" class="t s b">con W para el usuario?</text>
+				<path d="M320 56 V30 H518" class="ln ok" marker-end={A} />
+				<text x="420" y="22" class="t s ok">sí (sin argumentos)</text>
+				<rect x="520" y="12" width="220" height="36" rx="8" class="c4" />
+				<text x="630" y="35" class="t s b">escribe en su frame · código 0</text>
+				<line x1="410" y1="100" x2="448" y2="100" class="ln bad" marker-end={R} />
+				<text x="428" y="92" class="t s bad">no</text>
+				<rect x="450" y="78" width="150" height="44" rx="8" class="trap" />
+				<text x="525" y="97" class="t s b bad">excepción de</text>
+				<text x="525" y="112" class="t s b bad">protección</text>
+				<line x1="600" y1="100" x2="618" y2="100" class="ln bad" marker-end={R} />
+				<rect x="620" y="78" width="120" height="44" rx="8" class="c6" />
+				<text x="680" y="97" class="t s b">kernel</text>
+				<text x="680" y="112" class="t s">envía SIGSEGV</text>
+				<line x1="680" y1="122" x2="680" y2="156" class="ln bad" marker-end={R} />
+				<text x="680" y="176" class="t s b bad">exit 139 = 128 + 11</text>
+				<text x="380" y="214" class="t s mu">La dirección es virtual: nunca llega a la RAM. La protección la hace la MMU en cada acceso.</text>
+			</svg>
+		)}
+
+		{fig === 'brkmmap' && (
+			<svg viewBox="0 0 760 370" role="img" aria-label="malloc chicos van al heap y los de 128 KB o más a un mapeo anónimo con mmap">
+				<Fragment set:html={defs} />
+				<rect x="80" y="30" width="220" height="30" class="c4" /><text x="190" y="50" class="t s b">stack</text>
+				<rect x="80" y="60" width="220" height="40" class="hole" fill={H} />
+				<rect x="80" y="100" width="220" height="40" class="c6" /><text x="190" y="125" class="t s b">libc.so.6</text>
+				<rect x="80" y="140" width="220" height="26" class="c4" /><text x="190" y="158" class="t s b">mmap anónimo 200 KB</text>
+				<rect x="80" y="166" width="220" height="34" class="c4" /><text x="190" y="188" class="t s b">mmap anónimo 64 MB</text>
+				<rect x="80" y="200" width="220" height="50" class="hole" fill={H} />
+				<rect x="80" y="250" width="220" height="56" class="box" />
+				<text x="92" y="268" class="t s l mu">[heap]</text>
+				<rect x="150" y="256" width="140" height="20" class="c2" /><text x="220" y="271" class="t s b">100 KB</text>
+				<rect x="150" y="280" width="140" height="20" class="c2" /><text x="220" y="295" class="t s b">1000 B</text>
+				<rect x="80" y="306" width="220" height="34" class="c3" /><text x="190" y="328" class="t s b">data · text</text>
+				<rect x="80" y="30" width="220" height="310" class="frame" />
+
+				<text x="420" y="157" class="t s l mono">malloc(200 KB) → 0x7ca57ffcd010</text>
+				<text x="420" y="189" class="t s l mono">malloc(64 MB)  → 0x7ca57bfcc010</text>
+				<text x="420" y="271" class="t s l mono">malloc(100 KB) → 0x5d8f3f3e1690</text>
+				<text x="420" y="295" class="t s l mono">malloc(1000)   → 0x5d8f3f3e12a0</text>
+				<line x1="412" y1="153" x2="304" y2="153" class="ln" marker-end={A} />
+				<line x1="412" y1="185" x2="304" y2="185" class="ln" marker-end={A} />
+				<line x1="412" y1="267" x2="294" y2="267" class="ln" marker-end={A} />
+				<line x1="412" y1="291" x2="294" y2="291" class="ln" marker-end={A} />
+				<text x="420" y="100" class="t s l b">≥ 128 KB → mmap propio (free hace munmap)</text>
+				<text x="420" y="236" class="t s l b">&lt; 128 KB → dentro del heap (brk)</text>
+				<text x="380" y="362" class="t s mu">Direcciones de la ejecución de prueba de mallocmap.c. Tamaños de las cajas no a escala.</text>
+			</svg>
+		)}
+
+		{fig === 'short' && (
+			<svg viewBox="0 0 760 210" role="img" aria-label="61440 no cabe en un short: se lee como -4096 y como size_t es casi 2 a la 64">
+				<Fragment set:html={defs} />
+				<text x="20" y="54" class="t s l b">60 · 1024 = 61 440</text>
+				<text x="20" y="72" class="t s l mu">guardado en un short</text>
+				<rect x="200" y="36" width="260" height="44" rx="6" class="c1" />
+				<text x="330" y="63" class="t mono b">1111 0000 0000 0000</text>
+				<text x="476" y="54" class="t s l">bit de signo = 1</text>
+				<text x="476" y="72" class="t s l b">como short: −4096</text>
+				<line x1="330" y1="80" x2="330" y2="114" class="ln" marker-end={A} />
+				<text x="342" y="102" class="t s l mu">pasa a size_t (64 bits): se extiende el signo</text>
+				<rect x="120" y="116" width="420" height="44" rx="6" class="c2" />
+				<text x="330" y="143" class="t mono b">0xFFFF FFFF FFFF F000</text>
+				<text x="556" y="134" class="t s l">= 18 446 744 073 709 547 520</text>
+				<text x="556" y="152" class="t s l b bad">≈ 2⁶⁴ → malloc devuelve NULL</text>
+				<text x="380" y="198" class="t s mu">Es el caso 4 de malloc_limits.c; ese mismo número aparece en el caso 5.</text>
+			</svg>
+		)}
+
+		{fig === 'bloque' && (
+			<svg viewBox="0 0 760 250" role="img" aria-label="Bloque de 40 bytes del heap: a[10] cae justo después; leer tras free cae dentro de un bloque liberado">
+				<Fragment set:html={defs} />
+				<text x="20" y="64" class="t s l b">malloc(40)</text>
+				<rect x="130" y="44" width="40" height="36" class="trap" />
+				{Array.from({ length: 10 }, (_, i) => (
+					<>
+						<rect x={170 + i * 44} y="44" width="44" height="36" class="c4" />
+						<text x={192 + i * 44} y="67" class="t s mono">a[{i}]</text>
+					</>
+				))}
+				<rect x="610" y="44" width="60" height="36" class="trap" />
+				<text x="640" y="34" class="t s bad">zona roja</text>
+				<path d="M640 120 V84" class="ln bad" marker-end={R} />
+				<text x="640" y="136" class="t s mono b bad">a[10] = 7</text>
+				<text x="380" y="114" class="t s">Invalid write of size 4 … <tspan class="b">0 bytes after</tspan> a block of size 40</text>
+
+				<text x="20" y="194" class="t s l b">tras free(a)</text>
+				<rect x="170" y="174" width="440" height="36" class="hole" fill={H} />
+				<rect x="170" y="174" width="440" height="36" class="frame" />
+				<text x="390" y="197" class="t s mu">bloque liberado (memcheck lo recuerda)</text>
+				<path d="M192 238 V214" class="ln bad" marker-end={R} />
+				<text x="206" y="240" class="t s l">leer a[0]: Invalid read … <tspan class="b">0 bytes inside</tspan> a block of size 40 free'd</text>
+			</svg>
+		)}
+
+		{fig === 'fugas' && (
+			<svg viewBox="0 0 760 270" role="img" aria-label="Tipos de fuga de memcheck según qué punteros llegan a cada bloque">
+				<Fragment set:html={defs} />
+				<rect x="20" y="50" width="150" height="170" rx="8" class="box" />
+				<text x="95" y="120" class="t s b">raíces</text>
+				<text x="95" y="138" class="t s mu">stack, globales,</text>
+				<text x="95" y="154" class="t s mu">registros</text>
+				<rect x="290" y="30" width="170" height="40" rx="6" class="c4" />
+				<line x1="170" y1="70" x2="288" y2="50" class="ln" marker-end={A} />
+				<text x="476" y="46" class="t s l b">still reachable</text>
+				<text x="476" y="62" class="t s l mu">hay un puntero al inicio al terminar: no es grave</text>
+				<rect x="290" y="100" width="170" height="40" rx="6" class="c2" />
+				<line x1="170" y1="120" x2="375" y2="128" class="ln" marker-end={A} />
+				<text x="476" y="116" class="t s l b">possibly lost</text>
+				<text x="476" y="132" class="t s l mu">solo un puntero al interior del bloque</text>
+				<rect x="290" y="170" width="170" height="40" rx="6" class="trap" />
+				<text x="375" y="195" class="t s b bad">definitely lost</text>
+				<text x="375" y="232" class="t s mu">ningún puntero llega</text>
+				<line x1="460" y1="190" x2="548" y2="190" class="ln" marker-end={A} />
+				<rect x="550" y="170" width="190" height="40" rx="6" class="trap" />
+				<text x="645" y="195" class="t s b bad">indirectly lost</text>
+				<text x="645" y="232" class="t s mu">solo desde un bloque perdido</text>
+				<text x="380" y="262" class="t s mu">Ejemplo del caso 4: s = malloc(64); s = NULL; deja el bloque sin ningún puntero → definitely lost.</text>
+			</svg>
+		)}
+
+		{fig === 'race' && (
+			<svg viewBox="0 0 760 270" role="img" aria-label="Dos hilos incrementan contador: sin lock se pierde un incremento; con mutex hay un orden happens-before">
+				<Fragment set:html={defs} />
+				<text x="200" y="24" class="cap">sin lock</text>
+				<text x="580" y="24" class="cap">con mutex</text>
+				<text x="30" y="84" class="t s l b">T1</text>
+				<text x="30" y="174" class="t s l b">T2</text>
+				<line x1="60" y1="80" x2="370" y2="80" class="sep" />
+				<line x1="60" y1="170" x2="370" y2="170" class="sep" />
+				<line x1="420" y1="80" x2="740" y2="80" class="sep" />
+				<line x1="420" y1="170" x2="740" y2="170" class="sep" />
+				<rect x="70" y="62" width="80" height="36" rx="6" class="c1" /><text x="110" y="85" class="t s">lee 5</text>
+				<rect x="200" y="62" width="90" height="36" rx="6" class="c1" /><text x="245" y="85" class="t s">escribe 6</text>
+				<rect x="130" y="152" width="80" height="36" rx="6" class="c3" /><text x="170" y="175" class="t s">lee 5</text>
+				<rect x="270" y="152" width="90" height="36" rx="6" class="c3" /><text x="315" y="175" class="t s">escribe 6</text>
+				<line x1="150" y1="98" x2="160" y2="150" class="ln bad" />
+				<line x1="260" y1="98" x2="290" y2="150" class="ln bad" />
+				<text x="215" y="222" class="t s b bad">resultado 6, no 7: se perdió un incremento</text>
+				<rect x="430" y="62" width="150" height="36" rx="6" class="c1" /><text x="505" y="85" class="t s">lock · 5 → 6 · unlock</text>
+				<rect x="600" y="152" width="140" height="36" rx="6" class="c3" /><text x="670" y="175" class="t s">lock · 6 → 7 · unlock</text>
+				<rect x="430" y="152" width="160" height="36" rx="6" class="hole" fill={H} /><text x="510" y="175" class="t s mu">espera el lock</text>
+				<path d="M580 98 C 600 120, 610 130, 620 150" class="ln ok" marker-end={A} />
+				<text x="612" y="120" class="t s l ok">happens-before</text>
+				<text x="590" y="222" class="t s b ok">resultado 7</text>
+				<text x="380" y="258" class="t s mu">helgrind marca la race de la izquierda aunque esa ejecución haya dado bien: no hay un lock común que ordene los accesos.</text>
+			</svg>
+		)}
+
+		{fig === 've' && (
+			<svg viewBox="0 0 760 220" role="img" aria-label="memcheck conoce los límites de los bloques del heap pero no los de los arreglos del stack">
+				<Fragment set:html={defs} />
+				<text x="190" y="24" class="cap">heap</text>
+				<text x="570" y="24" class="cap">stack</text>
+				<rect x="40" y="60" width="30" height="40" class="trap" />
+				<rect x="70" y="60" width="240" height="40" class="c4" /><text x="190" y="85" class="t s b">bloque de malloc</text>
+				<rect x="310" y="60" width="30" height="40" class="trap" />
+				<text x="190" y="130" class="t s">memcheck intercepta malloc: sabe dónde</text>
+				<text x="190" y="146" class="t s">empieza y termina cada bloque</text>
+				<text x="190" y="176" class="t s b ok">✓ detecta el desborde</text>
+				<rect x="420" y="60" width="120" height="40" class="c1" /><text x="480" y="85" class="t s b">dest[20]</text>
+				<rect x="540" y="60" width="100" height="40" class="box" /><text x="590" y="85" class="t s">otra local</text>
+				<rect x="640" y="60" width="100" height="40" class="c6" /><text x="690" y="85" class="t s">retorno</text>
+				<text x="580" y="130" class="t s">sin zonas rojas entre variables: el stack</text>
+				<text x="580" y="146" class="t s">parece un solo bloque válido</text>
+				<text x="580" y="176" class="t s b bad">✗ no lo detecta (usa ASan o FORTIFY)</text>
+				<text x="380" y="212" class="t s mu">Zonas rojas: bytes que memcheck marca como prohibidos alrededor de cada bloque.</text>
+			</svg>
+		)}
+	</div>
+	<figcaption><slot /></figcaption>
+</figure>

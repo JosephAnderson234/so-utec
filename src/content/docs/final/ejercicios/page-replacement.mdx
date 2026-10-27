@@ -11,6 +11,8 @@ import Objetivos from '../../../../components/tutor/Objetivos.astro';
 import Practica from '../../../../components/tutor/Practica.astro';
 import Errores from '../../../../components/tutor/Errores.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import MemVirtualFig from '../../../../components/MemVirtualFig.astro';
+import TrazaFig from '../../../../components/TrazaFig.astro';
 
 <EnSimple>
 Para este tipo de pregunta, dibuja una tabla: **una columna por referencia** y **una fila por frame**. En cada columna escribe qué hay en memoria después de ese acceso y marca con **F** los fallos. La regla de cada algoritmo solo importa cuando la memoria está **llena** y hay que elegir a quién sacar. Practica en el simulador y después compara tu tabla con la solución.
@@ -50,45 +52,45 @@ Referencias: `A B D C B E D B D B A C B C A C`.
 
 **FIFO (10 fallos)**
 
-```text
+<TrazaFig texto={`
 ref    A  B  D  C  B  E  D  B  D  B  A  C  B  C  A  C
 f0     A  A  A  C  C  C  C  C  D  D  D  D  B  B  B  B
 f1     ·  B  B  B  B  E  E  E  E  E  A  A  A  A  A  A
 f2     ·  ·  D  D  D  D  D  B  B  B  B  C  C  C  C  C
 fallo  F  F  F  F  ·  F  ·  F  F  ·  F  F  F  ·  ·  ·
-```
+`} />
 
 **OPT (7 fallos)**
 
-```text
+<TrazaFig texto={`
 ref    A  B  D  C  B  E  D  B  D  B  A  C  B  C  A  C
 f0     A  A  A  C  C  E  E  E  E  E  A  A  A  A  A  A
 f1     ·  B  B  B  B  B  B  B  B  B  B  B  B  B  B  B
 f2     ·  ·  D  D  D  D  D  D  D  D  D  C  C  C  C  C
 fallo  F  F  F  F  ·  F  ·  ·  ·  ·  F  F  ·  ·  ·  ·
-```
+`} />
 
 Por ejemplo, en la cuarta referencia (C), el futuro es `B E D B D B A…`: A es la que se usa **más tarde**, así que sale A.
 
 **LRU (8 fallos)**
 
-```text
+<TrazaFig texto={`
 ref    A  B  D  C  B  E  D  B  D  B  A  C  B  C  A  C
 f0     A  A  A  C  C  C  D  D  D  D  D  C  C  C  C  C
 f1     ·  B  B  B  B  B  B  B  B  B  B  B  B  B  B  B
 f2     ·  ·  D  D  D  E  E  E  E  E  A  A  A  A  A  A
 fallo  F  F  F  F  ·  F  F  ·  ·  ·  F  F  ·  ·  ·  ·
-```
+`} />
 
-**Clock (9 fallos).** El `*` es el bit de uso en 1.
+**Clock (9 fallos).** El punto verde en la esquina de cada casilla es el bit de uso en 1.
 
-```text
+<TrazaFig texto={`
 ref    A   B   D   C   B   E   D   B   D   B   A   C   B   C   A   C
 f0     A*  A*  A*  C*  C*  C*  C   B*  B*  B*  B*  B   B*  B*  B*  B*
 f1     ·   B*  B*  B   B*  B   D*  D*  D*  D*  D   C*  C*  C*  C*  C*
 f2     ·   ·   D*  D   D   E*  E*  E   E   E   A*  A*  A*  A*  A*  A*
 fallo  F   F   F   F   ·   F   F   F   ·   ·   F   F   ·   ·   ·   ·
-```
+`} />
 
 Por ejemplo, en la cuarta referencia (C) los tres tienen u = 1. El puntero da una vuelta completa poniéndolos en 0, vuelve al frame 0 y reemplaza a A. Es el caso en que Clock se comporta como FIFO.
 
@@ -121,24 +123,24 @@ Referencias: `A B C D A B E A B C D E`.
 
 **3 frames: 9 fallos**
 
-```text
+<TrazaFig texto={`
 ref    A  B  C  D  A  B  E  A  B  C  D  E
 f0     A  A  A  D  D  D  E  E  E  E  E  E
 f1     ·  B  B  B  A  A  A  A  A  C  C  C
 f2     ·  ·  C  C  C  B  B  B  B  B  D  D
 fallo  F  F  F  F  F  F  F  ·  ·  F  F  ·
-```
+`} />
 
 **4 frames: 10 fallos**
 
-```text
+<TrazaFig texto={`
 ref    A  B  C  D  A  B  E  A  B  C  D  E
 f0     A  A  A  A  A  A  E  E  E  E  D  D
 f1     ·  B  B  B  B  B  B  A  A  A  A  E
 f2     ·  ·  C  C  C  C  C  C  B  B  B  B
 f3     ·  ·  ·  D  D  D  D  D  D  C  C  C
 fallo  F  F  F  F  ·  ·  F  F  F  F  F  F
-```
+`} />
 
 **Comparación:** con **más memoria hay más fallos**. Es la **anomalía de Belady** (es la cadena clásica de su artículo de 1969).
 
@@ -174,12 +176,9 @@ $$
 - **Dirección física de 32 bits:** el número de frame tiene **32 − 12 = 20 bits**.
 - La PTE de 32 bits tiene 20 bits de frame más **12 bits de control**:
 
-```text
- 31                         12 11      5  4   3   2   1   0
-┌─────────────────────────────┬─────────┬───┬───┬───┬───┬───┐
-│   nº de frame (20 bits)     │ libres  │ M │ U │ W │ X │ V │
-└─────────────────────────────┴─────────┴───┴───┴───┴───┴───┘
-```
+<MemVirtualFig fig="pte32">
+Los números de arriba son las posiciones de bit. El frame ocupa los 20 bits altos y los bits de control, los de abajo.
+</MemVirtualFig>
 
   - **V** (válido/presente): la página está en RAM.
   - **U** (uso/referenciado): **imprescindible para Clock**. Lo pone en 1 el hardware al acceder y lo apaga el puntero del reloj.
@@ -191,14 +190,14 @@ $$
 
 <Solucion titulo="Simulación Clock con 4 frames: A B C A C D B D A E B F">
 
-```text
+<TrazaFig texto={`
 ref    A   B   C   A   C   D   B   D   A   E   B   F
 f0     A*  A*  A*  A*  A*  A*  A*  A*  A*  E*  E*  E*
 f1     ·   B*  B*  B*  B*  B*  B*  B*  B*  B   B*  B
 f2     ·   ·   C*  C*  C*  C*  C*  C*  C*  C   C   F*
 f3     ·   ·   ·   ·   ·   D*  D*  D*  D*  D   D   D
 fallo  F   F   F   ·   ·   F   ·   ·   ·   F   ·   F
-```
+`} />
 
 **Los dos momentos clave:**
 - **E (10.ª referencia):** los 4 frames tienen u = 1 y el puntero está en f0. Da una vuelta poniendo todo en 0 y reemplaza **A** por E en f0. El puntero queda en f1.

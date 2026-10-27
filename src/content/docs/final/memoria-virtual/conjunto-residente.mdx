@@ -14,6 +14,7 @@ import Practica from '../../../../components/tutor/Practica.astro';
 import Errores from '../../../../components/tutor/Errores.astro';
 import Feynman from '../../../../components/tutor/Feynman.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import MemVirtualFig from '../../../../components/MemVirtualFig.astro';
 
 <EnSimple>
 La página anterior respondía **a quién** expulsar. Esta responde tres preguntas de **reparto**:
@@ -42,6 +43,11 @@ El **working set** es la idea que une todo: el conjunto de páginas que un proce
 
 Con menos frames por proceso caben **más procesos** en RAM, así que hay más probabilidad de tener alguno listo. Pero si un proceso tiene **muy pocos** frames, la tasa de fallos se dispara. Pasado cierto punto, darle **más** frames casi no mejora nada, por la localidad.
 
+<MemVirtualFig fig="marcosfallos">
+**Cómo leerlo:** a la izquierda, con muy pocos marcos, el proceso no alcanza a tener su zona de trabajo y falla todo el tiempo. Cuando los marcos cubren su working set, la curva se aplana: dar más ya casi no baja los fallos. Por eso conviene darle a cada proceso **lo justo para su working set** y usar el resto para otros.
+</MemVirtualFig>
+
+
 | Asignación | Idea | Problema |
 | --- | --- | --- |
 | **Fija** | número fijo de frames por proceso, decidido al crearlo (según el tipo de proceso o lo que pida) | si es poco hay muchos fallos; si es mucho, caben pocos procesos |
@@ -60,6 +66,11 @@ Global es más simple y flexible, pero puede perjudicar a un compañero que nece
 
 - **Local:** la víctima sale del **mismo proceso** que causó el fallo.
 - **Global:** la víctima puede ser **cualquier** página no bloqueada de la memoria.
+
+<MemVirtualFig fig="localglobal">
+**Cómo leerlo:** arriba, la RAM antes del fallo (3 marcos de A, 5 de B); abajo, después. Con reemplazo local, A se reemplaza a sí mismo y los tamaños no cambian. Con global, A le quita un marco a B: A crece y B se achica. Ejemplo propio.
+</MemVirtualFig>
+
 
 | | **Reemplazo local** | **Reemplazo global** |
 | --- | --- | --- |
@@ -121,6 +132,11 @@ La regla: un proceso solo se ejecuta si su working set **cabe completo** en la R
 
 **Tamaño promedio:** 1.88 · 2.56 · 3.06 · 3.38. Con Δ más grande, el working set crece, pero cada vez menos.
 
+<MemVirtualFig fig="wsprom">
+**Cómo leerlo:** cada barra es el tamaño promedio del working set para una ventana Δ. Los números verdes son lo que se gana al agrandar Δ en 1: cada vez menos. Es la misma forma de la curva «marcos vs fallos»: pasado el working set, más memoria aporta poco.
+</MemVirtualFig>
+
+
 <Practica nivel={2} titulo="Complétalo: working set con Δ = 3 para la cadena <code>1 2 1 3 2 4 4 1</code>">
 
 | t | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
@@ -141,6 +157,11 @@ Tamaños: 1, 2, 2, 3, 3, 3, 2, 2, así que el promedio es 18 / 8 = **2.25**. Fí
 
 </Solucion>
 </Practica>
+
+<MemVirtualFig fig="ventana">
+**Cómo leerlo:** la ventana es un recuadro de Δ casillas que termina en la referencia actual. W son las páginas **distintas** dentro del recuadro. En t = 7 hay tres referencias pero solo dos páginas distintas; por eso W tiene tamaño 2.
+</MemVirtualFig>
+
 
 <Practica nivel={3} titulo="Solo: la misma cadena con Δ = 2">
 
@@ -194,6 +215,11 @@ El punto medio es el **page buffering**: lavar en tandas solo lo que ya está ap
 
 **Mejor solución: page buffering.** Las páginas reemplazadas van a dos listas, **modificadas** y **no modificadas**. Las modificadas se escriben **en lotes** y pasan a la lista de no modificadas. De ahí se pueden **recuperar** si se vuelven a referenciar, o se **reutilizan** sus frames si se pierden.
 
+<MemVirtualFig fig="buffering">
+Es el mismo esquema de [page buffering](/final/memoria-virtual/reemplazo/#page-buffering), visto desde la limpieza: las páginas sucias se escriben **en lote** (arriba a la derecha) y recién después se reutiliza su frame.
+</MemVirtualFig>
+
+
 ## Control de carga y thrashing
 
 <EnSimple titulo="En simple: demasiada gente en la cocina">
@@ -210,6 +236,11 @@ El **nivel de multiprogramación** es el número de procesos residentes en RAM.
   - el uso del procesador **sube** al agregar procesos,
   - llega a un **máximo**,
   - y **cae en picada**: la CPU pasa el tiempo esperando al disco de paginación.
+
+<MemVirtualFig fig="thrashing">
+**Cómo leerlo:** al agregar procesos, la CPU se ocupa más porque casi siempre hay alguno listo. Pasado el máximo, cada proceso tiene muy pocos marcos y vive fallando (zona roja): la CPU se queda esperando al disco. La solución no es agregar procesos sino **sacar** algunos, para volver a la izquierda del máximo.
+</MemVirtualFig>
+
 
 **Criterios para elegir el nivel:**
 - **Working set:** solo se ejecuta un proceso si su working set está residente. Eso regula la carga de forma implícita.

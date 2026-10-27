@@ -14,6 +14,7 @@ import Practica from '../../../../components/tutor/Practica.astro';
 import Errores from '../../../../components/tutor/Errores.astro';
 import Feynman from '../../../../components/tutor/Feynman.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import MemVirtualFig from '../../../../components/MemVirtualFig.astro';
 
 <EnSimple>
 El escritorio (la RAM) está lleno y necesitas un libro nuevo: **¿cuál devuelves a la estantería?**
@@ -103,6 +104,11 @@ Por eso FIFO suele ser malo: no le importa si la página se está usando, solo c
    - si encuentra u = 0, **reemplaza** esa página, pone su u = 1 y deja el puntero en el **siguiente** frame.
 4. Si todos tenían u = 1, el puntero da la vuelta completa, apaga todos los bits y reemplaza la página donde empezó. En ese caso Clock degenera en FIFO.
 
+<MemVirtualFig fig="clock">
+**Cómo leerlo:** a la izquierda, el estado cuando llega la página 4 y no está. El puntero empieza en la pág. 8 y avanza en sentido horario: a las que tienen u = 1 les apaga el bit y sigue; en la primera con u = 0 (la pág. 2) se detiene y la reemplaza. A la derecha, el resultado: en amarillo, los bits que cambiaron; en verde, la página nueva. Ejemplo propio.
+</MemVirtualFig>
+
+
 <PageReplacement client:visible preset="stallings" />
 
 <Practica nivel={1} titulo="Resuelto: la cadena de Stallings (fig. 8.14)">
@@ -185,6 +191,11 @@ Si además se considera el bit **M**, expulsar una página **sin modificar** es 
 2. Si no, recorre buscando (u = 0, m = 1) y va poniendo **u = 0** en los que pasa.
 3. Si tampoco encuentra, todos los u quedaron en 0: repite el paso 1 y, si hace falta, el 2. Seguro encuentra una víctima.
 
+<MemVirtualFig fig="clockmej">
+**Cómo leerlo:** las filas son el bit u y las columnas, el bit m. La mejor víctima está arriba a la izquierda: nadie la usó y no hay que escribirla. El paso 1 solo mira esa casilla; el paso 2, la de al lado. La flecha muestra por qué el algoritmo siempre termina: el paso 2 va apagando u, así que las páginas de abajo «suben» a la fila de arriba.
+</MemVirtualFig>
+
+
 Lo usaba el Macintosh.
 
 ### La anomalía de Belady
@@ -202,6 +213,11 @@ Lo esperable es que con **más frames** haya **menos o los mismos** fallos. **FI
 | :-: | :-: | :-: | :-: | :-: |
 | 3 | **9** | 9 | 10 | 7 |
 | 4 | **10** ⚠ | 10 ⚠ | 8 | 6 |
+
+<MemVirtualFig fig="belady">
+**Cómo leerlo:** en cada algoritmo, la barra izquierda es con 3 marcos y la derecha con 4. Lo normal es que la derecha sea más baja (LRU, OPT). En FIFO y Clock la derecha es **más alta**: más memoria, más fallos. Esa es la anomalía.
+</MemVirtualFig>
+
 
 LRU y OPT son **algoritmos de pila**: el conjunto de páginas con n frames está siempre **contenido** en el de n + 1 frames, así que agregar memoria nunca empeora. FIFO y Clock no cumplen esa propiedad. En el simulador de arriba, elige «Belady (P2)» y mira la tabla de fallos por número de frames.
 
@@ -237,6 +253,11 @@ Es una forma de compensar lo malo de FIFO **sin** pagar lo que cuesta LRU (la us
    - la **lista de páginas modificadas**, si estaba modificada.
 2. Si el proceso la vuelve a referenciar pronto, se **recupera de la lista** sin leer del disco. Es un fallo baratísimo.
 3. Las páginas modificadas se escriben al disco **en grupos**, lo que reduce la E/S.
+
+<MemVirtualFig fig="buffering">
+**Cómo leerlo:** la víctima no se borra: su PTE pasa a P = 0, pero la página sigue en RAM en una de las dos listas. Las modificadas se limpian en lote y pasan a la de libres. Desde ahí, o el proceso la vuelve a pedir y se recupera sin disco (verde), o nadie la pide y su frame se reutiliza. Desde la lista de modificadas también se puede recuperar.
+</MemVirtualFig>
+
 
 Las listas funcionan como una **caché de páginas**. Linux hace algo parecido con su *page cache* y sus listas activa e inactiva (ver [UNIX y Linux](/final/memoria-virtual/unix-linux/)).
 

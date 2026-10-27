@@ -10,6 +10,8 @@ import Quiz from '../../../../components/Quiz.tsx';
 import Objetivos from '../../../../components/tutor/Objetivos.astro';
 import Feynman from '../../../../components/tutor/Feynman.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import MemVirtualFig from '../../../../components/MemVirtualFig.astro';
+import PaginacionFig from '../../../../components/PaginacionFig.astro';
 
 <EnSimple>
 Para estudiar no necesitas **toda la biblioteca** en tu escritorio: basta con los dos o tres libros del tema de hoy, y cuando hace falta otro vas a buscarlo al estante. La **memoria virtual** hace lo mismo con los procesos: en la RAM (el escritorio) solo está lo que se usa ahora y el resto espera en disco (el estante). Funciona gracias a la **localidad**: casi siempre usas lo mismo que acabas de usar. Si el escritorio es demasiado chico, te pasas el día yendo y viniendo del estante sin estudiar: eso es el **thrashing**.
@@ -59,6 +61,11 @@ Dos características de la paginación y la segmentación lo hacen posible:
   2. pide la E/S de disco y **despacha otro proceso** mientras tanto;
   3. al terminar la E/S hay una interrupción y el proceso vuelve a **Ready**.
 
+<MemVirtualFig fig="pagefault">
+**Cómo leerlo:** el recorrido de un fallo de página, desde la referencia que no está en el conjunto residente hasta que el proceso vuelve a Ready.
+</MemVirtualFig>
+
+
 **Dos consecuencias** 📌:
 1. **Caben más procesos** en memoria, así que es más probable que alguno esté Ready y se aprovecha más la CPU.
 2. **Un proceso puede ser más grande que toda la memoria principal.** Se acaban los overlays.
@@ -85,6 +92,11 @@ Dos características de la paginación y la segmentación lo hacen posible:
   1. soporte de **hardware** para la paginación o la segmentación;
   2. **software** del SO que mueva páginas entre la memoria y el disco.
 
+<MemVirtualFig fig="localidad">
+**Cómo leerlo:** con el tiempo, las referencias de un proceso se concentran en pocas páginas a la vez. Esa concentración es lo que permite tener solo una parte del proceso en memoria.
+</MemVirtualFig>
+
+
 ### La PTE (figura 8.1a)
 
 | Campo | Para qué |
@@ -93,6 +105,11 @@ Dos características de la paginación y la segmentación lo hacen posible:
 | **Número de frame** | dónde está la página |
 | **M** (modificado) | si se modificó desde que se cargó. Si M = 0, **no hay que escribirla** al reemplazarla |
 | **Otros bits de control** | protección y compartición a nivel de página |
+
+<PaginacionFig fig="pte">
+**Cómo leerlo:** los campos de una PTE. P dice si la página está en memoria; M, si hay que escribirla antes de reemplazarla.
+</PaginacionFig>
+
 
 ### Estructura de la tabla de páginas
 
@@ -109,6 +126,11 @@ Dos características de la paginación y la segmentación lo hacen posible:
   3. los siguientes 10 bits indexan esa página.
 - Normalmente cada tabla mide **una página**. El ejemplo del libro es el **Pentium**.
 
+<PaginacionFig fig="dosniveles">
+**Cómo leerlo:** los primeros 10 bits eligen una entrada de la tabla raíz, que apunta a una página de la tabla de usuario; los 10 siguientes eligen la PTE dentro de esa página, y los 12 últimos son el offset.
+</PaginacionFig>
+
+
 **Tabla de páginas invertida** (PowerPC, UltraSPARC, IA-64, Mach en el RT-PC):
 - Los otros diseños tienen un tamaño **proporcional al espacio virtual**. La invertida tiene **una entrada por frame**, así que ocupa una proporción **fija** de la memoria real sin importar cuántos procesos haya.
 - Se aplica un **hash** al número de página y las colisiones se resuelven por **encadenamiento**. Las cadenas son cortas: 1 o 2 entradas.
@@ -118,6 +140,11 @@ Dos características de la paginación y la segmentación lo hacen posible:
   - el **identificador de proceso**;
   - bits de control (válido, referenciado, modificado, protección, bloqueo);
   - un **puntero de cadena**.
+
+<PaginacionFig fig="invertida">
+**Cómo leerlo:** el hash del número de página da una posición en la tabla, que tiene una fila por frame. Si la fila es de otra página o de otro proceso, se sigue el puntero de cadena.
+</PaginacionFig>
+
 
 ### TLB (translation lookaside buffer)
 
@@ -129,6 +156,11 @@ Dos características de la paginación y la segmentación lo hacen posible:
 2. Si **falla**, se busca en la tabla de páginas.
    - Si **P = 1**, se arma la dirección y se **actualiza la TLB**.
    - Si **P = 0**, hay un **page fault**: el SO carga la página y actualiza la tabla.
+
+<PaginacionFig fig="tlb">
+**Cómo leerlo:** el flujo de la figura 8.7. El camino corto es el acierto en la TLB; el largo pasa por la tabla de páginas y, si P = 0, termina en un page fault.
+</PaginacionFig>
+
 
 **Detalles de diseño:**
 - **Mapeo asociativo:** la TLB **no se puede indexar** por número de página porque solo tiene algunas entradas. Cada entrada guarda **el número de página y la PTE completa**, y el hardware compara **muchas entradas a la vez**. La tabla de páginas, en cambio, usa **mapeo directo** (indexación).
@@ -146,6 +178,11 @@ Dos características de la paginación y la segmentación lo hacen posible:
 **La curva de la figura 8.10a:** la tasa de fallos **sube** al crecer la página y luego **baja** cuando la página se acerca al tamaño del proceso (punto P). Si una página contiene todo el proceso, no hay fallos.
 
 **Figura 8.10b:** con un tamaño de página fijo, la tasa de fallos **baja** cuando aumentan los frames asignados. La política de software (cuánta memoria dar) interactúa con la decisión de hardware (el tamaño de página).
+
+<PaginacionFig fig="tamano">
+**Cómo leerlo:** la forma de la curva 8.10a: sube mientras la página crece y la localidad se debilita, y baja cuando la página se acerca al tamaño de todo el proceso (P).
+</PaginacionFig>
+
 
 **Tendencias que bajan la localidad:**
 - la **orientación a objetos**, con muchos módulos pequeños dispersos;
@@ -187,6 +224,11 @@ La traducción **suma** la base y el offset (figura 8.11).
   - **Para el sistema**, el offset es (página, offset dentro de la página).
 - **Las estructuras:** **una tabla de segmentos por proceso** y **una tabla de páginas por segmento**.
   - La entrada de segmento tiene la **longitud** y una **base que apunta a la tabla de páginas**. **No necesita P ni M**, porque eso se maneja a nivel de página.
+
+<MemVirtualFig fig="segpag">
+**Cómo leerlo:** el número de segmento elige la tabla de páginas de ese segmento; el número de página elige el frame, y el offset se concatena.
+</MemVirtualFig>
+
 - **Protección y compartición:**
   - La longitud impide salirse del segmento.
   - Compartir es poner el mismo segmento en las tablas de varios procesos.
@@ -259,6 +301,11 @@ Verifiqué esos conteos con un simulador: con los 3 fallos iniciales dan 6, 7, 9
   2. Saca la 556 del frame 4.
   3. Deja u = 1 y el puntero en el frame 5.
 
+<MemVirtualFig fig="clock">
+**Cómo leerlo:** la misma mecánica de la figura 8.15, con números del curso (no los del libro). El puntero apaga el bit de uso de cada marco con u = 1 que salta y reemplaza al primero que encuentra con u = 0. En el libro: apaga la 45 y la 191 y saca la 556.
+</MemVirtualFig>
+
+
 **Experimentos:**
 - **Baer (1980):** la diferencia entre algoritmos se nota sobre todo con **pocos frames**, y FIFO llega a ser más del doble de malo que el óptimo.
 - **Finkel:** factor máximo de unas 2 veces. Aunque parezca poco, se nota en la memoria que hace falta o en el rendimiento.
@@ -278,6 +325,11 @@ Verifiqué esos conteos con un simulador: con los 3 fallos iniciales dan 6, 7, 9
 2. **Segunda pasada:** buscar (0, 1) **poniendo u = 0** en cada frame que salta.
 3. Si tampoco aparece, todos quedaron con u = 0: repetir el paso 1 y, si hace falta, el 2.
 
+<MemVirtualFig fig="clockmej">
+**Cómo leerlo:** las cuatro clases según (u, m), de la mejor víctima a la peor, y el orden de las pasadas.
+</MemVirtualFig>
+
+
 Se usó en una versión temprana de la **Macintosh**. Su ventaja es que **prefiere las páginas no modificadas**, que no hay que escribir.
 
 **Page buffering** (el ejemplo es VAX VMS):
@@ -286,6 +338,11 @@ Se usó en una versión temprana de la **Macintosh**. Su ventaja es que **prefie
 - **Si se referencia otra vez, se recupera casi gratis.** Las listas funcionan como una **caché de páginas**.
 - Las modificadas se escriben **en grupos**, lo que ahorra E/S.
 - **Mach** usa una versión más simple, sin distinguir entre modificadas y no modificadas.
+
+<MemVirtualFig fig="buffering">
+**Cómo leerlo:** la página expulsada no se borra, solo pasa a una lista. Si se vuelve a pedir antes de que su frame se reutilice, se recupera sin ir al disco.
+</MemVirtualFig>
+
 
 **Con la caché de datos:** si el frame reemplazado estaba en la caché, también se pierde ese bloque. Una colocación cuidadosa de las páginas en el buffer da entre **10 y 20 % menos fallos de caché** (Kessler, 1992).
 
@@ -296,6 +353,11 @@ Se usó en una versión temprana de la **Macintosh**. Su ventaja es que **prefie
 - **Pocos frames** generan una tasa de fallos alta.
 - **Más allá de cierto tamaño**, agregar frames ya casi no mejora nada (por localidad).
 
+<MemVirtualFig fig="marcosfallos">
+**Cómo leerlo:** la tasa de fallos según los frames asignados. Cae rápido al principio y después se aplana: más allá de la rodilla, otro frame casi no ayuda.
+</MemVirtualFig>
+
+
 **Las políticas:**
 - **Asignación fija:** un número de frames fijado al **crear** el proceso.
 - **Asignación variable:** cambia durante la vida del proceso. Es más poderosa, pero el SO debe **evaluar el comportamiento** de cada proceso, lo que tiene un costo.
@@ -304,6 +366,11 @@ Se usó en una versión temprana de la **Macintosh**. Su ventaja es que **prefie
 - **Local:** solo entre las páginas del proceso que falló.
 - **Global:** entre todas las páginas **no bloqueadas** de la memoria.
 - No hay evidencia de que la local sea mejor; la global es más **simple** y tiene menos *overhead*.
+
+<MemVirtualFig fig="localglobal">
+**Cómo leerlo:** con reemplazo local la víctima sale del mismo proceso que falló; con global puede salir de cualquiera, y así un proceso crece a costa de otro.
+</MemVirtualFig>
+
 
 **Tabla 8.5 · Combinaciones** 📌:
 
@@ -332,6 +399,11 @@ Se usó en una versión temprana de la **Macintosh**. Su ventaja es que **prefie
   1. el pasado **no siempre predice** el futuro;
   2. medirlo de verdad es **impráctico**: habría que marcar el tiempo de cada referencia;
   3. **no se conoce el Δ óptimo**, y además varía.
+
+<MemVirtualFig fig="ventana">
+**Cómo leerlo:** el working set en un instante t son las páginas distintas que aparecen dentro de la ventana de las últimas Δ referencias.
+</MemVirtualFig>
+
 
 **PFF (page fault frequency):**
 - Usa un **bit de uso** por página y un umbral **F**.
@@ -370,6 +442,11 @@ Es lo **opuesto** de la política de fetch.
 1. Las políticas de **working set o PFF** ya traen implícito el control de carga: solo corren los procesos con suficiente conjunto residente.
 2. **Criterio L = S** (Denning): ajustar el nivel para que **el tiempo medio entre fallos sea igual al tiempo medio de atender un fallo**. Ahí el uso de la CPU es máximo.
 3. **Criterio del 50 %:** mantener el dispositivo de paginación ocupado cerca del **50 %**.
+
+<MemVirtualFig fig="thrashing">
+**Cómo leerlo:** la forma de la figura 8.19. El uso de la CPU crece con el nivel de multiprogramación hasta un punto y luego se desploma por thrashing.
+</MemVirtualFig>
+
 4. **Velocidad del puntero del Clock** (con alcance global):
    - si gira **lento**, hay pocos fallos o es fácil encontrar víctimas, así que **se puede subir** el nivel;
    - si gira **rápido**, el nivel es **demasiado alto**.
@@ -403,6 +480,11 @@ Es lo **opuesto** de la política de fetch.
 
 **Copy on write:** se activa cuando varios procesos comparten una página. Si uno escribe, **recién entonces** se hace una copia aparte. Así la copia se **posterga** y, si no hace falta, se evita.
 
+<MemVirtualFig fig="cow">
+**Cómo leerlo:** al principio padre e hijo apuntan al mismo frame en solo lectura. La primera escritura provoca un fallo y el kernel copia solo esa página.
+</MemVirtualFig>
+
+
 ### Reemplazo: reloj de dos manecillas (figura 8.21)
 
 - La lista de frames libres se mantiene, y si baja de un umbral el kernel **roba** frames.
@@ -411,6 +493,11 @@ Es lo **opuesto** de la política de fetch.
 - **Parámetros:**
   - **scanrate:** las páginas por segundo que recorren las manecillas. Varía linealmente entre **slowscan y fastscan** según la memoria libre, entre **lotsfree y minfree**: con menos memoria libre, las manecillas **van más rápido**.
   - **handspread:** la distancia entre las dos manecillas. Junto con scanrate define la **ventana** que tiene una página para ser usada antes de salir.
+
+<MemVirtualFig fig="manecillas">
+**Cómo leerlo:** la manecilla delantera apaga el bit de referencia y la trasera, que va detrás a distancia handspread, expulsa las páginas que siguen en 0.
+</MemVirtualFig>
+
 
 ### Asignador del kernel: lazy buddy
 
@@ -432,6 +519,11 @@ Es lo **opuesto** de la política de fetch.
     - con D ≥ 2, se libera **local** y D baja 2;
     - con D = 1, se libera **global** (se fusiona si se puede) y D queda en 0;
     - con D = 0, se libera global y además **se pasa un local a global**, con D en 0.
+
+<MemVirtualFig fig="lazybuddy">
+**Cómo leerlo:** la variable D decide si un bloque liberado se guarda como local (sin fusionar, listo para reusarse) o se devuelve como global para que pueda fusionarse.
+</MemVirtualFig>
+
 
 ## 8.4 Linux
 
@@ -461,6 +553,11 @@ Usa el **buddy system** sobre grupos de **1, 2, 4, 8, 16 o 32 frames** contiguos
 | La página con age 0 es la mejor víctima. **Era en la práctica un LFU** (*least frequently used*) | El demonio **kswapd** barre periódicamente y limpia el bit de acceso cada vez que lo lee |
 | Problema: los barridos gastan cada vez más CPU con memorias grandes | (1) primer acceso en la inactiva: se pone PG_referenced; (2) **segundo acceso en otro barrido**: pasa a la activa; (3) si el segundo acceso no llega a tiempo, se borra PG_referenced; (4) bajar de activa a inactiva requiere **dos timeouts**. Se reemplaza desde la inactiva con un estilo LRU |
 
+<MemVirtualFig fig="splitlru">
+**Cómo leerlo:** una página necesita dos accesos en barridos distintos para subir a la lista activa, y las víctimas se toman siempre de la inactiva.
+</MemVirtualFig>
+
+
 ### Memoria del kernel
 
 - **La base** es el mismo **buddy** de páginas, pero la unidad mínima es una página y el kernel pide trozos pequeños y de tamaños raros.
@@ -472,6 +569,11 @@ Usa el **buddy system** sobre grupos de **1, 2, 4, 8, 16 o 32 frames** contiguos
 | **SLAB** | ser lo más **amigable con la caché** posible (minimizar los fallos de caché) |
 | **SLUB** | ser **simple** y usar pocas instrucciones |
 | **SLOB** | ser lo más **compacto** posible, para sistemas con poca memoria |
+
+<MemVirtualFig fig="slab">
+**Cómo leerlo:** el buddy entrega páginas completas; el slab las corta en objetos del mismo tamaño y los reparte por listas.
+</MemVirtualFig>
+
 
 Más detalle práctico en [UNIX, Solaris y Linux](/final/memoria-virtual/unix-linux/).
 

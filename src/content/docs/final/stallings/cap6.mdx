@@ -10,6 +10,7 @@ import Quiz from '../../../../components/Quiz.tsx';
 import Objetivos from '../../../../components/tutor/Objetivos.astro';
 import Feynman from '../../../../components/tutor/Feynman.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import StallingsFig from '../../../../components/StallingsFig.astro';
 
 <EnSimple>
 Piensa en **cuatro autos en un cruce de cuatro vías**. Cada uno entra un poco y ocupa un cuadrante, pero para salir necesita el cuadrante que tiene el de al lado. Nadie retrocede, nadie cede: **nadie avanza nunca**. Eso es un deadlock. El capítulo responde tres preguntas: ¿qué tiene que pasar para que ocurra? (las condiciones), ¿cómo lo impido? (prevención y evitación) y ¿qué hago si ya pasó? (detección y recuperación).
@@ -51,6 +52,11 @@ Releer subrayando da sensación de dominio, pero recuperar la idea de memoria es
 - **Deadlock potencial:** los cuatro llegan a la vez y todos respetan «cede al de tu derecha». Nadie entra, pero los recursos están **libres**: si uno decide avanzar, puede.
 - **Deadlock real:** los cuatro entran a la vez y cada uno toma un cuadrante. Ya nadie puede seguir.
 
+<StallingsFig fig="cruce">
+**Cómo leerlo:** es el caso del deadlock real. Cada auto ya está dentro de su cuadrante (lo **retiene**) y la flecha roja apunta al cuadrante que **necesita**. Como las cuatro flechas forman un ciclo, nadie puede avanzar.
+</StallingsFig>
+
+
 ### Diagrama de progreso conjunto (figuras 6.2 y 6.3)
 
 - El eje x es el avance de P y el eje y el de Q. La ejecución es un camino que va hacia el noreste (en un uniprocesador, con tramos horizontales y verticales alternados).
@@ -58,6 +64,11 @@ Releer subrayando da sensación de dominio, pero recuperar la idea de memoria es
 - La **región fatal** es la zona desde la cual el deadlock es **inevitable**. En la figura 6.2 hay 6 caminos y los caminos **3 y 4** entran en ella.
 - **Que exista una región fatal depende de la lógica** de los procesos. **Que ocurra el deadlock depende además de la dinámica** de la ejecución.
 - **Figura 6.3:** si P suelta A antes de pedir B, **no puede haber deadlock** sin importar el orden de ejecución, porque P nunca tiene A y B a la vez.
+
+<StallingsFig fig="progreso">
+**Cómo leerlo:** la forma de la figura 6.2. Cada paso a la derecha es avance de P y cada paso hacia arriba, de Q. Los rectángulos de color son las regiones prohibidas (ambos querrían el mismo recurso). El camino rojo entra a la región fatal: P ya tiene A, Q ya tiene B, y cualquier movimiento choca con una región prohibida. El camino verde deja que P termine primero y esquiva todo.
+</StallingsFig>
+
 
 ### Recursos reutilizables y consumibles 📌
 
@@ -76,6 +87,11 @@ Releer subrayando da sensación de dominio, pero recuperar la idea de memoria es
 - **6.5c:** una instancia de Ra y de Rb, P1 tiene Rb y pide Ra, P2 tiene Ra y pide Rb → **deadlock**.
 - **6.5d:** la misma forma, pero con **varias instancias** → **no hay deadlock**. Un ciclo con recursos de varias instancias **no basta**.
 
+<StallingsFig fig="grafo">
+**Cómo leerlo:** cada punto dentro de un recurso es una instancia. A la izquierda (6.5c) solo hay una de cada uno, ya asignada, así que el ciclo rojo es deadlock. A la derecha (6.5d) sobra una instancia de Rb: P2 la recibe, termina y libera Ra, y el ciclo se deshace.
+</StallingsFig>
+
+
 ### Las condiciones 📌
 
 | | Condición | Qué dice | Tipo |
@@ -93,6 +109,11 @@ Releer subrayando da sensación de dominio, pero recuperar la idea de memoria es
 | --- | --- |
 | exclusión mutua + no expropiación + hold and wait | las tres + **espera circular** |
 
+<StallingsFig fig="condiciones">
+**Cómo leerlo:** las tres condiciones de la izquierda las elige el diseño del sistema, y juntas solo hacen **posible** el deadlock. Recién cuando además se forma la espera circular, que depende del orden de los pedidos, el deadlock **ocurre**.
+</StallingsFig>
+
+
 ## 6.2 Prevención
 
 **Idea:** diseñar el sistema para que el deadlock sea **imposible**. Hay dos clases:
@@ -107,6 +128,11 @@ Releer subrayando da sensación de dominio, pero recuperar la idea de memoria es
 | Espera circular | **Orden lineal** de los tipos de recurso: si tienes Ri, solo puedes pedir Rj con j &gt; i | Puede ser ineficiente: frena procesos y niega accesos sin necesidad |
 
 **Por qué funciona el orden lineal:** si A tiene Ri y pide Rj, y B tiene Rj y pide Ri, entonces i &lt; j y j &lt; i a la vez, lo cual es imposible.
+
+<StallingsFig fig="orden">
+**Cómo leerlo:** los recursos están numerados. Pedir solo hacia la derecha (verde) siempre se permite; pedir hacia atrás (rojo) está prohibido. Un ciclo necesitaría al menos una flecha hacia atrás, así que no puede formarse.
+</StallingsFig>
+
 
 ## 6.3 Evitación
 
@@ -132,6 +158,11 @@ Dos enfoques:
 - **Inseguro:** no existe ninguna.
 - **El banquero:** ante un pedido, (1) verifica que no supere lo declarado (si lo supera, es un error); (2) verifica que haya disponible (si no, suspende); (3) **simula** la asignación y corre el **test de seguridad**; si el nuevo estado es seguro concede, si no **restaura y suspende**.
 - **Ojo:** un estado inseguro **no es** un deadlock, solo tiene la **posibilidad**. La evitación no predice el deadlock con certeza: garantiza que **nunca** haya esa posibilidad.
+
+<StallingsFig fig="estados">
+**Cómo leerlo:** el deadlock es un subconjunto de los estados inseguros, y los inseguros no tocan a los seguros. El banquero se queda siempre en la caja verde: niega cualquier pedido que lleve a la zona amarilla, aunque ahí todavía no haya deadlock.
+</StallingsFig>
+
 
 ### Restricciones de la evitación 📌
 
@@ -168,6 +199,11 @@ Hay 4 recursos (A = 15, B = 6, C = 9, D = 10) y 6 procesos:
 | P3 | 13 5 8 9 |
 | P4 | 14 6 8 9 |
 | P5 | 15 6 9 10 |
+
+<StallingsFig fig="secuencia">
+**Cómo leerlo:** la misma tabla como recorrido. Se sigue la flecha: en cada paso, el proceso que termina devuelve su Allocation (el número de abajo) y Work crece. Al final Work vale el total (15 6 9 10), señal de que todos terminaron.
+</StallingsFig>
+
 
 **d) Pedido (3, 2, 3, 3) de P5.** No supera su Need (3 4 3 3) y cabe en Available. Simulándolo, Available queda en **(3, 1, 2, 1)**, y con eso **ningún** proceso puede completar su Need. El estado es inseguro, así que **se niega** y P5 se suspende.
 
@@ -227,6 +263,11 @@ Dijkstra (1971). Son 5 filósofos y 5 tenedores, y cada uno necesita **dos** par
 | **Fig. 6.14:** **monitor** con `ForkReady[5]` y `fork[5]` | **Sin deadlock**: solo uno está en el monitor a la vez, así que el primero que entra toma izquierdo y derecho antes de que el vecino tome el suyo |
 
 El libro también propone, en broma, comprar 5 tenedores más o enseñarles a comer con uno. Las 8 versiones del curso, con su análisis de starvation, están en [Filósofos](/final/deadlock/filosofos/).
+
+<StallingsFig fig="filosofos">
+**Cómo leerlo:** la línea gruesa es el tenedor que el filósofo ya tiene y la flecha roja punteada, el que espera. A la izquierda (fig. 6.12) los cinco tienen el izquierdo y esperan el derecho: ciclo. A la derecha (fig. 6.13) el portero deja afuera a F4, su tenedor queda libre y F3 puede tomar los dos.
+</StallingsFig>
+
 
 ## 6.7 Mecanismos de concurrencia de UNIX 📌
 

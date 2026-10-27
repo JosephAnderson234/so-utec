@@ -1,0 +1,654 @@
+---
+/** Diagramas de memoria virtual (Stallings cap. 8): localidad, EAT, page fault, reemplazo, working set y UNIX/Linux. */
+import '../styles/svgfig.css';
+type Fig =
+	| 'localidad' | 'eat' | 'segpag' | 'pagefault' | 'demanda'
+	| 'clock' | 'clockmej' | 'belady' | 'buffering'
+	| 'marcosfallos' | 'localglobal' | 'ventana' | 'wsprom' | 'thrashing'
+	| 'cow' | 'manecillas' | 'lazybuddy' | 'linux4' | 'splitlru' | 'slab'
+	| 'columnas' | 'bits46' | 'pte32' | 'binario';
+interface Props {
+	fig: Fig;
+}
+const { fig } = Astro.props;
+const A = `url(#mva-${fig})`;
+const R = `url(#mvr-${fig})`;
+const defs = `<defs><marker id="mva-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head"/></marker><marker id="mvr-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head-bad"/></marker><pattern id="mvh-${fig}" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" class="hatch"/></pattern></defs>`;
+
+let seed = 7;
+const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+const zonas = [
+	{ t0: 0, t1: 28, p0: 10, p1: 13 },
+	{ t0: 28, t1: 54, p0: 20, p1: 24 },
+	{ t0: 54, t1: 80, p0: 4, p1: 7 },
+];
+const refs = Array.from({ length: 80 }, (_, t) => {
+	const z = zonas.find((z) => t >= z.t0 && t < z.t1)!;
+	const p = t % 5 === 0 ? 1 : z.p0 + Math.floor(rnd() * (z.p1 - z.p0 + 1));
+	return { x: 80 + t * 8, y: 230 - p * 6.5 };
+});
+
+const pos = (cx: number, cy: number, r: number, k: number, n: number) => {
+	const a = ((-90 + (360 / n) * k) * Math.PI) / 180;
+	return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+};
+const antes = [['3', 0], ['8', 1], ['5', 1], ['2', 0], ['9', 1], ['6', 0]] as const;
+const despues = [['3', 0], ['8', 0], ['5', 0], ['4', 1], ['9', 1], ['6', 0]] as const;
+const clsDespues = ['box', 'c2', 'c2', 'c4', 'box', 'box'];
+const rbits = ['0', '0', '1', '0', '1', '1', '0', '1', '1', '1', '0', '1'];
+const slots = Array.from({ length: 32 }, (_, i) => ({ x: 230 + (i % 16) * 30, y: 60 + Math.floor(i / 16) * 30, used: [0, 1, 2, 4, 5, 8, 9, 10, 13, 17, 18, 20, 24, 25, 29].includes(i) }));
+---
+
+<figure class="svgfig not-content">
+	<div class="svgfig__scroll">
+		{fig === 'localidad' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Gráfico ilustrativo: las referencias se agrupan en pocas páginas por zonas de tiempo">
+				<Fragment set:html={defs} />
+				{zonas.map((z) => <rect x={80 + z.t0 * 8 - 3} y={230 - z.p1 * 6.5 - 6} width={(z.t1 - z.t0) * 8} height={(z.p1 - z.p0) * 6.5 + 12} rx="4" class="hl" />)}
+				<rect x="77" y={230 - 6.5 - 5} width="640" height="10" rx="3" class="hl" />
+				{refs.map((r) => <circle cx={r.x} cy={r.y} r="3" class="cell-on" />)}
+				<line x1="70" y1="240" x2="70" y2="30" class="axis" marker-end={A} />
+				<line x1="70" y1="240" x2="730" y2="240" class="axis" marker-end={A} />
+				<text x="60" y="40" class="t s r">nº de</text>
+				<text x="60" y="56" class="t s r">página</text>
+				<text x="400" y="262" class="t s">tiempo (referencias sucesivas) →</text>
+				<text x="190" y="128" class="t s b">zona 1</text>
+				<text x="400" y="62" class="t s b">zona 2</text>
+				<text x="610" y="160" class="t s b">zona 3</text>
+				<text x="96" y="212" class="t s l mu">el código (pág. 1) se usa siempre</text>
+				<text x="380" y="284" class="t s mu">Ilustrativo (ejemplo propio, no medido): en cada tramo el programa toca 4 o 5 páginas, no todas.</text>
+			</svg>
+		)}
+
+		{fig === 'eat' && (
+			<svg viewBox="0 0 760 230" role="img" aria-label="Barras de tiempo: acierto de TLB 120 ns, fallo de TLB 220 ns, EAT 130 ns">
+				<Fragment set:html={defs} />
+				<text x="140" y="56" class="t s r b">acierto TLB</text>
+				<text x="140" y="72" class="t s r mu">90 %</text>
+				<rect x="150" y="44" width="48" height="32" class="c6" />
+				<rect x="198" y="44" width="240" height="32" class="c2" />
+				<text x="450" y="66" class="t s l b">120 ns</text>
+				<text x="140" y="116" class="t s r b">fallo TLB</text>
+				<text x="140" y="132" class="t s r mu">10 %</text>
+				<rect x="150" y="104" width="48" height="32" class="c6" />
+				<rect x="198" y="104" width="240" height="32" class="c3" />
+				<rect x="438" y="104" width="240" height="32" class="c2" />
+				<text x="690" y="126" class="t s l b">220 ns</text>
+				<line x1="462" y1="30" x2="462" y2="150" class="ln dash" />
+				<text x="462" y="24" class="t s b">EAT = 0.9 · 120 + 0.1 · 220 = 130 ns</text>
+				<rect x="150" y="168" width="14" height="14" class="c6" /><text x="170" y="180" class="t s l">TLB (20 ns)</text>
+				<rect x="280" y="168" width="14" height="14" class="c3" /><text x="300" y="180" class="t s l">leer la PTE (100 ns)</text>
+				<rect x="450" y="168" width="14" height="14" class="c2" /><text x="470" y="180" class="t s l">leer el dato (100 ns)</text>
+				<text x="380" y="216" class="t s bad">Un page fault de 8 ms, a esta escala, sería unas 36 000 veces más larga que la barra del fallo de TLB.</text>
+			</svg>
+		)}
+
+		{fig === 'segpag' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Segmentación paginada: el segmento elige una tabla de páginas, la página elige el marco y el offset se copia">
+				<Fragment set:html={defs} />
+				<text x="20" y="67" class="t b l">dirección</text>
+				<rect x="120" y="40" width="110" height="48" rx="6" class="c1" /><text x="175" y="62" class="t b">s = 2</text><text x="175" y="80" class="t s">segmento</text>
+				<rect x="230" y="40" width="110" height="48" rx="6" class="c3" /><text x="285" y="62" class="t b">p = 3</text><text x="285" y="80" class="t s">página</text>
+				<rect x="340" y="40" width="150" height="48" rx="6" class="c2" /><text x="415" y="62" class="t b">d</text><text x="415" y="80" class="t s">offset</text>
+
+				<rect x="60" y="130" width="180" height="120" rx="6" class="c1" />
+				<text x="150" y="160" class="t s">0 → tabla en 0x100</text>
+				<text x="150" y="190" class="t s">1 → tabla en 0x180</text>
+				<rect x="61" y="206" width="178" height="28" class="hl" />
+				<text x="150" y="225" class="t s b">2 → tabla en 0x240</text>
+				<text x="150" y="270" class="cap">tabla de segmentos</text>
+				<line x1="175" y1="88" x2="175" y2="128" class="ln" marker-end={A} />
+
+				<rect x="300" y="130" width="170" height="120" rx="6" class="c3" />
+				<text x="385" y="160" class="t s">0 → marco 9</text>
+				<text x="385" y="190" class="t mu">⋮</text>
+				<rect x="301" y="206" width="168" height="28" class="hl" />
+				<text x="385" y="225" class="t s b">3 → marco 14</text>
+				<text x="385" y="270" class="cap">tabla de páginas del seg. 2</text>
+				<line x1="240" y1="220" x2="298" y2="220" class="ln" marker-end={A} />
+				<path d="M285 88 V108 H385 V128" class="ln" marker-end={A} />
+
+				<path d="M415 88 V100 H695 V194" class="ln dash" marker-end={A} />
+				<line x1="470" y1="220" x2="548" y2="220" class="ln" marker-end={A} />
+				<rect x="550" y="196" width="100" height="48" rx="6" class="c4" /><text x="600" y="225" class="t s b">marco 14</text>
+				<rect x="650" y="196" width="90" height="48" rx="6" class="c2" /><text x="695" y="225" class="t s b">d</text>
+				<text x="645" y="270" class="t s">dirección física</text>
+				<text x="380" y="294" class="t s mu">Las direcciones 0x100, 0x180, 0x240 y los marcos son un ejemplo propio.</text>
+			</svg>
+		)}
+
+		{fig === 'pagefault' && (
+			<svg viewBox="0 0 760 330" role="img" aria-label="Los seis pasos de un page fault entre el proceso, la tabla, el SO, el disco y la RAM">
+				<Fragment set:html={defs} />
+				<rect x="250" y="20" width="160" height="50" rx="8" class="c6" />
+				<text x="330" y="50" class="t b">sistema operativo</text>
+				<rect x="20" y="150" width="150" height="64" rx="8" class="box" />
+				<text x="95" y="174" class="t b">proceso</text>
+				<text x="95" y="198" class="t mono s">load M</text>
+				<text x="95" y="234" class="t s mu">queda Blocked</text>
+				<text x="95" y="250" class="t s mu">hasta el paso 6</text>
+				<rect x="250" y="150" width="160" height="80" rx="8" class="box" />
+				<text x="330" y="172" class="t s b">tabla de páginas</text>
+				<rect x="251" y="190" width="158" height="28" class="hl" />
+				<text x="330" y="209" class="t s mono">M · P = 0 → 1</text>
+				<rect x="560" y="20" width="160" height="54" rx="8" class="box" />
+				<text x="640" y="43" class="t b">disco</text>
+				<text x="640" y="62" class="t s mu">aquí está la página M</text>
+				<text x="640" y="142" class="cap">RAM</text>
+				<rect x="560" y="160" width="160" height="30" class="box" /><text x="640" y="180" class="t s mu">ocupado</text>
+				<rect x="560" y="190" width="160" height="30" class="box" /><text x="640" y="210" class="t s mu">ocupado</text>
+				<rect x="560" y="220" width="160" height="30" class="c4" /><text x="640" y="240" class="t s b">página M</text>
+				<rect x="560" y="250" width="160" height="30" class="box" /><text x="640" y="270" class="t s mu">ocupado</text>
+
+				<line x1="170" y1="182" x2="248" y2="182" class="ln" marker-end={A} />
+				<circle cx="209" cy="182" r="10" class="q" /><text x="209" y="187" class="t s b">1</text>
+				<text x="209" y="210" class="t s">referencia</text>
+				<line x1="300" y1="150" x2="300" y2="72" class="ln bad" marker-end={R} />
+				<circle cx="300" cy="100" r="10" class="q" /><text x="300" y="105" class="t s b">2</text>
+				<text x="288" y="128" class="t s r bad">trap</text>
+				<line x1="410" y1="45" x2="558" y2="45" class="ln" marker-end={A} />
+				<circle cx="484" cy="45" r="10" class="q" /><text x="484" y="50" class="t s b">3</text>
+				<text x="484" y="26" class="t s">buscar la página</text>
+				<path d="M720 47 H742 V235 H722" class="ln" marker-end={A} />
+				<circle cx="742" cy="140" r="10" class="q" /><text x="742" y="145" class="t s b">4</text>
+				<text x="728" y="112" class="t s r">traer al frame</text>
+				<line x1="360" y1="72" x2="360" y2="188" class="ln" marker-end={A} />
+				<circle cx="360" cy="100" r="10" class="q" /><text x="360" y="105" class="t s b">5</text>
+				<text x="372" y="128" class="t s l">P = 1</text>
+				<path d="M250 45 H95 V148" class="ln ok" marker-end={A} />
+				<circle cx="160" cy="45" r="10" class="q" /><text x="160" y="50" class="t s b">6</text>
+				<text x="160" y="26" class="t s">reiniciar la instrucción</text>
+				<text x="380" y="318" class="t s bad">Si en el paso 2 la dirección resulta inválida, el SO aborta el proceso: segmentation fault.</text>
+			</svg>
+		)}
+
+		{fig === 'demanda' && (
+			<svg viewBox="0 0 760 210" role="img" aria-label="Fallos medidos con N igual a 1024 páginas: malloc 3, escribir 1024, leer 0">
+				<text x="380" y="24" class="cap">page faults medidos con N = 1024 páginas de 4 KB</text>
+				<text x="170" y="66" class="t s r b">malloc</text>
+				<rect x="180" y="48" width="3" height="28" class="c1" /><text x="192" y="67" class="t s l b">+3</text>
+				<text x="170" y="116" class="t s r b">1.ª escritura</text>
+				<rect x="180" y="98" width="461" height="28" class="c4" /><text x="650" y="117" class="t s l b">+1024</text>
+				<text x="170" y="166" class="t s r b">lectura</text>
+				<line x1="180" y1="148" x2="180" y2="176" class="axis" /><text x="192" y="167" class="t s l b">+0</text>
+				<text x="380" y="204" class="t s mu">Un fallo por página, recién al tocarla: eso es la paginación por demanda.</text>
+			</svg>
+		)}
+
+		{fig === 'clock' && (
+			<svg viewBox="0 0 760 370" role="img" aria-label="Clock antes y después de un fallo: el puntero apaga dos bits u y reemplaza el primer marco con u igual a 0">
+				<Fragment set:html={defs} />
+				<text x="180" y="24" class="cap">antes: llega la página 4 (fallo)</text>
+				<text x="580" y="24" class="cap">después</text>
+				{[{ cx: 180, fr: antes, cls: antes.map(() => 'box'), p: 1 }, { cx: 580, fr: despues, cls: clsDespues, p: 4 }].map((c) => (
+					<>
+						<circle cx={c.cx} cy="180" r="110" class="frame" />
+						{c.fr.map(([pg, u], k) => {
+							const q = pos(c.cx, 180, 110, k, 6);
+							return (
+								<>
+									<rect x={q.x - 46} y={q.y - 20} width="92" height="40" rx="6" class={c.cls[k]} />
+									<text x={q.x} y={q.y - 3} class="t s b">pág. {pg}</text>
+									<text x={q.x} y={q.y + 13} class={u ? 't s ok' : 't s mu'}>u = {u}</text>
+								</>
+							);
+						})}
+						<circle cx={c.cx} cy="180" r="5" class="head" />
+						<line x1={c.cx} y1="180" x2={pos(c.cx, 180, 62, c.p, 6).x} y2={pos(c.cx, 180, 62, c.p, 6).y} class="ln" stroke-width="3" marker-end={A} />
+					</>
+				))}
+				<line x1="335" y1="180" x2="425" y2="180" class="ln" marker-end={A} />
+				<text x="380" y="170" class="t s">busca víctima</text>
+				<text x="380" y="336" class="t s">pág. 8 y pág. 5 tenían u = 1: gastan su segunda oportunidad (u = 0) y se salvan.</text>
+				<text x="380" y="356" class="t s">pág. 2 tenía u = 0: sale, entra la 4 con u = 1, y el puntero queda en el marco siguiente.</text>
+			</svg>
+		)}
+
+		{fig === 'clockmej' && (
+			<svg viewBox="0 0 760 270" role="img" aria-label="Las cuatro clases del Clock mejorado según los bits u y m">
+				<Fragment set:html={defs} />
+				<text x="370" y="44" class="t s b">m = 0 (limpia)</text>
+				<text x="570" y="44" class="t s b">m = 1 (sucia)</text>
+				<text x="250" y="96" class="t s r b">u = 0</text>
+				<text x="250" y="112" class="t s r mu">no usada hace poco</text>
+				<text x="250" y="176" class="t s r b">u = 1</text>
+				<text x="250" y="192" class="t s r mu">usada hace poco</text>
+				<rect x="270" y="60" width="200" height="80" rx="6" class="c4" />
+				<text x="370" y="94" class="t b">clase 1 · mejor víctima</text>
+				<text x="370" y="114" class="t s">paso 1: se busca sin tocar bits</text>
+				<rect x="470" y="60" width="200" height="80" rx="6" class="c2" />
+				<text x="570" y="94" class="t b">clase 2</text>
+				<text x="570" y="114" class="t s">paso 2 (hay que escribirla)</text>
+				<rect x="270" y="140" width="200" height="80" rx="6" class="box" />
+				<text x="370" y="184" class="t b">clase 3</text>
+				<rect x="470" y="140" width="200" height="80" rx="6" class="box" />
+				<text x="570" y="184" class="t b">clase 4 · última</text>
+				<path d="M672 190 C 720 190, 720 100, 674 100" class="ln" marker-end={A} />
+				<text x="728" y="140" class="t s l">u = 0</text>
+				<text x="380" y="252" class="t s mu">Mientras el paso 2 recorre, pone u = 0 en cada página que pasa: las clases 3 y 4 bajan a 1 y 2 para la vuelta siguiente.</text>
+			</svg>
+		)}
+
+		{fig === 'belady' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Fallos con 3 y 4 marcos para FIFO, Clock, LRU y OPT: FIFO y Clock suben con más marcos">
+				<line x1="80" y1="230" x2="720" y2="230" class="axis" />
+				{[['FIFO', 9, 10], ['Clock', 9, 10], ['LRU', 10, 8], ['OPT', 7, 6]].map(([n, a, b], i) => {
+					const cx = 160 + i * 160;
+					return (
+						<>
+							<rect x={cx - 48} y={230 - (a as number) * 18} width="44" height={(a as number) * 18} class="c1" />
+							<rect x={cx + 4} y={230 - (b as number) * 18} width="44" height={(b as number) * 18} class="c3" />
+							<text x={cx - 26} y={224 - (a as number) * 18} class="t s b">{a}</text>
+							<text x={cx + 26} y={224 - (b as number) * 18} class="t s b">{b}</text>
+							<text x={cx} y="252" class="t b">{n}</text>
+							{(b as number) > (a as number) && <text x={cx} y="34" class="t s bad b">⚠ sube</text>}
+						</>
+					);
+				})}
+				<rect x="560" y="60" width="14" height="14" class="c1" /><text x="580" y="72" class="t s l">3 marcos</text>
+				<rect x="650" y="60" width="14" height="14" class="c3" /><text x="670" y="72" class="t s l">4 marcos</text>
+				<text x="380" y="280" class="t s mu">Cadena A B C D A B E A B C D E, contando los fallos de arranque (valores de la tabla).</text>
+			</svg>
+		)}
+
+		{fig === 'buffering' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Page buffering: la víctima va a la lista de libres o de modificadas y puede recuperarse sin disco">
+				<Fragment set:html={defs} />
+				<rect x="20" y="40" width="160" height="44" rx="8" class="box" />
+				<text x="100" y="60" class="t s b">víctima elegida</text>
+				<text x="100" y="76" class="t s mu">P = 0, sigue en RAM</text>
+				<line x1="180" y1="62" x2="208" y2="62" class="ln" marker-end={A} />
+				<polygon points="210,62 260,32 310,62 260,92" class="q" />
+				<text x="260" y="67" class="t s b">¿M = 1?</text>
+				<path d="M310 62 H334 V42 H358" class="ln" marker-end={A} />
+				<text x="322" y="34" class="t s">sí</text>
+				<rect x="360" y="20" width="200" height="44" rx="8" class="c2" />
+				<text x="460" y="47" class="t s b">lista de modificadas</text>
+				<path d="M260 92 V142 H358" class="ln" marker-end={A} />
+				<text x="272" y="124" class="t s l">no</text>
+				<rect x="360" y="120" width="200" height="44" rx="8" class="c4" />
+				<text x="460" y="147" class="t s b">lista de libres</text>
+				<line x1="560" y1="42" x2="598" y2="42" class="ln" marker-end={A} />
+				<rect x="600" y="20" width="140" height="44" rx="8" class="box" />
+				<text x="670" y="38" class="t s b">disco</text>
+				<text x="670" y="54" class="t s mu">escritura en lote</text>
+				<path d="M670 64 V142 H562" class="ln" marker-end={A} />
+				<text x="680" y="108" class="t s l mu">ya limpia</text>
+				<line x1="460" y1="164" x2="460" y2="218" class="ln ok" marker-end={A} />
+				<text x="472" y="196" class="t s l ok">la vuelven a pedir</text>
+				<rect x="340" y="220" width="240" height="44" rx="8" class="c4" />
+				<text x="460" y="240" class="t s b">se recupera sin ir al disco</text>
+				<text x="460" y="256" class="t s">fallo baratísimo</text>
+				<path d="M360 152 H290 V242 H222" class="ln" marker-end={A} />
+				<rect x="20" y="220" width="200" height="44" rx="8" class="box" />
+				<text x="120" y="240" class="t s b">si no la piden:</text>
+				<text x="120" y="256" class="t s">su frame se reutiliza</text>
+			</svg>
+		)}
+
+		{fig === 'marcosfallos' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Gráfico cualitativo: la tasa de fallos baja rápido al dar marcos y luego casi no cambia">
+				<Fragment set:html={defs} />
+				<line x1="80" y1="240" x2="80" y2="30" class="axis" marker-end={A} />
+				<line x1="80" y1="240" x2="720" y2="240" class="axis" marker-end={A} />
+				<text x="70" y="40" class="t s r">tasa de</text>
+				<text x="70" y="56" class="t s r">fallos</text>
+				<text x="520" y="262" class="t s">marcos asignados al proceso →</text>
+				<path d="M90 40 C 160 60, 220 190, 330 205 C 430 215, 560 220, 690 222" class="curve" />
+				<line x1="330" y1="205" x2="330" y2="240" class="ln dash" />
+				<text x="330" y="258" class="t s b">≈ working set</text>
+				<line x1="690" y1="236" x2="690" y2="244" class="axis" />
+				<text x="690" y="258" class="t s b">N</text>
+				<text x="200" y="96" class="t s l">pocos marcos:</text>
+				<text x="200" y="112" class="t s l mu">los fallos se disparan</text>
+				<text x="520" y="196" class="t s">más marcos ya casi no ayuda</text>
+				<text x="380" y="294" class="t s mu">Forma cualitativa: N = todas las páginas del proceso.</text>
+			</svg>
+		)}
+
+		{fig === 'localglobal' && (
+			<svg viewBox="0 0 760 260" role="img" aria-label="Reemplazo local: la víctima es del mismo proceso; global: la víctima es de otro proceso">
+				<Fragment set:html={defs} />
+				<text x="190" y="26" class="cap">local</text>
+				<text x="570" y="26" class="cap">global</text>
+				{[{ x0: 30, v: 0 }, { x0: 410, v: 3 }].map((p) => (
+					<>
+						{[0, 1, 2, 3, 4, 5, 6, 7].map((k) => (
+							<>
+								<rect x={p.x0 + k * 40} y="44" width="40" height="36" class={k < 3 ? 'c1' : 'c3'} />
+								<text x={p.x0 + k * 40 + 20} y="67" class="t s b">{k < 3 ? 'A' : 'B'}</text>
+								<rect x={p.x0 + k * 40} y="150" width="40" height="36" class={k === p.v ? 'c4' : k < 3 ? 'c1' : 'c3'} />
+								<text x={p.x0 + k * 40 + 20} y="173" class="t s b">{k === p.v ? 'A*' : k < 3 ? 'A' : 'B'}</text>
+							</>
+						))}
+						<rect x={p.x0 + p.v * 40 + 2} y="46" width="36" height="32" fill="none" class="ln bad" stroke-width="3" />
+						<line x1={p.x0 + 160} y1="88" x2={p.x0 + 160} y2="144" class="ln" marker-end={A} />
+						<text x={p.x0 + 172} y="120" class="t s l">A tiene un fallo</text>
+					</>
+				))}
+				<text x="190" y="212" class="t s">la víctima es de A: A sigue con 3, B con 5</text>
+				<text x="570" y="212" class="t s">la víctima es de B: A pasa a 4, B baja a 4</text>
+				<text x="380" y="248" class="t s mu">Recuadro rojo: la víctima. A* es la página nueva que pidió A.</text>
+			</svg>
+		)}
+
+		{fig === 'ventana' && (
+			<svg viewBox="0 0 760 200" role="img" aria-label="Ventana de tamaño 3 sobre la cadena 1 2 1 3 2 4 4 1 en t igual a 7: W es 2 y 4">
+				{['1', '2', '1', '3', '2', '4', '4', '1'].map((r, i) => (
+					<>
+						<text x={130 + i * 70} y="46" class="t s mu">t = {i + 1}</text>
+						<rect x={100 + i * 70} y="60" width="60" height="44" rx="6" class={i >= 4 && i <= 6 ? 'c1' : 'box'} />
+						<text x={130 + i * 70} y="88" class="t b">{r}</text>
+					</>
+				))}
+				<rect x="374" y="52" width="212" height="60" rx="10" fill="none" class="ln" stroke-width="2.5" stroke-dasharray="6 4" />
+				<text x="480" y="132" class="t s">ventana Δ = 3 en t = 7: últimas refs 2 4 4</text>
+				<text x="480" y="152" class="t b">W(7, 3) = &#123;2, 4&#125;</text>
+				<text x="380" y="186" class="t s mu">En t = 8 la ventana se corre una posición: 4 4 1, así que W(8, 3) = &#123;1, 4&#125;.</text>
+			</svg>
+		)}
+
+		{fig === 'wsprom' && (
+			<svg viewBox="0 0 760 270" role="img" aria-label="Tamaño promedio del working set para delta 2 a 5: 1.88, 2.56, 3.06 y 3.38">
+				<line x1="80" y1="220" x2="720" y2="220" class="axis" />
+				{[[2, 1.88], [3, 2.56], [4, 3.06], [5, 3.38]].map(([d, v], i) => (
+					<>
+						<rect x={140 + i * 150} y={220 - v * 50} width="80" height={v * 50} class="c1" />
+						<text x={180 + i * 150} y={212 - v * 50} class="t s b">{v.toFixed(2)}</text>
+						<text x={180 + i * 150} y="242" class="t b">Δ = {d}</text>
+					</>
+				))}
+				<text x="255" y="100" class="t s ok">+0.68</text>
+				<text x="405" y="80" class="t s ok">+0.50</text>
+				<text x="555" y="60" class="t s ok">+0.32</text>
+				<text x="380" y="264" class="t s mu">Cadena de Stallings fig. 8.19 (valores de la tabla de arriba): crece, pero cada vez menos.</text>
+			</svg>
+		)}
+
+		{fig === 'thrashing' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Gráfico cualitativo: el uso de CPU sube con más procesos, llega a un máximo y se desploma por thrashing">
+				<Fragment set:html={defs} />
+				<line x1="80" y1="240" x2="80" y2="30" class="axis" marker-end={A} />
+				<line x1="80" y1="240" x2="720" y2="240" class="axis" marker-end={A} />
+				<text x="70" y="40" class="t s r">uso de</text>
+				<text x="70" y="56" class="t s r">CPU</text>
+				<text x="400" y="264" class="t s">nivel de multiprogramación (procesos en RAM) →</text>
+				<rect x="500" y="40" width="210" height="198" class="trap" />
+				<path d="M90 220 C 200 120, 300 60, 380 55 C 440 52, 470 80, 520 160 C 560 220, 620 228, 690 230" class="curve" />
+				<text x="380" y="42" class="t s b">máximo</text>
+				<text x="200" y="200" class="t s l">pocos: a menudo</text>
+				<text x="200" y="216" class="t s l mu">todos bloqueados</text>
+				<text x="605" y="64" class="t s b bad">thrashing</text>
+				<text x="605" y="82" class="t s">la CPU espera</text>
+				<text x="605" y="98" class="t s">al disco</text>
+				<text x="380" y="294" class="t s mu">Forma cualitativa (Stallings): sin datos medidos.</text>
+			</svg>
+		)}
+
+		{fig === 'cow' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Copy on write: tras fork padre e hijo comparten los frames; al escribir el hijo se copia solo esa página">
+				<Fragment set:html={defs} />
+				{[0, 380].map((dx) => (
+					<>
+						<rect x={30 + dx} y="60" width="100" height="60" rx="6" class="box" />
+						<text x={80 + dx} y="52" class="t s b">padre</text>
+						<text x={80 + dx} y="84" class="t s">pág. 0</text>
+						<text x={80 + dx} y="110" class="t s">pág. 1</text>
+						<rect x={30 + dx} y="170" width="100" height="60" rx="6" class="box" />
+						<text x={80 + dx} y="162" class="t s b">hijo</text>
+						<text x={80 + dx} y="194" class="t s">pág. 0</text>
+						<text x={80 + dx} y="220" class="t s">pág. 1</text>
+						<rect x={240 + dx} y="70" width="120" height="40" rx="6" class="c1" />
+						<text x={300 + dx} y="88" class="t s b">frame 7</text>
+						<text x={300 + dx} y="103" class="t s">solo lectura · COW</text>
+						<rect x={240 + dx} y="160" width="120" height="40" rx="6" class={dx ? 'c1' : 'c1'} />
+						<text x={300 + dx} y="178" class="t s b">frame 9</text>
+						<text x={300 + dx} y="193" class="t s">{dx ? 'queda del padre' : 'solo lectura · COW'}</text>
+						<path d={`M${130 + dx} 80 L${238 + dx} 86`} class="ln" marker-end={A} />
+						<path d={`M${130 + dx} 106 L${238 + dx} 172`} class="ln" marker-end={A} />
+						<path d={`M${130 + dx} 190 L${238 + dx} 98`} class="ln" marker-end={A} />
+					</>
+				))}
+				<path d="M130 216 L238 190" class="ln" marker-end={A} />
+				<path d="M510 216 L618 250" class="ln ok" marker-end={A} />
+				<rect x="620" y="230" width="120" height="40" rx="6" class="c4" />
+				<text x="680" y="248" class="t s b">frame 12</text>
+				<text x="680" y="263" class="t s">copia del hijo · RW</text>
+				<text x="190" y="24" class="cap">justo después de fork()</text>
+				<text x="570" y="24" class="cap">el hijo escribe en la pág. 1</text>
+				<text x="380" y="294" class="t s mu">Solo se copió la página escrita. Si el hijo hace exec antes de escribir, no se copia ninguna.</text>
+			</svg>
+		)}
+
+		{fig === 'manecillas' && (
+			<svg viewBox="0 0 760 330" role="img" aria-label="Reloj de dos manecillas: la delantera pone R en 0 y la trasera expulsa las páginas que siguen en 0">
+				<Fragment set:html={defs} />
+				<circle cx="220" cy="170" r="120" class="frame" />
+				<path d={`M${pos(220, 170, 92, 0, 12).x} ${pos(220, 170, 92, 0, 12).y} A 92 92 0 0 1 ${pos(220, 170, 92, 3, 12).x} ${pos(220, 170, 92, 3, 12).y}`} class="ln dash" />
+				<text x={pos(220, 170, 50, 1.5, 12).x} y={pos(220, 170, 50, 1.5, 12).y + 4} class="t s mu">handspread</text>
+				{rbits.map((b, k) => {
+					const q = pos(220, 170, 120, k, 12);
+					return (
+						<>
+							<circle cx={q.x} cy={q.y} r="17" class={k === 0 ? 'trap' : b === '1' ? 'c4' : 'box'} />
+							<text x={q.x} y={q.y + 5} class={k === 0 ? 't s b bad' : 't s b'}>{b}</text>
+						</>
+					);
+				})}
+				<circle cx="220" cy="170" r="5" class="head" />
+				<line x1="220" y1="170" x2={pos(220, 170, 96, 3, 12).x} y2={pos(220, 170, 96, 3, 12).y} class="ln" stroke-width="3" marker-end={A} />
+				<line x1="220" y1="170" x2={pos(220, 170, 96, 0, 12).x} y2={pos(220, 170, 96, 0, 12).y} class="ln bad" stroke-width="3" marker-end={R} />
+				<text x="300" y="40" class="t s l bad b">trasera</text>
+				<text x="364" y="175" class="t s l b">delantera</text>
+				<text x="220" y="316" class="t s mu">giran en sentido horario</text>
+
+				<text x="420" y="70" class="t b l">delantera</text>
+				<text x="420" y="90" class="t s l">pone R = 0 en cada página que pasa.</text>
+				<text x="420" y="130" class="t b l bad">trasera</text>
+				<text x="420" y="150" class="t s l">si R sigue en 0, nadie la usó en el intervalo:</text>
+				<text x="420" y="168" class="t s l">va a la lista para expulsar (la de arriba).</text>
+				<text x="420" y="208" class="t b l">entre las dos</text>
+				<text x="420" y="228" class="t s l">la página marcada con 1 se volvió a usar:</text>
+				<text x="420" y="246" class="t s l">cuando pase la trasera, se salva.</text>
+				<text x="420" y="286" class="t s l mu">Menos memoria libre → mayor scanrate → giran más rápido.</text>
+			</svg>
+		)}
+
+		{fig === 'lazybuddy' && (
+			<svg viewBox="0 0 760 210" role="img" aria-label="Lazy buddy: según D igual a A menos L, el bloque liberado queda local, se libera global, o se liberan dos">
+				<Fragment set:html={defs} />
+				<rect x="250" y="16" width="260" height="44" rx="8" class="box" />
+				<text x="380" y="36" class="t s b">se libera un bloque de 2ⁱ</text>
+				<text x="380" y="52" class="t s">D = A − L</text>
+				<path d="M300 60 L140 106" class="ln" marker-end={A} />
+				<path d="M380 60 L380 106" class="ln" marker-end={A} />
+				<path d="M460 60 L620 106" class="ln" marker-end={A} />
+				<rect x="30" y="108" width="220" height="56" rx="8" class="c4" />
+				<text x="140" y="130" class="t s b">D ≥ 2</text>
+				<text x="140" y="150" class="t s">queda libre local, sin fusionar</text>
+				<rect x="270" y="108" width="220" height="56" rx="8" class="c1" />
+				<text x="380" y="130" class="t s b">D = 1</text>
+				<text x="380" y="150" class="t s">libre global: se fusiona si puede</text>
+				<rect x="510" y="108" width="220" height="56" rx="8" class="c2" />
+				<text x="620" y="130" class="t s b">D = 0</text>
+				<text x="620" y="150" class="t s">libre global + se libera un local</text>
+				<text x="140" y="186" class="t s mu">A = 5, L = 3 → D = 2</text>
+				<text x="380" y="186" class="t s mu">A = 4, L = 3 → D = 1</text>
+				<text x="380" y="206" class="t s mu">(ejemplos del peldaño 2)</text>
+			</svg>
+		)}
+
+		{fig === 'linux4' && (
+			<svg viewBox="0 0 760 270" role="img" aria-label="Tabla de cuatro niveles de x86-64: PGD, PUD, PMD y PTE, cada una con 9 bits, más 12 de offset">
+				<Fragment set:html={defs} />
+				{[['PGD', 'c1'], ['PUD', 'c3'], ['PMD', 'c5'], ['PTE', 'c6']].map(([n, c], i) => (
+					<>
+						<text x={200 + i * 100} y="32" class="t s mu">9 bits</text>
+						<rect x={150 + i * 100} y="40" width="100" height="44" rx="6" class={c} />
+						<text x={200 + i * 100} y="67" class="t b">{n}</text>
+						<line x1={200 + i * 100} y1="84" x2={200 + i * 100} y2="128" class="ln" marker-end={A} />
+						<rect x={165 + i * 100} y="130" width="70" height="60" rx="6" class={c} />
+						<text x={200 + i * 100} y="165" class="t s">tabla</text>
+						{i < 3 && <line x1={235 + i * 100} y1="160" x2={263 + i * 100} y2="160" class="ln" marker-end={A} />}
+					</>
+				))}
+				<text x="610" y="32" class="t s mu">12 bits</text>
+				<rect x="550" y="40" width="120" height="44" rx="6" class="c2" />
+				<text x="610" y="67" class="t b">offset</text>
+				<rect x="30" y="140" width="90" height="40" rx="8" class="box" />
+				<text x="75" y="165" class="t b">CR3</text>
+				<line x1="120" y1="160" x2="163" y2="160" class="ln" marker-end={A} />
+				<line x1="535" y1="160" x2="598" y2="160" class="ln" marker-end={A} />
+				<path d="M650 84 V128" class="ln dash" marker-end={A} />
+				<rect x="600" y="130" width="130" height="60" rx="6" class="c4" />
+				<text x="665" y="157" class="t s b">página</text>
+				<text x="665" y="175" class="t s">4 KB</text>
+				<text x="380" y="226" class="t s">9 + 9 + 9 + 9 + 12 = 48 bits de dirección virtual. Cada tabla tiene 2⁹ = 512 entradas de 8 B = 4 KB.</text>
+				<text x="380" y="250" class="t s mu">Stallings describe 3 niveles (directory, middle, table); en x86 de 32 bits el middle mide 1 y desaparece.</text>
+			</svg>
+		)}
+
+		{fig === 'splitlru' && (
+			<svg viewBox="0 0 760 230" role="img" aria-label="Split LRU: cuatro estados entre lista inactiva y activa; dos accesos para subir y dos timeouts para bajar">
+				<Fragment set:html={defs} />
+				<text x="185" y="30" class="cap">lista inactiva</text>
+				<text x="565" y="30" class="cap">lista activa</text>
+				<line x1="20" y1="40" x2="350" y2="40" class="sep" />
+				<line x1="400" y1="40" x2="730" y2="40" class="sep" />
+				{[['inactiva', 'ref = 0', 'c2'], ['inactiva', 'ref = 1', 'c2'], ['activa', 'ref = 0', 'c4'], ['activa', 'ref = 1', 'c4']].map(([a, b, c], i) => (
+					<>
+						<rect x={20 + i * 190} y="80" width="140" height="60" rx="8" class={c} />
+						<text x={90 + i * 190} y="106" class="t s b">{a}</text>
+						<text x={90 + i * 190} y="124" class="t s mono">{b}</text>
+						{i < 3 && (
+							<>
+								<line x1={160 + i * 190} y1="96" x2={208 + i * 190} y2="96" class="ln ok" marker-end={A} />
+								<text x={185 + i * 190} y="72" class="t s ok">acceso</text>
+								<line x1={210 + i * 190} y1="126" x2={162 + i * 190} y2="126" class="ln" marker-end={A} />
+								<text x={185 + i * 190} y="160" class="t s mu">timeout</text>
+							</>
+						)}
+					</>
+				))}
+				<line x1="90" y1="140" x2="90" y2="184" class="ln bad" marker-end={R} />
+				<text x="104" y="200" class="t s l bad">de aquí salen las víctimas (tipo LRU)</text>
+				<text x="380" y="224" class="t s mu">Subir a activa exige dos accesos en barridos distintos; bajar exige dos timeouts.</text>
+			</svg>
+		)}
+
+		{fig === 'slab' && (
+			<svg viewBox="0 0 760 210" role="img" aria-label="Slab: el buddy entrega una página de 4 KB que se divide en 32 huecos de 128 bytes">
+				<Fragment set:html={defs} />
+				<rect x="20" y="60" width="160" height="60" rx="8" class="box" />
+				<text x="100" y="86" class="t s b">buddy</text>
+				<text x="100" y="104" class="t s">entrega 1 página</text>
+				<line x1="180" y1="90" x2="226" y2="90" class="ln" marker-end={A} />
+				<text x="470" y="44" class="cap">una página de 4 KB = 32 huecos de 128 B</text>
+				{slots.map((s) => <rect x={s.x} y={s.y} width="30" height="30" class={s.used ? 'c4' : 'box'} />)}
+				<path d="M400 170 V130" class="ln" marker-end={A} />
+				<text x="400" y="188" class="t s"><tspan class="mono">kmalloc(100)</tspan> toma un hueco libre de 128 B (sobran 28 B)</text>
+				<rect x="620" y="150" width="14" height="14" class="c4" /><text x="640" y="162" class="t s l">ocupado</text>
+				<rect x="620" y="172" width="14" height="14" class="box" /><text x="640" y="184" class="t s l">libre</text>
+			</svg>
+		)}
+
+		{fig === 'columnas' && (
+			<svg viewBox="0 0 760 320" role="img" aria-label="Recorrer la matriz por columnas cambia de página cada 4 iteraciones; por filas recorre una página entera antes de cambiar">
+				<Fragment set:html={defs} />
+				<text x="190" y="24" class="cap">por columnas (j afuera)</text>
+				<text x="570" y="24" class="cap">por filas (i afuera)</text>
+				{[90, 470].map((x0) => (
+					<>
+						{Array.from({ length: 16 }, (_, k) => (
+							<rect x={x0} y={40 + k * 13} width="200" height="13" class={x0 === 470 && k === 0 ? 'c4' : k % 2 ? 'box' : 'cell'} />
+						))}
+						<rect x={x0} y="40" width="200" height="208" class="frame" />
+						<text x={x0 - 8} y="51" class="t s r mu">pág. 0</text>
+						<text x={x0 - 8} y="64" class="t s r mu">pág. 1</text>
+						<text x={x0 - 8} y="246" class="t s r mu">pág. 15</text>
+					</>
+				))}
+				<line x1="100" y1="42" x2="100" y2="244" class="ln bad" stroke-width="3" marker-end={R} />
+				<text x="110" y="150" class="t s l">la columna 0 baja</text>
+				<text x="110" y="166" class="t s l">por las 16 páginas</text>
+				<path d="M476 43 H664 M476 46 H664 M476 49 H664" class="ln ok" stroke-width="1.5" />
+				<text x="580" y="150" class="t s">las 256 posiciones de la</text>
+				<text x="580" y="166" class="t s">pág. 0 se recorren seguidas</text>
+				<text x="190" y="276" class="t s">3 fallos cada 4 iteraciones</text>
+				<text x="190" y="296" class="t b bad">3072 fallos</text>
+				<text x="570" y="276" class="t s">3 fallos cada 256 iteraciones</text>
+				<text x="570" y="296" class="t b ok">48 fallos</text>
+				<text x="380" y="316" class="t s mu">Matriz A de 64 × 64 enteros guardada por filas: cada página de 1 KB tiene 4 filas.</text>
+			</svg>
+		)}
+
+		{fig === 'bits46' && (
+			<svg viewBox="0 0 760 170" role="img" aria-label="Dirección de 46 bits: tres campos de 11 bits y un offset de 13">
+				<Fragment set:html={defs} />
+				{[['nivel 1', 'c1', '45 … 35'], ['nivel 2', 'c3', '34 … 24'], ['nivel 3', 'c5', '23 … 13']].map(([n, c, b], i) => (
+					<>
+						<text x={160 + i * 150} y="32" class="t s mono mu">{b}</text>
+						<rect x={85 + i * 150} y="40" width="150" height="48" rx="6" class={c} />
+						<text x={160 + i * 150} y="62" class="t s b">{n}</text>
+						<text x={160 + i * 150} y="79" class="t s">11 bits</text>
+					</>
+				))}
+				<text x="625" y="32" class="t s mono mu">12 … 0</text>
+				<rect x="535" y="40" width="180" height="48" rx="6" class="c2" />
+				<text x="625" y="62" class="t s b">offset</text>
+				<text x="625" y="79" class="t s">13 bits (8 kB)</text>
+				<text x="380" y="122" class="t s">Cada tabla ocupa una página: 8 kB / 4 B = 2¹¹ entradas → 11 bits por nivel.</text>
+				<text x="380" y="144" class="t s">VPN = 46 − 13 = 33 bits = 3 × 11 → <tspan class="b">3 niveles</tspan>; sin TLB, 4 accesos por dato.</text>
+			</svg>
+		)}
+
+		{fig === 'pte32' && (
+			<svg viewBox="0 0 760 170" role="img" aria-label="PTE de 32 bits: 20 bits de frame, bits libres y los bits M, U, W, X y V">
+				<text x="60" y="32" class="t s l mono mu">31</text>
+				<text x="456" y="32" class="t s r mono mu">12</text>
+				<rect x="60" y="40" width="400" height="48" rx="4" class="c4" />
+				<text x="260" y="69" class="t b">nº de frame (20 bits)</text>
+				<text x="464" y="32" class="t s l mono mu">11</text>
+				<text x="596" y="32" class="t s r mono mu">5</text>
+				<rect x="460" y="40" width="140" height="48" rx="4" class="box" />
+				<text x="530" y="69" class="t s mu">libres</text>
+				{[['M', 'c2', '4'], ['U', 'c1', '3'], ['W', 'c6', '2'], ['X', 'c6', '1'], ['V', 'c5', '0']].map(([b, c, k], i) => (
+					<>
+						<text x={612 + i * 24} y="32" class="t s mono mu">{k}</text>
+						<rect x={600 + i * 24} y="40" width="24" height="48" rx="3" class={c} />
+						<text x={612 + i * 24} y="69" class="t s b">{b}</text>
+					</>
+				))}
+				<path d="M660 88 V112" class="ln" />
+				<text x="660" y="128" class="t s b">U: imprescindible para Clock</text>
+				<text x="260" y="128" class="t s">frame (20) + offset (12) = dirección física de 32 bits</text>
+				<text x="380" y="158" class="t s mu">M sirve para Clock mejorado; W y X son protección; V dice si está en RAM.</text>
+			</svg>
+		)}
+
+		{fig === 'binario' && (
+			<svg viewBox="0 0 760 250" role="img" aria-label="La misma dirección de 16 bits partida para paginación (8 y 8) y para segmentación (6 y 10)">
+				{'0001010010111010'.split('').map((b, i) => (
+					<>
+						<rect x={204 + i * 22} y="30" width="22" height="32" class={i < 8 ? 'c1' : 'c2'} />
+						<text x={215 + i * 22} y="52" class="t s mono b">{b}</text>
+						<rect x={204 + i * 22} y="140" width="22" height="32" class={i < 6 ? 'c3' : 'c2'} />
+						<text x={215 + i * 22} y="162" class="t s mono b">{b}</text>
+					</>
+				))}
+				<text x="190" y="44" class="t s r b">paginación</text>
+				<text x="190" y="60" class="t s r mu">páginas de 256 B</text>
+				<text x="292" y="82" class="t s">página 20</text>
+				<text x="468" y="82" class="t s">offset 186</text>
+				<text x="380" y="108" class="t s">frame = 20 / 4 = 5 → <tspan class="mono">00000101 ‖ 10111010</tspan> = <tspan class="b">1466</tspan> (concatenar)</text>
+				<text x="190" y="154" class="t s r b">segmentación</text>
+				<text x="190" y="170" class="t s r mu">segmentos de 1 kB</text>
+				<text x="270" y="192" class="t s">seg. 5</text>
+				<text x="446" y="192" class="t s">offset 186</text>
+				<text x="380" y="218" class="t s">base = 22 + 4096 · 5 = 20 502 → 20 502 + 186 = <tspan class="b">20 688</tspan> (sumar)</text>
+				<text x="380" y="242" class="t s mu">Mismos 16 bits (5306): lo que cambia es dónde se corta y si se concatena o se suma.</text>
+			</svg>
+		)}
+	</div>
+	<figcaption><slot /></figcaption>
+</figure>

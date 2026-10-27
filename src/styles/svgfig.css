@@ -150,3 +150,15 @@
 .svgfig .head-bad {
 	fill: var(--pg-bad);
 }
+.svgfig tspan.b {
+	font-weight: 700;
+}
+.svgfig tspan.ok {
+	fill: var(--pg-ok);
+}
+.svgfig tspan.bad {
+	fill: var(--pg-bad);
+}
+.svgfig tspan.mono {
+	font-family: var(--__sl-font-mono);
+}

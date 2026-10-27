@@ -12,6 +12,7 @@ import Practica from '../../../../components/tutor/Practica.astro';
 import Errores from '../../../../components/tutor/Errores.astro';
 import Feynman from '../../../../components/tutor/Feynman.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import LinuxFig from '../../../../components/LinuxFig.astro';
 
 <EnSimple>
 **Valgrind** ejecuta tu programa dentro de una **CPU simulada** que vigila cada lectura y escritura de memoria. Es como un **inspector** que te sigue mientras cocinas: anota cada vez que usas un ingrediente que no compraste, tocas un plato que ya lavaste o te olvidas algo en el horno. Va unas 20–50 veces más lento, pero te dice **la línea exacta** del error.
@@ -58,6 +59,11 @@ Cada caso es un programa de prueba propio (`errores.c <caso>`), ejecutado con `v
 | 5 | **valor sin inicializar** | `int x; *p = x + 1; if (*p > 3) …` | `Conditional jump or move depends on uninitialised value(s)` |
 | 6 | **free de algo que no es del heap** | `int pila[4]; free(pila);` | `Invalid free() … Address … is on thread 1's stack` |
 
+<LinuxFig fig="bloque">
+**Cómo leerlo:** memcheck rodea cada bloque de `malloc` con **zonas rojas** (bytes prohibidos). `a[10]` cae en la zona roja de la derecha, justo después del bloque: por eso dice *0 bytes after*. Después de `free`, memcheck recuerda el bloque liberado: leer `a[0]` cae *inside* un bloque *free'd* (casos 1 y 2 de la tabla).
+</LinuxFig>
+
+
 **Detalles que suelen preguntar:**
 - En el caso **5**, el error aparece en la línea del **`if`**, no en la de `x + 1`. Memcheck solo protesta cuando un valor no inicializado **cambia el comportamiento**: un salto condicional, una dirección o una syscall. Copiarlo o hacer aritmética con él no se reporta. Con `--track-origins=yes` te dice dónde nació el valor.
 - **Tipos de fuga:**
@@ -65,6 +71,11 @@ Cada caso es un programa de prueba propio (`errores.c <caso>`), ejecutado con `v
   - **indirectly lost**: solo se llega a él desde un bloque perdido;
   - **possibly lost**: queda un puntero al interior del bloque;
   - **still reachable**: sigue habiendo un puntero al terminar, que no es grave.
+
+<LinuxFig fig="fugas">
+**Cómo leerlo:** al terminar el programa, memcheck busca qué bloques se alcanzan desde las raíces. La categoría depende de **qué flecha llega** al bloque: al inicio (still reachable), al interior (possibly lost), ninguna (definitely lost) o solo desde otro bloque perdido (indirectly lost).
+</LinuxFig>
+
 - `ERROR SUMMARY: N errors from M contexts` cuenta errores **distintos** (M) y sus apariciones (N).
 
 ## La actividad: `mem1.c`, `mem2.c`, `mem3.c`
@@ -182,6 +193,11 @@ El resumen dice `ERROR SUMMARY: 9 errors from 7 contexts`, porque el valor no in
 ## Lo que memcheck **no** ve
 
 - **Desbordes en el stack o en globales.** [`memcpy1.c`](/final/linux/espacio-direcciones/#memcpy-y-sus-bugs) copia 1024 bytes a un arreglo local de 20 y memcheck reporta **0 errores**. Memcheck conoce los límites de cada bloque del heap porque intercepta `malloc`, pero no los de cada arreglo del stack. Para eso existe **AddressSanitizer** (`gcc -fsanitize=address`) o `-D_FORTIFY_SOURCE=2`.
+
+<LinuxFig fig="ve">
+**Cómo leerlo:** en el heap cada bloque tiene zonas rojas a los lados, así que salirse se nota. En el stack las variables están pegadas sin nada entre ellas: escribir de más en `dest` cae en memoria «válida» del propio stack y memcheck no lo puede distinguir.
+</LinuxFig>
+
 - **Errores de lógica** que no tocan memoria inválida.
 - **Caminos que no se ejecutaron:** Valgrind analiza **una** ejecución, no el programa completo.
 
@@ -203,6 +219,11 @@ ERROR SUMMARY: 0 errors from 0 contexts
 ```
 
 helgrind detecta la race **aunque esa ejecución haya dado el resultado correcto**: no depende de la suerte del entrelazado, sino de que **no hay un lock común** que ordene esos dos accesos (algoritmo *happens-before*). También detecta los mal usos de la API de pthreads (unlock de un mutex que no tienes) y las inversiones en el orden de los locks, que son posibles deadlocks.
+
+<LinuxFig fig="race">
+**Cómo leerlo:** cada fila es un hilo y el tiempo avanza hacia la derecha. Sin lock, los dos leen 5 antes de que el otro escriba, y uno de los incrementos se pierde (líneas rojas: accesos en conflicto). Con mutex, el unlock de T1 **ocurre antes** que el lock de T2 (flecha verde): ese orden es lo que helgrind busca, y si falta, avisa. Ejemplo propio con valores chicos.
+</LinuxFig>
+
 
 ## perf: contar page faults
 

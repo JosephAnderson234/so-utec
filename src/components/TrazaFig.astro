@@ -1,0 +1,56 @@
+---
+/** Dibuja una traza de reemplazo de páginas (filas ref, f0…fn y fallo) como grilla. */
+import '../styles/svgfig.css';
+interface Props {
+	texto: string;
+}
+const { texto } = Astro.props;
+const lines = texto.trim().split('\n').map((l) => l.trim().split(/\s+/));
+const ref = lines.find((l) => l[0] === 'ref')!.slice(1);
+const frames = lines.filter((l) => /^f\d+$/.test(l[0]));
+const fallo = lines.find((l) => l[0] === 'fallo')!.slice(1);
+const n = ref.length;
+const W = 40;
+const X0 = 70;
+const width = X0 + n * W + 10;
+const height = 30 + (frames.length + 2) * 32 + 10;
+const val = (s: string) => s.replace('*', '');
+const yRow = (r: number) => 20 + r * 32;
+const nFallos = fallo.filter((f) => f === 'F').length;
+---
+
+<figure class="svgfig not-content">
+	<div class="svgfig__scroll">
+		<svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Traza de reemplazo con ${frames.length} marcos y ${nFallos} fallos`} style={`min-width:${Math.min(width, 700)}px`}>
+			<text x={X0 - 10} y={yRow(0) + 20} class="t s r b">ref</text>
+			{ref.map((r, i) => <text x={X0 + i * W + W / 2} y={yRow(0) + 20} class="t b">{r}</text>)}
+			{frames.map((row, f) => (
+				<>
+					<text x={X0 - 10} y={yRow(f + 1) + 20} class="t s r mu">{row[0]}</text>
+					{row.slice(1).map((c, i) => {
+						const v = val(c);
+						const prev = i > 0 ? val(row[i]) : '·';
+						const nueva = v !== '·' && v !== prev;
+						return (
+							<>
+								<rect x={X0 + i * W + 2} y={yRow(f + 1) + 2} width={W - 4} height="28" rx="4" class={v === '·' ? 'cell-off' : nueva ? 'c4' : 'box'} />
+								{v !== '·' && <text x={X0 + i * W + W / 2} y={yRow(f + 1) + 21} class={nueva ? 't s b' : 't s'}>{v}</text>}
+								{c.includes('*') && <circle cx={X0 + i * W + W - 9} cy={yRow(f + 1) + 9} r="3" class="cell-on" />}
+							</>
+						);
+					})}
+				</>
+			))}
+			<text x={X0 - 10} y={yRow(frames.length + 1) + 20} class="t s r b">fallo</text>
+			{fallo.map((c, i) => c === 'F' && (
+				<>
+					<rect x={X0 + i * W + 2} y={yRow(frames.length + 1) + 2} width={W - 4} height="28" rx="4" class="trap" />
+					<text x={X0 + i * W + W / 2} y={yRow(frames.length + 1) + 21} class="t s b bad">F</text>
+				</>
+			))}
+		</svg>
+	</div>
+	<figcaption>
+		<slot>Verde: la página que entra en ese fallo. El punto verde marca el bit de uso en 1, si la traza lo tiene. Total: <strong>{nFallos} fallos</strong>.</slot>
+	</figcaption>
+</figure>

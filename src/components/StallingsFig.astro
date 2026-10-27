@@ -1,0 +1,395 @@
+---
+/** Diagramas de las lecturas de Stallings: deadlock (cap. 6) y gestión de memoria (cap. 7). */
+import '../styles/svgfig.css';
+type Fig =
+	| 'cruce' | 'progreso' | 'grafo' | 'condiciones' | 'orden' | 'estados' | 'secuencia' | 'filosofos'
+	| 'fijas' | 'placement' | 'buddy' | 'reloc' | 'binding';
+interface Props {
+	fig: Fig;
+}
+const { fig } = Astro.props;
+const A = `url(#sta-${fig})`;
+const R = `url(#str-${fig})`;
+const H = `url(#sth-${fig})`;
+const defs = `<defs><marker id="sta-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head"/></marker><marker id="str-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head-bad"/></marker><pattern id="sth-${fig}" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" class="hatch"/></pattern></defs>`;
+const pt = (cx: number, cy: number, r: number, deg: number) => ({ x: cx + r * Math.cos((deg * Math.PI) / 180), y: cy + r * Math.sin((deg * Math.PI) / 180) });
+const filo = (cx: number, portero: boolean) =>
+	[0, 1, 2, 3, 4].map((k) => {
+		const th = -90 + 72 * k;
+		return { k, p: pt(cx, 155, 112, th), izq: pt(cx, 155, 62, th - 36), der: pt(cx, 155, 62, th + 36), fuera: portero && k === 4, come: portero && k === 3 };
+	});
+const work = [
+	{ w: '6 3 5 4', p: '' },
+	{ w: '6 4 6 5', p: 'P1', a: '+0 1 1 1' },
+	{ w: '10 5 6 7', p: 'P2', a: '+4 1 0 2' },
+	{ w: '12 5 8 8', p: 'P0', a: '+2 0 2 1' },
+	{ w: '13 5 8 9', p: 'P3', a: '+1 0 0 1' },
+	{ w: '14 6 8 9', p: 'P4', a: '+1 1 0 0' },
+	{ w: '15 6 9 10', p: 'P5', a: '+1 0 1 1' },
+];
+const wpos = [
+	{ x: 20, y: 50 }, { x: 220, y: 50 }, { x: 420, y: 50 }, { x: 620, y: 50 },
+	{ x: 620, y: 160 }, { x: 420, y: 160 }, { x: 220, y: 160 },
+];
+const libres = [
+	{ s: 8 }, { s: 12 }, { s: 22, f: 'first-fit', q: 6 }, { s: 18, f: 'best-fit', q: 2 }, { s: 8 }, { s: 6 }, { s: 14, last: true }, { s: 36, f: 'next-fit', q: 20 },
+];
+let xx = 30;
+const bloques = libres.map((b) => {
+	const o = { ...b, x: xx + 22, w: b.s * 4.4 };
+	xx = o.x + o.w;
+	return o;
+});
+---
+
+<figure class="svgfig not-content">
+	<div class="svgfig__scroll">
+		{fig === 'cruce' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Cuatro autos en un cruce, cada uno ocupa un cuadrante y necesita el siguiente: ciclo de espera">
+				<Fragment set:html={defs} />
+				<rect x="20" y="70" width="420" height="160" class="cell" />
+				<rect x="150" y="10" width="160" height="280" class="cell" />
+				<rect x="150" y="70" width="160" height="160" class="frame" />
+				<line x1="230" y1="70" x2="230" y2="230" class="sep" stroke-dasharray="6 6" />
+				<line x1="150" y1="150" x2="310" y2="150" class="sep" stroke-dasharray="6 6" />
+				<rect x="165" y="85" width="50" height="50" rx="8" class="c1" /><text x="190" y="116" class="t b">C</text>
+				<rect x="245" y="85" width="50" height="50" rx="8" class="c2" /><text x="270" y="116" class="t b">B</text>
+				<rect x="245" y="165" width="50" height="50" rx="8" class="c3" /><text x="270" y="196" class="t b">A</text>
+				<rect x="165" y="165" width="50" height="50" rx="8" class="c5" /><text x="190" y="196" class="t b">D</text>
+				<line x1="270" y1="163" x2="270" y2="139" class="ln bad" stroke-width="2.5" marker-end={R} />
+				<line x1="243" y1="110" x2="219" y2="110" class="ln bad" stroke-width="2.5" marker-end={R} />
+				<line x1="190" y1="137" x2="190" y2="161" class="ln bad" stroke-width="2.5" marker-end={R} />
+				<line x1="217" y1="190" x2="241" y2="190" class="ln bad" stroke-width="2.5" marker-end={R} />
+				<text x="470" y="80" class="t s l">Cada auto <tspan class="b">ocupa</tspan> un cuadrante (lo retiene)</text>
+				<text x="470" y="100" class="t s l">y <tspan class="bad b">necesita</tspan> el siguiente (flecha roja).</text>
+				<text x="470" y="130" class="t s l">Las flechas cierran un ciclo y nadie retrocede:</text>
+				<text x="470" y="150" class="t s l b bad">deadlock real, nadie avanza nunca.</text>
+				<text x="470" y="190" class="t s l mu">Potencial: si llegan a la vez pero aún no entran,</text>
+				<text x="470" y="208" class="t s l mu">los cuadrantes siguen libres y uno puede avanzar.</text>
+			</svg>
+		)}
+
+		{fig === 'progreso' && (
+			<svg viewBox="0 0 760 340" role="img" aria-label="Diagrama de progreso conjunto con regiones prohibidas, la región fatal y dos caminos">
+				<Fragment set:html={defs} />
+				<rect x="200" y="70" width="270" height="120" class="c1" opacity="0.8" />
+				<rect x="300" y="110" width="240" height="130" class="c2" opacity="0.8" />
+				<rect x="200" y="190" width="100" height="50" class="trap" />
+				<text x="208" y="88" class="t s l b">ambos necesitan A</text>
+				<text x="532" y="232" class="t s r b">ambos necesitan B</text>
+				<text x="206" y="206" class="t s l b bad">región fatal</text>
+				<line x1="90" y1="290" x2="90" y2="30" class="axis" marker-end={A} />
+				<line x1="90" y1="290" x2="660" y2="290" class="axis" marker-end={A} />
+				<text x="660" y="318" class="t s r b">avance de P →</text>
+				<text x="96" y="28" class="t s l b">avance de Q ↑</text>
+				{[[200, 'pide A'], [300, 'pide B'], [470, 'suelta A'], [540, 'suelta B']].map(([x, t]) => <text x={x} y="306" class="t s mu">{t}</text>)}
+				{[[240, 'pide B'], [190, 'pide A'], [110, 'suelta B'], [70, 'suelta A']].map(([y, t]) => <text x="84" y={(y as number) + 4} class="t s r mu">{t}</text>)}
+				<path d="M90 290 H250 V215 H296" class="ln bad" stroke-width="3" marker-end={R} />
+				<text x="256" y="258" class="t s l bad">camino que entra a la región fatal</text>
+				<path d="M90 290 V272 H560 V40" class="ln ok" stroke-width="3" marker-end={A} />
+				<text x="570" y="60" class="t s l ok">P termina antes:</text>
+				<text x="570" y="76" class="t s l ok">sin deadlock</text>
+			</svg>
+		)}
+
+		{fig === 'grafo' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Grafo de asignación: con una instancia por recurso el ciclo es deadlock; con varias, no">
+				<Fragment set:html={defs} />
+				{[0, 390].map((dx) => (
+					<>
+						<rect x={180 + dx} y="40" width="60" height="40" rx="4" class="box" />
+						<text x={210 + dx} y="32" class="t s b">Ra</text>
+						<rect x={180 + dx} y="220" width="60" height="40" rx="4" class="box" />
+						<text x={210 + dx} y="278" class="t s b">Rb</text>
+						<circle cx={90 + dx} cy="150" r="26" class="c1" /><text x={90 + dx} y="155" class="t b">P1</text>
+						<circle cx={330 + dx} cy="150" r="26" class="c3" /><text x={330 + dx} y="155" class="t b">P2</text>
+						<line x1={110 + dx} y1="133" x2={178 + dx} y2="72" class="ln" marker-end={A} />
+						<line x1={310 + dx} y1="167" x2={242 + dx} y2="228" class="ln" marker-end={A} />
+					</>
+				))}
+				<circle cx="210" cy="60" r="5" class="head" />
+				<circle cx="210" cy="240" r="5" class="head" />
+				<line x1="214" y1="64" x2="310" y2="132" class="ln bad" marker-end={R} />
+				<line x1="206" y1="236" x2="110" y2="168" class="ln bad" marker-end={R} />
+				<text x="210" y="155" class="t s b bad">ciclo</text>
+				<circle cx="590" cy="60" r="5" class="head" /><circle cx="610" cy="60" r="5" class="head" />
+				<circle cx="590" cy="240" r="5" class="head" /><circle cx="610" cy="240" r="5" class="head" />
+				<line x1="586" y1="64" x2="700" y2="132" class="ln" marker-end={A} />
+				<line x1="594" y1="236" x2="500" y2="168" class="ln" marker-end={A} />
+				<circle cx="600" cy="150" r="22" class="c4" /><text x="600" y="155" class="t s b">P3</text>
+				<line x1="612" y1="64" x2="604" y2="126" class="ln" marker-end={A} />
+				<text x="210" y="20" class="t s b bad">una instancia: deadlock</text>
+				<text x="600" y="20" class="t s b ok">varias instancias: no hay deadlock</text>
+				<text x="680" y="230" class="t s l mu">2.ª instancia</text>
+				<text x="680" y="246" class="t s l mu">de Rb libre</text>
+				<text x="380" y="296" class="t s mu">Proceso → recurso: lo pide. Punto del recurso → proceso: se lo dieron. A la derecha, P2 recibe la Rb libre y P3 soltará Ra.</text>
+			</svg>
+		)}
+
+		{fig === 'condiciones' && (
+			<svg viewBox="0 0 760 210" role="img" aria-label="Las tres condiciones de política hacen posible el deadlock; con la espera circular el deadlock existe">
+				<Fragment set:html={defs} />
+				{['1 · exclusión mutua', '2 · hold and wait', '3 · no expropiación'].map((t, i) => (
+					<>
+						<rect x="30" y={20 + i * 50} width="230" height="40" rx="8" class="c1" />
+						<text x="145" y={45 + i * 50} class="t s b">{t}</text>
+					</>
+				))}
+				<text x="145" y="186" class="t s mu">decisiones de política</text>
+				<path d="M268 20 Q 284 20, 284 40 V 80 Q 284 90, 296 90 Q 284 90, 284 100 V 140 Q 284 160, 268 160" class="ln" />
+				<line x1="298" y1="90" x2="328" y2="90" class="ln" marker-end={A} />
+				<rect x="330" y="68" width="200" height="44" rx="8" class="c2" />
+				<text x="430" y="88" class="t s b">deadlock posible</text>
+				<text x="430" y="104" class="t s">existe la región fatal</text>
+				<rect x="330" y="140" width="200" height="44" rx="8" class="c3" />
+				<text x="430" y="160" class="t s b">4 · espera circular</text>
+				<text x="430" y="176" class="t s">circunstancia, no política</text>
+				<path d="M530 90 H560 V126 H588" class="ln" marker-end={A} />
+				<path d="M530 162 H560 V136 H588" class="ln" marker-end={A} />
+				<rect x="590" y="108" width="150" height="46" rx="8" class="trap" />
+				<text x="665" y="136" class="t b bad">deadlock</text>
+			</svg>
+		)}
+
+		{fig === 'orden' && (
+			<svg viewBox="0 0 760 220" role="img" aria-label="Orden lineal de recursos: solo se piden recursos de número mayor, así que no se puede cerrar un ciclo">
+				<Fragment set:html={defs} />
+				{[1, 2, 3, 4].map((k, i) => (
+					<>
+						<rect x={90 + i * 170} y="90" width="80" height="44" rx="6" class="box" />
+						<text x={130 + i * 170} y="118" class="t b">R{k}</text>
+					</>
+				))}
+				<path d="M130 88 C 200 30, 390 30, 470 86" class="ln ok" stroke-width="2.5" marker-end={A} />
+				<text x="300" y="40" class="t s b ok">A tiene R1 y pide R3: permitido (1 &lt; 3)</text>
+				<path d="M470 136 C 390 194, 200 194, 132 138" class="ln bad" stroke-width="2.5" marker-end={R} />
+				<text x="300" y="196" class="t s b bad">B tiene R3 y pide R1: prohibido (3 &gt; 1)</text>
+				<line x1="290" y1="170" x2="310" y2="150" class="ln bad" stroke-width="3" />
+				<line x1="290" y1="150" x2="310" y2="170" class="ln bad" stroke-width="3" />
+				<text x="380" y="216" class="t s mu">Si todas las flechas de «pide» van hacia la derecha, ninguna puede volver y cerrar un ciclo.</text>
+			</svg>
+		)}
+
+		{fig === 'estados' && (
+			<svg viewBox="0 0 760 260" role="img" aria-label="Estados seguros, inseguros y de deadlock: el deadlock está dentro de los inseguros">
+				<Fragment set:html={defs} />
+				<rect x="30" y="20" width="700" height="220" rx="12" class="box" />
+				<text x="46" y="42" class="t s l mu">todos los estados</text>
+				<rect x="60" y="60" width="260" height="150" rx="12" class="c4" />
+				<text x="190" y="128" class="t b">seguros</text>
+				<text x="190" y="148" class="t s">existe una secuencia</text>
+				<text x="190" y="164" class="t s">en que todos terminan</text>
+				<ellipse cx="560" cy="135" rx="150" ry="88" class="c2" />
+				<text x="500" y="100" class="t b">inseguros</text>
+				<ellipse cx="590" cy="160" rx="80" ry="40" class="trap" />
+				<text x="590" y="166" class="t b bad">deadlock</text>
+				<path d="M322 120 C 360 110, 380 110, 408 118" class="ln bad" stroke-width="2.5" marker-end={R} />
+				<line x1="355" y1="104" x2="373" y2="122" class="ln bad" stroke-width="3" />
+				<line x1="355" y1="122" x2="373" y2="104" class="ln bad" stroke-width="3" />
+				<text x="365" y="80" class="t s b bad">el banquero niega</text>
+				<text x="365" y="95" class="t s bad">este pedido</text>
+			</svg>
+		)}
+
+		{fig === 'secuencia' && (
+			<svg viewBox="0 0 760 250" role="img" aria-label="Secuencia segura del problema 6.5: el vector Work crece al terminar cada proceso">
+				<Fragment set:html={defs} />
+				{work.map((w, i) => (
+					<>
+						<rect x={wpos[i].x} y={wpos[i].y} width="120" height="44" rx="8" class={i === 0 ? 'c1' : i === 6 ? 'c4' : 'box'} />
+						<text x={wpos[i].x + 60} y={wpos[i].y + 18} class="t s mu">{i === 0 ? 'Available' : 'Work'}</text>
+						<text x={wpos[i].x + 60} y={wpos[i].y + 36} class="t mono b">{w.w}</text>
+					</>
+				))}
+				{[1, 2, 3].map((i) => (
+					<>
+						<line x1={wpos[i - 1].x + 120} y1="72" x2={wpos[i].x - 2} y2="72" class="ln" marker-end={A} />
+						<text x={wpos[i].x - 40} y="64" class="t s b">{work[i].p} termina</text>
+						<text x={wpos[i].x - 40} y="90" class="t s mono">{work[i].a}</text>
+					</>
+				))}
+				<line x1="680" y1="94" x2="680" y2="158" class="ln" marker-end={A} />
+				<text x="690" y="122" class="t s l b">{work[4].p} termina</text>
+				<text x="690" y="138" class="t s l mono">{work[4].a}</text>
+				{[5, 6].map((i) => (
+					<>
+						<line x1={wpos[i - 1].x - 2} y1="182" x2={wpos[i].x + 122} y2="182" class="ln" marker-end={A} />
+						<text x={wpos[i].x + 160} y="174" class="t s b">{work[i].p} termina</text>
+						<text x={wpos[i].x + 160} y="200" class="t s mono">{work[i].a}</text>
+					</>
+				))}
+				<text x="110" y="182" class="t s ok b">= R total ✓</text>
+				<text x="380" y="240" class="t s mu">En cada paso, el Need del proceso cabe en Work; al terminar, devuelve su Allocation y Work crece.</text>
+			</svg>
+		)}
+
+		{fig === 'filosofos' && (
+			<svg viewBox="0 0 760 310" role="img" aria-label="Filósofos: si todos toman el tenedor izquierdo hay deadlock; con un portero que deja sentarse a 4, uno come">
+				<Fragment set:html={defs} />
+				<text x="190" y="22" class="cap">todos toman el izquierdo</text>
+				<text x="570" y="22" class="cap">portero: entran 4</text>
+				{[190, 570].map((cx) => (
+					<>
+						<circle cx={cx} cy="155" r="80" class="box" />
+						{filo(cx, cx === 570).map((f) => (
+							<>
+								{!f.fuera && <line x1={f.p.x} y1={f.p.y} x2={f.izq.x} y2={f.izq.y} class={f.come ? 'ln ok' : 'ln'} stroke-width="3" />}
+								{!f.fuera && !f.come && <line x1={f.p.x} y1={f.p.y} x2={f.der.x} y2={f.der.y} class="ln bad" stroke-dasharray="5 4" marker-end={R} />}
+								{f.come && <line x1={f.p.x} y1={f.p.y} x2={f.der.x} y2={f.der.y} class="ln ok" stroke-width="3" />}
+								<circle cx={f.p.x} cy={f.p.y} r="20" class={f.fuera ? 'hole' : f.come ? 'c4' : 'c1'} fill={f.fuera ? H : undefined} />
+								<circle cx={f.p.x} cy={f.p.y} r="20" fill="none" class="frame" />
+								<text x={f.p.x} y={f.p.y + 5} class="t s b">F{f.k}</text>
+							</>
+						))}
+						{[0, 1, 2, 3, 4].map((k) => {
+							const q = pt(cx, 155, 62, -90 + 36 + 72 * k);
+							return <rect x={q.x - 5} y={q.y - 5} width="10" height="10" rx="2" class="c6" />;
+						})}
+					</>
+				))}
+				<text x="190" y="296" class="t s bad">cada uno espera el derecho (rojo): ciclo</text>
+				<text x="570" y="296" class="t s ok">F4 espera afuera; F3 toma sus dos tenedores y come</text>
+			</svg>
+		)}
+
+		{fig === 'fijas' && (
+			<svg viewBox="0 0 760 400" role="img" aria-label="Particiones fijas iguales y desiguales con los mismos tres procesos: la desigual desperdicia menos">
+				<Fragment set:html={defs} />
+				<text x="200" y="22" class="cap">iguales (8 MB cada una)</text>
+				<text x="560" y="22" class="cap">desiguales</text>
+				<rect x="120" y="30" width="160" height="32" class="os" /><text x="200" y="51" class="t s b">SO · 8 MB</text>
+				{[2, 5, 7, 0, 0, 0, 0].map((p, i) => (
+					<>
+						<rect x="120" y={62 + i * 32} width="160" height="32" class={p ? 'hole' : 'box'} fill={p ? H : undefined} />
+						{p > 0 && <rect x="120" y={62 + i * 32} width={p * 20} height="32" class="c4" />}
+						{p > 0 && <text x={124 + p * 10} y={83 + i * 32} class="t s b">{p}</text>}
+						<rect x="120" y={62 + i * 32} width="160" height="32" class="frame" />
+					</>
+				))}
+				<text x="290" y="83" class="t s l bad">6 MB perdidos</text>
+				<text x="290" y="115" class="t s l bad">3 MB</text>
+				<text x="290" y="147" class="t s l bad">1 MB</text>
+				<text x="200" y="388" class="t s b bad">10 MB de fragmentación interna</text>
+				<rect x="480" y="30" width="160" height="32" class="os" /><text x="560" y="51" class="t s b">SO · 8 MB</text>
+				{(() => {
+					let y = 62;
+					return [[2, 2], [4, 0], [6, 5], [8, 7], [8, 0], [12, 0], [16, 0]].map(([s, p]) => {
+						const h = s * 5.5;
+						const r = { y, h, s, p };
+						y += h;
+						return r;
+					});
+				})().map((r) => (
+					<>
+						<rect x="480" y={r.y} width="160" height={r.h} class={r.p ? 'hole' : 'box'} fill={r.p ? H : undefined} />
+						{r.p > 0 && <rect x="480" y={r.y} width={(r.p / r.s) * 160} height={r.h} class="c4" />}
+						<rect x="480" y={r.y} width="160" height={r.h} class="frame" />
+						<text x="650" y={r.y + r.h / 2 + 4} class="t s l mu">{r.s} MB</text>
+						{r.p > 0 && <text x="470" y={r.y + r.h / 2 + 4} class="t s r b">proc. {r.p} MB</text>}
+					</>
+				))}
+				<text x="560" y="388" class="t s b ok">2 MB de fragmentación interna</text>
+			</svg>
+		)}
+
+		{fig === 'placement' && (
+			<svg viewBox="0 0 760 250" role="img" aria-label="Pedido de 16 MB: first-fit usa el bloque de 22, best-fit el de 18 y next-fit el de 36">
+				<Fragment set:html={defs} />
+				<rect x="30" y="110" width={xx - 30} height="44" class="os" />
+				{bloques.map((b) => (
+					<>
+						<rect x={b.x} y="110" width={b.w} height="44" class={b.last ? 'c6' : b.f ? 'c4' : 'box'} />
+						<text x={b.x + b.w / 2} y="137" class="t s b">{b.s}</text>
+					</>
+				))}
+				<text x={bloques[6].x + bloques[6].w / 2} y="176" class="t s">última asignación</text>
+				{bloques.filter((b) => b.f).map((b, i) => (
+					<>
+						<line x1={b.x + b.w / 2} y1={i === 1 ? 64 : 88} x2={b.x + b.w / 2} y2="106" class="ln" marker-end={A} />
+						<text x={b.x + b.w / 2} y={i === 1 ? 44 : 68} class="t s b">{b.f}</text>
+						<text x={b.x + b.w / 2} y={i === 1 ? 58 : 82} class="t s">queda {b.q} MB</text>
+					</>
+				))}
+				<path d={`M${bloques[6].x + bloques[6].w} 190 H${bloques[7].x + 20}`} class="ln dash" marker-end={A} />
+				<text x={bloques[6].x + bloques[6].w + 4} y="206" class="t s l mu">next-fit busca desde aquí</text>
+				<text x="380" y="240" class="t s mu">Bloques libres en MB; gris oscuro: ocupado; amarillo: el último asignado. Pedido: 16 MB. Fig. 7.5 de Stallings.</text>
+			</svg>
+		)}
+
+		{fig === 'buddy' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Buddy: 1 MB se divide hasta 128 KB para un pedido de 100 KB">
+				<Fragment set:html={defs} />
+				{[
+					[380, 30, '1 MB', 'box'], [200, 90, '512 KB', 'box'], [560, 90, '512 KB libre', 'cell-off'],
+					[110, 150, '256 KB', 'box'], [290, 150, '256 KB libre', 'cell-off'], [60, 210, 'A · 128 KB', 'c4'], [160, 210, '128 KB libre', 'cell-off'],
+				].map(([x, y, t, c]) => (
+					<>
+						<rect x={(x as number) - 46} y={y} width="92" height="30" rx="6" class={c as string} />
+						<text x={x} y={(y as number) + 20} class="t s b">{t}</text>
+					</>
+				))}
+				<path d="M380 60 L200 90 M380 60 L560 90 M200 120 L110 150 M200 120 L290 150 M110 180 L60 210 M110 180 L160 210" class="ln" />
+				<rect x="30" y="256" width="89.6" height="30" class="c4" /><text x="75" y="276" class="t s b">A</text>
+				<rect x="119.6" y="256" width="89.6" height="30" class="box" /><text x="164" y="276" class="t s">128</text>
+				<rect x="209.2" y="256" width="179.2" height="30" class="box" /><text x="299" y="276" class="t s">256</text>
+				<rect x="388.4" y="256" width="358.4" height="30" class="box" /><text x="568" y="276" class="t s">512</text>
+				<text x="420" y="150" class="t s l">A pide 100 KB: se parte a la mitad</text>
+				<text x="420" y="168" class="t s l">hasta el bloque más chico ≥ 100 KB.</text>
+				<text x="420" y="196" class="t s l bad">Sobran 28 KB dentro de A:</text>
+				<text x="420" y="214" class="t s l bad">fragmentación interna.</text>
+				<text x="420" y="242" class="t s l mu">Abajo, la memoria real, a escala.</text>
+			</svg>
+		)}
+
+		{fig === 'reloc' && (
+			<svg viewBox="0 0 760 230" role="img" aria-label="Relocalización con registros base y límite: base más relativa, comparar con el límite">
+				<Fragment set:html={defs} />
+				<rect x="20" y="90" width="140" height="44" rx="8" class="box" />
+				<text x="90" y="110" class="t s b">dirección relativa</text>
+				<text x="90" y="126" class="t s mu">del programa</text>
+				<rect x="180" y="16" width="120" height="40" rx="6" class="c1" /><text x="240" y="41" class="t s b">registro base</text>
+				<line x1="240" y1="56" x2="240" y2="90" class="ln" marker-end={A} />
+				<line x1="160" y1="112" x2="218" y2="112" class="ln" marker-end={A} />
+				<circle cx="240" cy="112" r="20" class="c4" /><text x="240" y="118" class="t b">+</text>
+				<line x1="260" y1="112" x2="338" y2="112" class="ln" marker-end={A} />
+				<text x="300" y="104" class="t s">absoluta</text>
+				<rect x="340" y="16" width="120" height="40" rx="6" class="c3" /><text x="400" y="41" class="t s b">registro límite</text>
+				<line x1="400" y1="56" x2="400" y2="74" class="ln" marker-end={A} />
+				<polygon points="340,112 400,76 460,112 400,148" class="q" />
+				<text x="400" y="117" class="t s b">¿dentro?</text>
+				<line x1="460" y1="112" x2="528" y2="112" class="ln ok" marker-end={A} />
+				<text x="494" y="104" class="t s ok">sí</text>
+				<rect x="530" y="90" width="210" height="44" rx="8" class="c4" />
+				<text x="635" y="110" class="t s b">acceso a memoria</text>
+				<text x="635" y="126" class="t s">dentro de la imagen del proceso</text>
+				<line x1="400" y1="148" x2="400" y2="168" class="ln bad" marker-end={R} />
+				<text x="412" y="162" class="t s l bad">no</text>
+				<rect x="320" y="170" width="160" height="40" rx="8" class="trap" />
+				<text x="400" y="195" class="t s b bad">interrupción al SO</text>
+				<text x="620" y="190" class="t s mu">Cambiar de lugar el proceso</text>
+				<text x="620" y="206" class="t s mu">= cargar otra base</text>
+			</svg>
+		)}
+
+		{fig === 'binding' && (
+			<svg viewBox="0 0 760 210" role="img" aria-label="Momento del binding: programación, compilación, carga o ejecución; solo en ejecución se puede mover el proceso">
+				<Fragment set:html={defs} />
+				<line x1="30" y1="100" x2="740" y2="100" class="axis" marker-end={A} />
+				{[['programación', 'el programador', 'box'], ['compilación', 'el compilador', 'box'], ['carga', 'el cargador', 'box'], ['ejecución', 'el hardware (MMU)', 'c4']].map(([t, q, c], i) => (
+					<>
+						<rect x={40 + i * 175} y="78" width="150" height="44" rx="8" class={c} />
+						<text x={115 + i * 175} y="105" class="t s b">{t}</text>
+						<text x={115 + i * 175} y="146" class="t s">{q}</text>
+					</>
+				))}
+				<text x="380" y="168" class="t s mu">fila de abajo: quién convierte en dirección física</text>
+				<path d="M40 64 V54 H540 V64" class="ln bad" />
+				<text x="290" y="44" class="t s bad">la dirección queda fija antes de ejecutar: el proceso no se puede mover</text>
+				<path d="M565 64 V54 H715 V64" class="ln ok" />
+				<text x="640" y="44" class="t s ok">swap a otro lugar posible</text>
+				<text x="380" y="200" class="t s mu">Tabla 7.3 (a) de Stallings.</text>
+			</svg>
+		)}
+	</div>
+	<figcaption><slot /></figcaption>
+</figure>

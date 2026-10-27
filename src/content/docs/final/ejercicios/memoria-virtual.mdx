@@ -12,6 +12,7 @@ import Objetivos from '../../../../components/tutor/Objetivos.astro';
 import Practica from '../../../../components/tutor/Practica.astro';
 import Errores from '../../../../components/tutor/Errores.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import MemVirtualFig from '../../../../components/MemVirtualFig.astro';
 
 <EnSimple>
 Casi todas estas preguntas se resuelven con **tres ideas**:
@@ -144,6 +145,10 @@ La dirección tiene 16 bits y vale **5306** en decimal.
 - Dirección física = 20 502 + 186 = **20 688** = **`0101000011010000`**.
 - Como la base no es múltiplo de una potencia de 2, aquí **sí** hay que **sumar**, no concatenar. Es la diferencia clave con la paginación.
 
+<MemVirtualFig fig="binario">
+**Cómo leerlo:** arriba, la dirección cortada para paginación (8 | 8); abajo, para segmentación (6 | 10). Los colores marcan qué bits son número de página o segmento y cuáles son offset.
+</MemVirtualFig>
+
 </Solucion>
 
 ## Pregunta 4 · Tabla de páginas con V/R/M
@@ -224,6 +229,10 @@ Ahora se recorren las 256 posiciones de cada página **seguidas** (4 filas × 64
 
 La simulación confirma **48**. Es una mejora de **64×**: la misma localidad espacial que hace rápida a la caché.
 
+<MemVirtualFig fig="columnas">
+**Cómo leerlo:** cada franja horizontal es una página de la matriz (4 filas). Por columnas, la flecha roja atraviesa las 16 páginas en cada columna, y con 3 marcos ninguna sobrevive hasta la columna siguiente. Por filas, se termina la página verde entera antes de pasar a la siguiente.
+</MemVirtualFig>
+
 </Solucion>
 
 ## Pregunta 6 · 8 GB de RAM, páginas de 8 kB, PTE de 4 B y direcciones de 46 bits
@@ -235,12 +244,9 @@ La simulación confirma **48**. Es una mejora de **64×**: la misma localidad es
 - **Entradas por tabla** (cada tabla ocupa una página): 8 kB / 4 B = $2^{11}$, así que **11 bits por nivel**.
 - **Niveles:** ⌈33 / 11⌉ = **3 niveles**.
 
-```text
- 45        35 34        24 23        13 12          0
-┌────────────┬────────────┬────────────┬─────────────┐
-│ nivel 1 (11)│ nivel 2 (11)│ nivel 3 (11)│ offset (13) │
-└────────────┴────────────┴────────────┴─────────────┘
-```
+<MemVirtualFig fig="bits46">
+Arriba de cada campo van sus posiciones de bit. Cada campo de 11 bits elige una de las 2048 entradas de la tabla de su nivel.
+</MemVirtualFig>
 
 - **Frames:** 8 GB / 8 kB = $2^{33}/2^{13}$ = $2^{20}$, así que el número de frame tiene **20 bits**.
 - **Campos de la PTE** (32 bits): **20 bits de frame** + valid/presente + referenciado (uso) + modificado (dirty) + protección (R/W/X) + usuario/supervisor + caché deshabilitada + global… Quedan bits libres para el SO.

@@ -10,6 +10,9 @@ import Quiz from '../../../../components/Quiz.tsx';
 import Objetivos from '../../../../components/tutor/Objetivos.astro';
 import Feynman from '../../../../components/tutor/Feynman.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import StallingsFig from '../../../../components/StallingsFig.astro';
+import PaginacionFig from '../../../../components/PaginacionFig.astro';
+import SegmentacionFig from '../../../../components/SegmentacionFig.astro';
 
 <EnSimple>
 La RAM es como un **estacionamiento** que comparten muchos autos (procesos). El capítulo 7 cuenta cómo se fue mejorando la forma de repartirlo:
@@ -95,6 +98,11 @@ Son **cinco**: relocalización, protección, compartición, organización lógic
 
 Hoy casi no se usan. El ejemplo del libro es **OS/MFT** de IBM.
 
+<StallingsFig fig="fijas">
+**Cómo leerlo:** las particiones son las de la figura 7.2 del libro; los tres procesos (2, 5 y 7 MB) son un **ejemplo propio**. Verde es lo que el proceso usa y lo rayado, lo que se pierde dentro de su partición. Con particiones desiguales, cada proceso cae en una más ajustada y se pierde mucho menos.
+</StallingsFig>
+
+
 ### Particiones dinámicas
 
 - Cada proceso recibe **exactamente** lo que necesita. El ejemplo del libro es **OS/MVT** de IBM.
@@ -109,10 +117,15 @@ Hoy casi no se usan. El ejemplo del libro es **OS/MFT** de IBM.
 | **Next-fit** | el siguiente bloque suficiente desde **la última asignación** | Algo **peor** que first-fit: rompe rápido el bloque grande del final y obliga a compactar más |
 | **Best-fit** | el bloque de tamaño **más cercano** al pedido | **Pese a su nombre, suele ser el peor**: deja fragmentos diminutos inútiles y obliga a compactar más seguido |
 
-En el ejemplo de la figura 7.5, un pedido de 16 MB con la última asignación hecha en un bloque de 22 MB deja:
+En el ejemplo de la figura 7.5, un pedido de 16 MB con la última asignación hecha en un bloque de 14 MB deja:
 - **best-fit**: un fragmento de 2 MB (usa el bloque de 18 MB);
 - **first-fit**: un fragmento de 6 MB;
 - **next-fit**: un fragmento de 20 MB.
+
+<StallingsFig fig="placement">
+**Cómo leerlo:** la fila es la memoria y los números, los bloques libres en MB. First-fit recorre desde la izquierda y se queda con el primero que alcanza (22). Best-fit revisa todos y elige el más ajustado (18). Next-fit parte desde la última asignación (14) y sigue hacia la derecha hasta el de 36.
+</StallingsFig>
+
 
 **Reemplazo:** si todos los procesos en memoria están bloqueados y no hay espacio ni compactando, se hace swap de alguno. El tema se desarrolla en el cap. 8.
 
@@ -125,6 +138,11 @@ Es un **compromiso** entre las particiones fijas y las dinámicas.
 - **Liberar:** si los dos buddies de un par quedan libres, se **fusionan** en el bloque de tamaño $2^{i+1}$.
 - **Árbol (figura 7.7):** si dos buddies son hojas, **al menos uno está asignado**; si no, ya se habrían fusionado.
 - **Ejemplo del libro:** 1 MB inicial y A pide 100 KB, así que recibe **128 KB** (1 MB → 512 → 256 → 128).
+
+<StallingsFig fig="buddy">
+**Cómo leerlo:** cada división parte un bloque en dos buddies iguales. Se divide por la rama izquierda hasta llegar a 128 KB, el bloque más chico que contiene 100 KB. Los buddies grises quedan libres para otros pedidos y se fusionarán con su pareja cuando A se libere.
+</StallingsFig>
+
 - **Dónde se usa:** en sistemas paralelos, en una **variante para el kernel de UNIX** (el *lazy buddy* del cap. 8) y en la asignación de páginas de Linux.
 
 Practica con el simulador de [Particiones](/memoria/particiones/).
@@ -142,6 +160,11 @@ Practica con el simulador de [Particiones](/memoria/particiones/).
 - En cada referencia relativa: (1) base + relativa = absoluta; (2) se **compara con el límite**. Si está fuera, hay una **interrupción** al SO.
 - Así se logra la **relocalización** (el swap puede devolver el proceso a otro lugar) **y la protección** (cada imagen queda aislada por base y límite).
 
+<StallingsFig fig="reloc">
+**Cómo leerlo:** el programa solo conoce direcciones relativas. El hardware les suma la base y revisa que el resultado no pase el límite. Para mover el proceso basta con cargar otra base; el programa no cambia.
+</StallingsFig>
+
+
 ## 7.3 Paginación simple
 
 - La memoria se divide en **frames** pequeños de tamaño fijo, y el proceso en **páginas** del mismo tamaño.
@@ -151,6 +174,11 @@ Practica con el simulador de [Particiones](/memoria/particiones/).
   - una **lista de frames libres** para todo el sistema.
 - **Ejemplo de la figura 7.9:** el proceso D tiene 5 páginas y entra en los frames 4, 5, 6, 11 y 12, aunque **no** estén contiguos.
 - **Paginación vs particiones fijas:** se parecen, pero en la paginación las particiones son **pequeñas**, un programa ocupa **varias** y estas **no necesitan ser contiguas**.
+
+<PaginacionFig fig="marcos">
+**Cómo leerlo:** las páginas de un proceso caen en marcos sueltos de la memoria física; la tabla de páginas recuerda dónde quedó cada una.
+</PaginacionFig>
+
 
 **Por qué la página es potencia de 2:**
 1. La dirección lógica (página, offset) **es idéntica a la relativa**, así que el esquema es transparente para el programador, el ensamblador y el *linker*.
@@ -173,6 +201,11 @@ Practica con el simulador de [Particiones](/memoria/particiones/).
 - **Sin fragmentación interna**, con fragmentación **externa** (menor que con particiones dinámicas, porque los trozos son más chicos).
 - **Visibilidad:** la paginación es **invisible** para el programador; la segmentación **suele ser visible** y sirve para organizar programas y datos. El inconveniente es que el programador debe conocer el **tamaño máximo** de segmento.
 - **Tabla de segmentos por proceso:** cada entrada guarda la **base** y la **longitud**. Al pasar a Running, la dirección de la tabla se carga en un registro.
+
+<SegmentacionFig fig="traduccion">
+**Cómo leerlo:** el número de segmento elige la fila de la tabla; el offset se compara con la longitud y, si cabe, se **suma** a la base.
+</SegmentacionFig>
+
 
 **Traducción** con n bits de segmento y m de offset:
 1. tomar los n bits de la izquierda como número de segmento;
@@ -204,6 +237,11 @@ Practica con el simulador de [Particiones](/memoria/particiones/).
 | Compilación o ensamblado | el compilador convierte símbolos en direcciones físicas |
 | Carga | el compilador da direcciones relativas y el **cargador** las convierte |
 | Ejecución | el programa conserva direcciones relativas y el **hardware** las convierte |
+
+<StallingsFig fig="binding">
+**Cómo leerlo:** cuanto más a la derecha ocurre la traducción, más flexible es. Solo si se hace en ejecución el SO puede sacar un proceso a disco y devolverlo a otra zona de memoria.
+</StallingsFig>
+
 
 **(b) El enlazador:** ¿cuándo se resuelven las referencias externas?
 

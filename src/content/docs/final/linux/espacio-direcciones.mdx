@@ -13,6 +13,7 @@ import Detective from '../../../../components/tutor/Detective.astro';
 import Errores from '../../../../components/tutor/Errores.astro';
 import Feynman from '../../../../components/tutor/Feynman.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import LinuxFig from '../../../../components/LinuxFig.astro';
 
 <EnSimple>
 Cada proceso cree que tiene **toda la memoria para él**: un espacio de direcciones enorme y ordenado, con el código abajo, los datos encima, el **heap** que crece hacia arriba y el **stack** que crece hacia abajo desde el tope. Es una ilusión: el SO solo pone en la RAM real las páginas que el proceso **toca**. En este laboratorio miramos esa ilusión desde dentro: imprimimos direcciones, vemos el mapa del proceso, rompemos cosas con `memcpy` y vemos cómo pide memoria `malloc`.
@@ -36,23 +37,9 @@ Cada proceso cree que tiene **toda la memoria para él**: un espacio de direccio
 
 Así se suele representar un programa en memoria (lab 10, diap. 12):
 
-```text
- direcciones altas
-┌──────────────────────┐
-│ kernel               │ ← inaccesible desde modo usuario
-├──────────────────────┤
-│ stack           ↓    │ variables locales, direcciones de retorno (LIFO)
-│        …             │
-│ librerías (mmap)     │ libc, ld.so, y los malloc grandes
-│        …             │
-│ heap            ↑    │ malloc / free (crece con brk)
-├──────────────────────┤
-│ data / bss           │ globales y static (inicializadas / en cero)
-├──────────────────────┤
-│ text (código)        │ instrucciones, solo lectura + ejecución
-└──────────────────────┘
- direcciones bajas
-```
+<LinuxFig fig="vas">
+**Cómo leerlo:** de abajo hacia arriba suben las direcciones. A la derecha de cada zona van sus permisos (r = leer, w = escribir, x = ejecutar). El stack crece hacia abajo y el heap hacia arriba, hacia el hueco del medio (rayado), que no tiene páginas mapeadas: tocarlo da SIGSEGV. **brk** marca dónde termina el heap.
+</LinuxFig>
 
 Cada segmento es un **mapeo** (*mapping*) de páginas con sus permisos. Se ven en `/proc/PID/maps` o, desde GDB, con `info proc mappings`. Este es el mapa real de `stack.c` mientras está detenido en `pause()` (ejecución de prueba):
 
@@ -88,6 +75,11 @@ In function    bar_is_now_closed; &localvar = 0x7ffdb3252864
 
 - Las direcciones **bajan** (…8d4 → …8a4 → …884 → …864): el stack **crece hacia direcciones menores**, y cada llamada apila un **marco** (*frame*) nuevo.
 - La diferencia entre marcos (0x30, 0x20, 0x20 bytes) es la variable local más la dirección de retorno, el puntero de marco guardado y la alineación.
+
+<LinuxFig fig="stack">
+**Cómo leerlo:** cada caja es el marco de una función, con la dirección real de su `localvar` a la izquierda. `main` está arriba porque se llamó primero; cada llamada apila un marco **debajo**, en direcciones menores. A la derecha va cuánto bajó cada marco respecto del anterior.
+</LinuxFig>
+
 
 El laboratorio pide conectarse con `gdb attach PID` y ejecutar `bt`. En sistemas con `ptrace_scope = 1` (el valor por defecto de Ubuntu), adjuntarse a un proceso que no es hijo requiere `sudo`. La alternativa es lanzarlo desde GDB y detenerlo en `pause`:
 
@@ -137,6 +129,11 @@ Es un **desborde de buffer** (*buffer overflow*). GCC lo advierte al compilar: `
 
 **Moraleja:** un desborde puede **no fallar** y aun así ser un bug grave (es la base de muchos ataques). Corrección: `memcpy(dest, src, sizeof dest)`, o mejor, copiar `strlen(src) + 1` bytes después de comprobar que caben.
 
+<LinuxFig fig="overflow">
+**Cómo leerlo:** la memoria va de izquierda a derecha en direcciones crecientes. La franja roja es lo que escribe `memcpy`: empieza en `dest` y sigue 1004 bytes más allá, pisando las otras locales y la dirección de retorno. Como el programa sale con `exit(0)` sin retornar de `main`, nunca usa esa dirección pisada y no falla.
+</LinuxFig>
+
+
 </Detective>
 
 <Detective titulo="<code>memcpy2.c</code>: escribir en una dirección de kernel" sintoma="Sin argumentos el programa funciona. Con un argumento muere con <strong>código 139</strong>." pista="139 = 128 + ¿qué señal? ¿Quién traduce <code>0xffffffffff601000</code> antes de llegar a la RAM?">
@@ -151,6 +148,11 @@ memcpy(dest, src, strlen(src));
 - **Con un argumento:** intenta escribir en una dirección **fuera del espacio de usuario**. En la diapositiva 11 es `0xffffffffff601000`, una dirección **virtual del kernel** en x86-64 (la zona `vsyscall`). Ejecución de prueba: **`Segmentation fault`** (código 139 = 128 + 11, `SIGSEGV`). Valgrind lo reporta como `Invalid write of size 2` dentro de `memmove`, y luego `Process terminating with default action of signal 11 (SIGSEGV)`.
 
 **¿Por qué segfault y no «escribe en la RAM física»?** Porque la dirección es **virtual**. La MMU busca su página y, como esa página no está mapeada para el proceso con permiso de escritura en modo usuario, genera una **excepción de protección**. El kernel la convierte en `SIGSEGV`. Esa es la **protección** que da la memoria virtual: un proceso no puede tocar ni el kernel ni a otros procesos.
+
+<LinuxFig fig="segv">
+**Cómo leerlo:** toda escritura pasa por la MMU. Sin argumentos, `dest` es una página del proceso con permiso de escritura: camino verde. Con un argumento, `dest` es una dirección de kernel: la MMU la rechaza, el kernel convierte la excepción en la señal 11 y el proceso termina con 128 + 11 = 139.
+</LinuxFig>
+
 
 </Detective>
 
@@ -178,6 +180,11 @@ szt_num2alloc = 18158518104085839872
 **Lo que hay que entender de cada línea:**
 - **1 y 2:** `28 000 000 × 1 PB` **desborda** el entero: como `long`, da un número **negativo**; como `size_t`, uno gigantesco. `malloc` recibe siempre un `size_t`, así que el negativo se convierte en un número enorme. Ninguno se puede satisfacer: **NULL**.
 - **3 y 4:** `short` tiene 16 bits con signo, máximo 32 767. `6·1024 = 6144` cabe. `60·1024 = 61 440` **no cabe** y se convierte en **−4096**; pasado a `size_t` es casi $2^{64}$: NULL.
+
+<LinuxFig fig="short">
+**Cómo leerlo:** los mismos 16 bits significan 61 440 sin signo o −4096 con signo, según cómo se lean. Al pasar a `size_t`, el −4096 se extiende con unos a la izquierda y queda un número enorme, imposible de reservar.
+</LinuxFig>
+
 - **5 y 6:** `-1UL` es el `size_t` máximo. Imposible: NULL.
 - **7: `malloc(0)`** devuelve un puntero **válido** (no NULL) que no se debe usar, pero sí se puede pasar a `free`. Fíjate que es **la misma dirección** que el caso 3: después del `free`, el bloque se reutilizó.
 - **Siempre** hay que revisar si `malloc` devolvió NULL.
@@ -226,6 +233,11 @@ fin del heap después : 0x5d8f3f402000
 ```
 
 Los dos bloques chicos quedan **dentro** del `[heap]`. Los de 200 KB y 64 MB aparecen en la zona alta, junto a `libc.so.6`, en un mapeo anónimo `rw-p` nuevo. Lo mismo explica por qué en la medición de page faults el comportamiento cambia desde N ≥ 32 páginas (128 KB).
+
+<LinuxFig fig="brkmmap">
+**Cómo leerlo:** cada flecha une una llamada con el lugar donde quedó su bloque. Las dos de abajo (direcciones `0x5d8f…`) caen dentro del heap; las dos de arriba (`0x7ca5…`), en la zona de mmap junto a libc. El corte es el umbral de 128 KB.
+</LinuxFig>
+
 
 <Errores
 	errores={[

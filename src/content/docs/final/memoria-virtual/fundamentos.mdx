@@ -14,6 +14,8 @@ import Practica from '../../../../components/tutor/Practica.astro';
 import Errores from '../../../../components/tutor/Errores.astro';
 import Feynman from '../../../../components/tutor/Feynman.astro';
 import Dominio from '../../../../components/tutor/Dominio.tsx';
+import MemVirtualFig from '../../../../components/MemVirtualFig.astro';
+import PaginacionFig from '../../../../components/PaginacionFig.astro';
 
 <EnSimple>
 Piensa en una **biblioteca enorme** (el disco) y un **escritorio pequeño** (la RAM). No traes todos los libros al escritorio: solo los que estás usando ahora. Si necesitas uno que no está, te levantas a buscarlo (**fallo de página**), y si el escritorio está lleno devuelves otro (**reemplazo**). Funciona porque casi siempre trabajas con los mismos pocos libros por un rato: eso es la **localidad**. La memoria virtual es exactamente eso: cada programa cree que tiene toda la memoria para él, pero en la RAM solo están los pedazos que está usando.
@@ -65,6 +67,11 @@ Si cada referencia cayera en una página distinta, el sistema pasaría todo el t
 
 No pasa gracias al **principio de localidad**: las referencias de un proceso se **agrupan**. Durante un intervalo, el programa usa unas pocas páginas: un bucle, una función, un arreglo. Así el SO puede **adivinar** qué páginas van a hacer falta pronto.
 
+<MemVirtualFig fig="localidad">
+**Cómo leerlo:** cada punto es una referencia a memoria. El eje horizontal es el tiempo y el vertical, la página tocada. Los puntos no se reparten por todo el eje: se **amontonan** en franjas de pocas páginas (las zonas sombreadas) y saltan de franja cada tanto. Mientras dura una franja, basta con tener esas 4 o 5 páginas en RAM.
+</MemVirtualFig>
+
+
 | Requisito | Por qué |
 | --- | --- |
 | **Soporte de hardware** para la paginación o segmentación | traducir cada dirección en software sería impracticable |
@@ -90,12 +97,9 @@ Con paginación simple, la tabla solo decía «la página k está en el frame f�
 | — | protección, compartición, bloqueo | lectura/escritura/ejecución, páginas compartidas, frames bloqueados (*frame locking*) |
 | **PFN** | número de frame | dónde está, si P = 1 |
 
-```text
- Dirección virtual            Entrada de la tabla (PTE)
-┌──────────────┬────────┐     ┌───┬───┬───┬─────────────┬──────────────┐
-│ nº de página │ offset │     │ P │ M │ R │ protección… │ nº de frame  │
-└──────────────┴────────┘     └───┴───┴───┴─────────────┴──────────────┘
-```
+<PaginacionFig fig="pte">
+La dirección virtual se parte en **nº de página | offset**, y el nº de página elige una de estas entradas. Arriba de cada campo va la pregunta que responde y abajo, quién la usa.
+</PaginacionFig>
 
 **Las tablas son enormes.** Por ejemplo, Stallings toma la arquitectura VAX: 2 GB de espacio virtual con páginas de 512 B dan $2^{22}$ entradas **por proceso**. Por eso la tabla también vive en memoria virtual y aparecen dos estructuras:
 - **Tabla de dos (o más) niveles:** un directorio raíz que siempre está en RAM y tablas de usuario que pueden estar en disco. Ejemplo típico: 32 bits con páginas de 4 KB y PTE de 4 B dan `10 | 10 | 12`.
@@ -137,6 +141,11 @@ Cada referencia a memoria virtual podría costar **dos accesos**: uno para leer 
 
 Si la tabla de páginas cambia (cambio de proceso), la TLB se vacía, o cada entrada lleva un identificador de espacio de direcciones (ASID).
 
+<PaginacionFig fig="tlb">
+**Cómo leerlo:** son los tres caminos de la fig. 8.8. Hit (verde, arriba): la TLB da el marco. Miss: se lee la tabla en RAM y, si P = 1, la traducción se copia a la TLB (punteada). P = 0 (rojo): page fault. Los tiempos del dibujo (10 ns y 100 ns) son los de la página de [paginación](/memoria/paginacion/); el peldaño 1 de abajo usa una TLB de 20 ns.
+</PaginacionFig>
+
+
 <TlbEat client:visible />
 
 Fórmula del curso, con k niveles de tabla y TLB consultada siempre:
@@ -153,6 +162,11 @@ $$
 4. **Interpretación:** sin TLB cada acceso costaría 200 ns (PTE + dato). La TLB ahorra un 35 %.
 
 </Practica>
+
+<MemVirtualFig fig="eat">
+**Cómo leerlo:** es el peldaño 1 dibujado a escala. Cada barra suma lo que se paga, y un fallo de TLB agrega una lectura de la PTE (la parte del medio). El EAT es un promedio ponderado: queda mucho más cerca de la barra de acierto (130 ns) porque el acierto ocurre el 90 % de las veces.
+</MemVirtualFig>
+
 
 <Practica nivel={2} titulo="Complétalo: 2 niveles, TLB de 10 ns, memoria de 100 ns y h = 0.95">
 
@@ -200,6 +214,11 @@ La curva de fallos según el tamaño de página **no es monótona** (Stallings f
 - Al **crecer**, cada página trae datos lejanos a lo que se usa y los fallos suben.
 - Cuando la página se acerca al **tamaño del proceso**, los fallos vuelven a bajar.
 
+<PaginacionFig fig="tamano">
+**Cómo leerlo:** con una cantidad fija de RAM, al agrandar la página primero suben los fallos (cada página trae datos que no se usan y desplaza a otras). En el extremo P, cuando una página es todo el proceso, vuelven a bajar.
+</PaginacionFig>
+
+
 Los tamaños típicos son 4 KB (x86), 8 KB (UltraSPARC) y las **páginas grandes** (2 MB o 1 GB en x86-64), que se usan para bases de datos y para reducir los fallos de TLB.
 
 ## Segmentación con memoria virtual, y combinada
@@ -220,6 +239,11 @@ Para traducir se pregunta dos veces: primero «¿qué sección?» (tabla de segm
   - La dirección es `(segmento, página, offset)`: la tabla de segmentos apunta a la **tabla de páginas** de ese segmento, y esa tabla da el frame.
   - Se ganan las ventajas de ambos: segmentos lógicos protegibles y compartibles, y **sin fragmentación externa**.
   - Lo usaba x86 en modo protegido. Linux de 64 bits deja la segmentación casi apagada (ver [Segmentación § procesadores modernos](/memoria/segmentacion/#segmentación-en-procesadores-modernos)).
+
+<MemVirtualFig fig="segpag">
+**Cómo leerlo:** la dirección tiene **tres** partes. El segmento elige una fila de la tabla de segmentos, pero esa fila ya no da una base: da **dónde está la tabla de páginas de ese segmento**. La página elige el marco en esa tabla y el offset se copia, como en la paginación normal.
+</MemVirtualFig>
+
 
 ## Paginación por demanda y el page fault paso a paso
 
@@ -245,6 +269,11 @@ Que un programa nuevo tenga muchos fallos al principio es normal: el mostrador e
 4. **Lee la página** del disco al frame. Es una operación de E/S que tarda milisegundos, así que mientras tanto el SO ejecuta **otro** proceso.
 5. **Actualiza la tabla:** P = 1 y el número de frame.
 6. **Reinicia la instrucción** que falló. El proceso vuelve a Listo; cuando se ejecuta, la referencia ahora sí encuentra la página.
+
+<MemVirtualFig fig="pagefault">
+**Cómo leerlo:** sigue los números. ① El proceso referencia M. ② La tabla dice P = 0 y el hardware hace trap al SO. ③ El SO comprueba que M sea válida y la busca en el disco. ④ El disco la copia a un frame libre (si no hay, antes se elige una víctima). ⑤ El SO pone P = 1 y el frame en la tabla. ⑥ La instrucción se reinicia y ahora sí encuentra la página.
+</MemVirtualFig>
+
 
 :::tip[Fallo menor vs mayor]
 Linux distingue dos tipos:
@@ -276,6 +305,11 @@ N= 16384  malloc:+3  escribir:+16384  leer:+0
 - **La primera escritura** sobre cada página provoca **un fallo por página**. Esa es la paginación por demanda: los frames se asignan recién cuando se tocan.
 - **Leer** después no provoca ningún fallo, porque las páginas ya están residentes.
 - Con N pequeño sale **N − 1**: la primera página ya estaba en RAM porque el heap se había inicializado antes. Desde unos 128 KB (N ≥ 32), `malloc` usa `mmap` (ver [memoria de un proceso](/final/linux/espacio-direcciones/)) y los fallos son exactamente **N**.
+
+<MemVirtualFig fig="demanda">
+Son los números de la fila N = 1024 de la medición. Reservar no cuesta fallos; **tocar** cada página por primera vez cuesta uno; volver a tocarla, ninguno.
+</MemVirtualFig>
+
 
 <Solucion titulo="Pregunta de análisis: ¿por qué la segunda pasada no falla nunca?">
 
