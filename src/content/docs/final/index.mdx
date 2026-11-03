@@ -125,6 +125,18 @@ El LC3 evalúa «todo lo visto después del LC2», y estas clases (material del 
 | **Page Replacement** | P1: FIFO, OPT, LRU y Clock con 3 frames (16 referencias) · P2: FIFO con 3 y 4 frames (**anomalía de Belady**) · P3: memoria virtual de 6 GB, páginas de 8 kB y PTE de 6 B · P4: PTE para Clock en 10-10-12 y simulación con 4 frames | ✅ [resueltos](/final/ejercicios/page-replacement/) |
 | **Virtual Memory** | P1: bits de VPN/PFN/PTE · P2: segmentación (5 direcciones, ¿segfault?) · P3: traducción binaria · P4: tabla con bits V/R/M (1052, 2221, 5499) · P5: recorrido por columnas de `A[64][64]` y page faults · P6: 8 GB, páginas de 8 kB, 46 bits, niveles, TLB y EAT de 61 ns | ✅ [resueltos](/final/ejercicios/memoria-virtual/) |
 
+### H · Virtualización (clase de teoría 13)
+
+| Tema | Fuente | Estado | Dónde |
+| --- | --- | :-: | --- |
+| Host, hipervisor/VMM, guest y VM; las 5 funciones del hipervisor | teoría 13, diap. 4–7 | ✅ | [Virtualización I](/final/virtualizacion/conceptos/) |
+| VCPU, trap-and-emulate, binary translation (`popf`), VT-x / AMD-V | teoría 13, diap. 9–15 | ✅ | [Virtualización I](/final/virtualizacion/conceptos/) (con un detective de `popf`) |
+| vCPUs, page sharing, ballooning, overcommit, tablas de páginas anidadas | teoría 13, diap. 16–21 | ✅ | [Virtualización I](/final/virtualizacion/conceptos/) |
+| E/S virtualizada: live migration, I/OAT, TOE, LSO, LRO, SR-IOV, VT-d | teoría 13, diap. 22–24 | ✅ | [Virtualización I](/final/virtualizacion/conceptos/) |
+| Tipos de VM, hipervisores tipo 0/1/2 (AWS Nitro), paravirtualización y Xen | teoría 13, diap. 26–35 | ✅ | [Virtualización II](/final/virtualizacion/tipos/) |
+| Otras variantes, virtual appliance y SVA, contenedores | teoría 13, diap. 32, 36–38 | ✅ | [Virtualización II](/final/virtualizacion/tipos/) |
+| ESXi, Xen, Hyper-V, JVM, VServer, VMware, Docker vs LXC e historia | teoría 13, diap. 40–51 | ✅ | [Virtualización II](/final/virtualizacion/tipos/) |
+
 ## Páginas de la sección
 
 <CardGrid>
@@ -136,6 +148,7 @@ El LC3 evalúa «todo lo visto después del LC2», y estas clases (material del 
 	<LinkCard title="Clase del 10/10 (grabación)" href="/final/clase-memoria/" description="La paginación como la explicó la profesora, P1–P5 de Virtual Memory resueltas en vivo y sus pistas para el LC3 (la segmentación entra)." />
 	<LinkCard title="LC3 · peor escenario" href="/final/lc3-peor-escenario/" description="Simulacro de dificultad alta: barbería que cierra, lista con 7 bugs de memoria, Clock mejorado con escrituras, EAT con page faults y un bug sutil en Tanenbaum." />
 	<LinkCard title="Libro: Stallings para las teóricas" href="/final/stallings/" description="Plan de lectura de los caps. 6–8, las listas que el libro enumera, Review Questions resueltas y 14 preguntas de desarrollo con respuesta modelo." />
+	<LinkCard title="H · Virtualización" href="/final/virtualizacion/conceptos/" description="Clase 13: trap-and-emulate, binary translation, VT-x, ballooning, NPT, E/S, tipos de hipervisor, paravirtualización, contenedores y Docker vs LXC." />
 	<LinkCard title="Repaso y simulacro del LC3" href="/final/repaso/" description="Chuleta, 40 flashcards y un simulacro con el formato del LC3 (2 de código + 4 teóricas + 3 de análisis)." />
 </CardGrid>
 
@@ -147,6 +160,8 @@ El LC3 evalúa «todo lo visto después del LC2», y estas clases (material del 
 | 10 | grabación de la clase de laboratorio del 10/10 (paginación + ejercicios en vivo) | ✅ [resumida](/final/clase-memoria/) |
 | 11 | clase de teoría 11 «Deadlock» | ✅ [lo que añade al libro](/final/deadlock/teoria-sem11/) |
 | — | libro: lectura recomendada del LC3 (caps. 6–8) | ✅ [Stallings para el LC3](/final/stallings/) |
-| 12 en adelante | — | ⏳ pendiente |
+| 12 | clase de teoría 12 «Scheduling» y su lab | ✅ en la [sección Lab 4](/lab4/) |
+| 13 | clase de teoría 13 «Virtualization» (54 diap.) | ✅ [Virtualización I y II](/final/virtualizacion/conceptos/) |
+| 14 en adelante | — | ⏳ pendiente |
 
-<Fuente archivos={['sem_9/OSL-Indicaciones-Laboratorio_Calificado_3.pdf', 'sem_9/Sem9_09-OST-Memory.pdf', 'sem_9/10-OSL-Memory.pdf', 'sem_9/10-OSL-Valgrind.pdf', 'sem_9/11-OSL-Deadlock.pdf', 'sem_9/11-OSL-Ejercicios_Page_Replacement.pdf', 'sem_9/11-OSL-Ejercicios_Virtual_Memory.pdf', 'Código del curso sem9/: deadlock/*.c, valgrind/*.c, stack.c, malloc.c, malloc_limits.c, memcpy1.c, memcpy2.c, main.c', 'sem_11/Sem11_11-OST-Deadlock.pdf', 'for_partial/pending_themes/ (monitores y lectores–escritores, registros)', 'Stallings 9e, caps. 6–8']} />
+<Fuente archivos={['sem_9/OSL-Indicaciones-Laboratorio_Calificado_3.pdf', 'sem_9/Sem9_09-OST-Memory.pdf', 'sem_9/10-OSL-Memory.pdf', 'sem_9/10-OSL-Valgrind.pdf', 'sem_9/11-OSL-Deadlock.pdf', 'sem_9/11-OSL-Ejercicios_Page_Replacement.pdf', 'sem_9/11-OSL-Ejercicios_Virtual_Memory.pdf', 'Código del curso sem9/: deadlock/*.c, valgrind/*.c, stack.c, malloc.c, malloc_limits.c, memcpy1.c, memcpy2.c, main.c', 'sem_11/Sem11_11-OST-Deadlock.pdf', 'sem_13/Sema13_13-OST-Virtualization.pdf', 'for_partial/pending_themes/ (monitores y lectores–escritores, registros)', 'Stallings 9e, caps. 6–8']} />

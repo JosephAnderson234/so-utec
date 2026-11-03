@@ -31,6 +31,8 @@ export const TEMAS: Tema[] = [
 	{ id: 'lab4-linux', t: 'Lab 4 · MLFQ, O(1) y CFS', href: '/lab4/linux/', u: 'G', peso: 2 },
 	{ id: 'lab4-pr', t: 'Lab 4 · Scheduling + page replacement', href: '/lab4/page-replacement/', u: 'G', peso: 3 },
 	{ id: 'stallings-9', t: 'Stallings cap. 9', href: '/lab4/stallings-cap9/', u: 'G', peso: 2 },
+	{ id: 'virt-conceptos', t: 'Virtualización I · conceptos e implementación', href: '/final/virtualizacion/conceptos/', u: 'H', peso: 2 },
+	{ id: 'virt-tipos', t: 'Virtualización II · tipos y ejemplos', href: '/final/virtualizacion/tipos/', u: 'H', peso: 2 },
 ];
 
 export const NIVELES = [

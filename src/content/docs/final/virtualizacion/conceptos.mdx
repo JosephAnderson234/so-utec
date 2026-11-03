@@ -1,0 +1,356 @@
+---
+title: 'Virtualización I · Conceptos e implementación'
+description: 'Clase de teoría 13, partes «Introduction» e «Implementation»: host, hipervisor/VMM y guest, las cinco funciones del hipervisor, VCPU, trap-and-emulate, binary translation (el problema de popf), soporte de hardware (VT-x, AMD-V), CPU y vCPUs, page sharing, ballooning, memory overcommit, tablas de páginas anidadas y E/S virtualizada con sus tecnologías de offload.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import VirtFig from '../../../../components/VirtFig.astro';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Detective from '../../../../components/tutor/Detective.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
+
+<EnSimple>
+Piensa en un **edificio**. El terreno y las tuberías son el **hardware** (el *host*). El **administrador** del edificio es el **hipervisor**. Cada **departamento** es una **máquina virtual**, y quien vive ahí es el **guest**, casi siempre un sistema operativo completo. Cada inquilino siente que tiene «su casa»: sus llaves, su agua, su luz. En realidad, todo pasa por el administrador, que reparte lo que hay y evita que un inquilino se meta en el departamento de otro.
+
+Lo difícil es que el inquilino **también se cree dueño**: el SO del guest quiere ejecutar instrucciones privilegiadas como si fuera el kernel de verdad. Toda esta página trata de **cómo engañarlo bien**: atrapando esas instrucciones (trap-and-emulate), reescribiéndolas (binary translation) o pidiéndole ayuda al hardware (VT-x / AMD-V). Después se ve lo mismo para la memoria y la E/S.
+</EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Definir <strong>host, hipervisor/VMM, guest y VM</strong>, y distinguir hipervisor de VMM.',
+		'Explicar paso a paso <strong>trap-and-emulate</strong> y por qué el código del kernel del guest corre más lento.',
+		'Explicar por qué <code>popf</code> rompe trap-and-emulate en x86 y cómo lo resuelve <strong>binary translation</strong>.',
+		'Describir qué cambia con <strong>VT-x / AMD-V</strong> (modos guest y host).',
+		'Explicar <strong>page sharing, ballooning, overcommit</strong> y las <strong>tablas de páginas anidadas</strong>, con su costo.',
+		'Relacionar cada tecnología de E/S (I/OAT, TOE, LSO, LRO, SR-IOV, VT-d) con el problema que resuelve.',
+	]}
+	prerrequisitos={[
+		{ t: 'Modo dual e interrupciones', href: '/fundamentos/hardware/' },
+		{ t: 'Interrupción vs trap', href: '/lab4/teoria/' },
+		{ t: 'Paginación y TLB', href: '/memoria/paginacion/' },
+	]}
+	perfiles={['visual', 'detective', 'feynman']}
+/>
+
+## 1. Definiciones (diap. 4–5)
+
+- **Idea:** abstraer el hardware de **una** computadora en **varios entornos de ejecución distintos**. Apareció en los mainframes de **IBM en 1972**; en computadoras de uso general, a fines de los **años 90**.
+- Se parece al **enfoque por capas**, pero aquí la capa crea un **sistema virtual** (*virtual machine*, VM) sobre el que corren sistemas operativos o aplicaciones.
+- La diapositiva 5 lo resume así: la virtualización es **aplicar el principio de capas con modularidad forzada** (*enforced modularity*). El recurso virtual que se expone es **idéntico** al recurso físico que se virtualiza.
+
+| Término | Qué es (según la clase) |
+| --- | --- |
+| **Host** | el sistema de hardware de abajo |
+| **Hipervisor** | software de sistema especializado que **gestiona y corre** las VMs |
+| **VMM** (*virtual machine monitor*) | la **parte del hipervisor** que se ocupa de virtualizar **CPU y memoria**. La diapositiva 4 los usa como sinónimos: «VMM o hipervisor: crea y corre VMs dando una interfaz **idéntica** a la del host» (salvo en la **paravirtualización**) |
+| **Guest** | el «proceso» que recibe la copia virtual del host; **normalmente un SO** |
+| **VM** | abstracción de un **entorno de cómputo completo**, que combina la virtualización de **procesador, memoria y E/S** |
+
+Una sola máquina física puede correr **varios SO a la vez**, cada uno en su VM.
+
+<VirtFig fig="capas">
+**Cómo leerlo:** de abajo hacia arriba. El hardware real (host) solo lo toca el hipervisor. Cada VM (recuadro punteado) tiene su propio guest con sus librerías y aplicaciones, y **no ve** a las otras VMs. Es la figura 14.1 del libro, con los nombres de la diapositiva 4.
+</VirtFig>
+
+**Las cinco funciones del hipervisor** (diap. 7):
+1. **Gestión de la ejecución** de las VMs (repartir CPU entre ellas, como un scheduler de VMs).
+2. **Emulación de dispositivos y control de acceso** a ellos.
+3. **Ejecutar operaciones privilegiadas** en nombre de las VMs guest.
+4. **Ciclo de vida** de las VMs (crearlas, pausarlas, migrarlas, destruirlas).
+5. **Administración** de la plataforma y del propio software del hipervisor.
+
+<Predice pregunta="La diapositiva dice que el hipervisor ofrece una interfaz «idéntica» a la del host, «salvo en la paravirtualización». ¿Qué crees que cambia en ese caso?">
+
+En la paravirtualización el guest **sabe** que está virtualizado: su kernel está **modificado** para hablar directamente con el hipervisor mediante APIs especiales, en vez de creer que habla con hardware real. Por eso la interfaz **no** es idéntica a la del hardware. Lo verás en la [parte II](/final/virtualizacion/tipos/).
+
+</Predice>
+
+## 2. Bloques de construcción: la VCPU (diap. 9)
+
+- Dar una **copia exacta** de la máquina es difícil, sobre todo si la CPU solo tiene **dos modos** (usuario y kernel). Se ha vuelto más fácil con el tiempo, a medida que las CPUs agregan soporte.
+- Casi todos los VMMs implementan una **VCPU** (*virtual CPU*): el estado de la CPU **tal como el guest cree que está** (registros, modo, flags).
+- Cuando el VMM pone a un guest en la CPU, **carga** su VCPU; cuando lo saca, la **guarda**. Es lo mismo que hace el SO con el PCB de un proceso en un cambio de contexto, pero un nivel más abajo.
+- **Técnicas** que lista la clase: a) trap-and-emulate, b) binary translation, c) tablas de páginas anidadas, d) asistencia por hardware.
+
+**Analogía:** la VCPU es la **ficha** que el administrador guarda de cada inquilino: dónde dejó cada cosa. Así, cuando le vuelve a tocar el turno, todo está como lo dejó.
+
+## 3. Trap-and-emulate (diap. 10–11)
+
+**El problema:** con una CPU de dos modos, el **kernel del guest no puede correr en modo kernel real**. Si lo hiciera, podría tocar el hardware y a las otras VMs. Así que la VM necesita **dos modos virtuales**, **usuario virtual** y **kernel virtual**, y **los dos corren en modo usuario real**.
+
+**¿Cómo se pasa de usuario virtual a kernel virtual?**
+1. El guest intenta una **instrucción privilegiada** estando en modo usuario (real) → **error → trap**.
+2. El **VMM** toma el control, analiza el error y **ejecuta la operación** como la quería el guest.
+3. Le **devuelve el control** al guest, en modo usuario.
+
+<VirtFig fig="trapemulate">
+**Cómo leerlo:** arriba, todo lo del guest vive en modo usuario real, incluido su kernel. La flecha roja ① es el momento clave: una instrucción privilegiada en modo usuario no se ejecuta, sino que provoca un **trap** hacia el VMM. En ② el VMM hace «lo que el guest quería», pero sobre la VCPU y las estructuras virtuales. En ③ el guest sigue como si nada.
+</VirtFig>
+
+**Analogía:** el guest es un **actor que hace de rey**. Cuando dice «¡que traigan al prisionero!», no sale un guardia real: el director de escena (el VMM) intercepta la orden y hace que pase **dentro de la obra**. El actor nunca sale del escenario.
+
+**Costo:**
+- El **código de usuario** del guest corre **a la misma velocidad** que sin virtualizar.
+- El **código de modo kernel** del guest corre **más lento**, porque cada instrucción privilegiada cuesta un trap, un análisis y una emulación.
+- Es peor con **varios guests**, porque todos necesitan trap-and-emulate.
+- Por eso las CPUs fueron agregando **más modos** por hardware (sección 5).
+- La mayoría de los productos usan trap-and-emulate **al menos en parte**.
+
+<Predice pregunta="Un guest corre un programa que solo multiplica matrices (sin syscalls). Otro guest corre un servidor que hace miles de syscalls por segundo. Con trap-and-emulate, ¿a cuál le afecta más la virtualización?">
+
+Al **servidor**. La multiplicación de matrices es código de **usuario** del guest y corre a velocidad nativa. Cada syscall del servidor entra al kernel del guest, y ahí cualquier instrucción privilegiada provoca un trap al VMM, que la emula. Mientras más tiempo pase el guest en su kernel, más se nota la virtualización.
+
+</Predice>
+
+## 4. Binary translation (diap. 12–14)
+
+### El problema de x86: instrucciones que no hacen trap
+
+Trap-and-emulate necesita que **toda** instrucción delicada provoque un trap en modo usuario. Algunas CPUs **no separan limpiamente** las instrucciones privilegiadas de las no privilegiadas. Las x86 antiguas son de esas: el primer chip de Intel se diseñó para una **calculadora**, y la compatibilidad hacia atrás hace difícil cambiarlo.
+
+<Detective titulo="popf: el guest kernel que «pierde» flags" sintoma="Con solo trap-and-emulate, el kernel de un guest x86 ejecuta <code>popf</code> para restaurar los flags (por ejemplo, el de interrupciones). No hay ningún error, pero el guest empieza a portarse mal: su estado de flags no es el que él cree." pista="¿En qué modo real está corriendo el kernel del guest? ¿Qué hace <code>popf</code> en ese modo? ¿Se entera el VMM?">
+
+**Causa raíz:** `popf` carga el registro de flags desde la pila.
+- En **modo privilegiado** reemplaza **todos** los flags.
+- En **modo usuario** reemplaza **solo algunos**, y **no genera trap**.
+
+El kernel del guest corre en modo usuario real, así que su `popf` **cambia menos flags de los que él cree** y el VMM **nunca se entera**, porque no hubo trap. Trap-and-emulate falla en silencio.
+
+**Cuándo se dispara:** cada vez que el kernel del guest usa una de estas **instrucciones especiales** (la clase las llama así). Por esto se creía que virtualizar x86 con trap-and-emulate era **imposible**, hasta 1998.
+
+**Corrección:** que el VMM **mire las instrucciones antes** de que se ejecuten. Eso es binary translation.
+
+</Detective>
+
+### La solución
+
+1. El VMM **examina cada instrucción** que el guest está por ejecutar, **leyendo unas cuantas por delante del PC**.
+2. Las instrucciones **no especiales** corren **nativas**.
+3. Las **especiales** se **traducen** a otra secuencia que hace la tarea equivalente; por ejemplo, cambiar los flags **en la VCPU**.
+
+- Si la VCPU del guest está en **modo usuario**, sus instrucciones pueden correr nativas sin más. La traducción solo hace falta cuando el guest **cree estar en modo kernel**.
+- Se traduce **dinámicamente**, a pedido, en bloques pequeños llamados **DBB** (*dynamic basic blocks*). El VMM genera código nativo que se ejecuta **en lugar** del original.
+- Sin optimizaciones sería muy lento. Productos como **VMware** usan una **caché**: cada bloque se traduce **una vez**, y cuando vuelve a ejecutarse se reutiliza la traducción.
+
+<VirtFig fig="bintrans">
+**Cómo leerlo:** el VMM revisa las instrucciones que vienen después del PC. Las grises (`mov`, `add`, `cmp`, `jne`) bajan directo a la CPU. `popf`, en rojo, pasa primero por el traductor: se reemplaza por código que cambia los flags **de la VCPU**, y esa traducción queda en caché. La fila de abajo recuerda que al final todo corre nativo en la CPU real. Las instrucciones concretas son ejemplo propio, salvo `popf`.
+</VirtFig>
+
+**Analogía:** un **intérprete simultáneo** que lee el discurso unas líneas por delante. Las frases normales las deja pasar; las «peligrosas» las reformula. Y como el discurso se repite mucho, guarda en una libreta las reformulaciones que ya hizo.
+
+<Practica nivel={1} titulo="Resuelto: el dato de Windows XP">
+
+La diapositiva 14 dice que arrancar Windows XP como guest causó **950 000 traducciones**, de **3 µs** cada una.
+
+- Tiempo de traducción = 950 000 × 3 µs = 2 850 000 µs = **2,85 s ≈ 3 s**, que es el «3 segundos» de la diapositiva.
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: ¿cuánto dura el arranque nativo?">
+
+La misma diapositiva dice que esos ~3 s son un **5 %** de enlentecimiento sobre el arranque **nativo**. Plantea la ecuación y despeja el tiempo nativo.
+
+<Solucion titulo="Comparar (cálculo propio a partir de la diapositiva)">
+
+Si 3 s son el 5 % del tiempo nativo T: 0,05 × T = 3 s → **T = 60 s**. Con el valor exacto (2,85 s) da 57 s. Es decir, un arranque de alrededor de un minuto queda unos 3 s más lento. La caché de traducciones es lo que mantiene el costo así de bajo.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: ¿y sin caché?">
+
+Supón (ejemplo propio) que sin caché cada bloque se traduciría **cada vez** que se ejecuta y que, en el arranque, cada bloque se ejecuta en promedio **20 veces**. ¿Cuánto tiempo de traducción habría, y qué porcentaje sería del arranque nativo de 60 s?
+
+<Solucion titulo="Comparar">
+
+950 000 × 20 × 3 µs = **57 s** de traducción, casi **95 %** de los 60 s nativos: el arranque tardaría casi el doble. Por eso la diapositiva dice que «el rendimiento sería pobre sin optimizaciones». El factor 20 es inventado; lo que importa es que el costo crece con **cada ejecución** y no con cada instrucción distinta.
+
+</Solucion>
+</Practica>
+
+## 5. Asistencia por hardware (diap. 15)
+
+- Toda virtualización necesita **algo** de soporte de hardware; incluso trap-and-emulate necesita que existan los traps. Más soporte significa más funciones, más estabilidad y **mejor rendimiento** para los guests.
+- **Intel VT-x (2005)** y **AMD-V (2006)** agregan instrucciones nuevas. Con ellas **ya no hace falta binary translation**.
+- Definen **más modos de CPU**: **guest** y **host**.
+  - El VMM activa el modo host, define las características de cada VM y pasa los guests a **modo guest** en las CPUs.
+  - En modo guest, el SO **cree que corre nativo** y ve los dispositivos que el VMM definió para él.
+  - Acceder a un dispositivo virtualizado o ejecutar una instrucción privilegiada provoca un **trap al VMM**.
+  - **La CPU mantiene la VCPU** y la cambia de contexto ella misma.
+- Con el tiempo se agregó soporte de hardware para **tablas de páginas anidadas, DMA e interrupciones**.
+
+<VirtFig fig="hwassist">
+**Cómo leerlo:** en (a) solo hay dos modos y el kernel del guest tiene que ir «desprivilegiado» al modo usuario: de ahí salen trap-and-emulate y binary translation. En (b) el hardware agrega un nivel: el guest completo vive en modo guest, con su propio usuario y kernel, y solo lo que el VMM decide provoca un trap hacia el modo host.
+</VirtFig>
+
+## 6. Procesador (diap. 16–17)
+
+**Dos estrategias** para dar CPU a las VMs:
+1. **Repartir tiempo** de los procesadores físicos (**pCPUs**) del host entre los procesadores virtuales (**vCPUs**) de las VMs. Así lo hacen **la mayoría** de los hipervisores.
+2. **Emular un chip por software** y dar acceso a esa emulación. Ejemplos: **QEMU** y el **emulador de Android** del Android SDK.
+
+**Buenas prácticas** (diap. 17):
+- Al crear una VM, **empezar con una vCPU** y **monitorear** el rendimiento de la aplicación.
+- **No sobreasignar** vCPUs a una VM.
+- Al migrar aplicaciones a entornos virtuales, hay que decidir **cuántos procesadores virtuales** darle a cada VM. El número de procesadores es una de las métricas más importantes al dimensionar un servidor.
+- Por la ley de Moore, los procesadores nuevos son unas **cuatro veces más rápidos** que los del servidor físico original, así que una aplicación vieja suele necesitar menos.
+- Existen **herramientas** que monitorean el uso (procesador, memoria, red, almacenamiento) en el servidor físico y **recomiendan** el tamaño óptimo de la VM. Si no se puede correr esa herramienta de estimación, quedan las buenas prácticas.
+
+<Predice pregunta="¿Por qué darle 8 vCPUs a una VM cuya aplicación usa 1 hilo puede ser peor que darle 1? (Conecta con scheduling.)">
+
+Las vCPUs son, para el hipervisor, cosas que hay que **planificar** sobre las pCPUs. Más vCPUs significa más trabajo de planificación y más competencia con otras VMs por las mismas pCPUs, para ganar nada: la aplicación de un hilo solo usa una. Por eso la regla es empezar con una y medir. La diapositiva da la regla; el porqué es un razonamiento propio a partir de lo visto en scheduling.
+
+</Predice>
+
+## 7. Memoria (diap. 18–21)
+
+### Page sharing
+
+Varias VMs suelen tener **páginas idénticas**, por ejemplo el mismo código del SO. El hipervisor guarda **una sola copia física** y hace que todas apunten a ella. Como el hipervisor gestiona esto, **los SO de las VMs no se enteran** de lo que pasa en el sistema físico.
+
+<VirtFig fig="pagesharing">
+**Cómo leerlo:** arriba, la memoria virtual de tres VMs. Las tres tienen una página «kernel» idéntica (en verde). Abajo, en la memoria física, hay **un solo marco** verde y las tres flechas verdes llegan a él. Los nombres de las páginas son ejemplo propio; la idea es la de la figura 14.7.
+</VirtFig>
+
+**Analogía:** una biblioteca que, en vez de comprar un ejemplar del mismo libro para cada lector que solo lo **lee**, tiene uno solo.
+
+### Ballooning
+
+1. El hipervisor activa un **driver globo** (*balloon driver*) dentro del guest, que se **«infla»** (virtualmente).
+2. Eso **presiona al SO del guest** a mandar páginas a **disco** para hacer espacio.
+3. Una vez liberadas esas páginas, el globo se desinfla y el hipervisor puede usar esa memoria física **para otras VMs**.
+
+La clase agrega que **VMware inventó el ballooning** (diap. 48).
+
+<VirtFig fig="balloon">
+**Cómo leerlo:** en 1, el guest usa 6 de sus 8 marcos. En 2, el globo (naranja) ocupa marcos **dentro** del guest; como el guest cree que alguien los está usando, manda sus propias páginas a su swap. En 3, los marcos que el globo «reservó» quedan libres para el hipervisor, que se los da a la VM 2. Los números son ejemplo propio.
+</VirtFig>
+
+**¿Por qué un globo y no quitarle la memoria directamente?** Porque el hipervisor **no sabe** qué páginas del guest son importantes, y el guest sí. Con el globo, es el **propio guest** quien elige qué páginas mandar a disco, usando su algoritmo de reemplazo (LRU, Clock…). **Analogía:** en un departamento se infla un globo en el armario; el inquilino tiene que decidir qué guarda en el depósito, y el administrador recupera ese espacio sin revisar las cosas de nadie.
+
+### Memory overcommit
+
+Es la capacidad de **asignar más memoria de la que físicamente existe** en el host. Funciona porque no todas las VMs usan toda su memoria a la vez, y porque page sharing y ballooning permiten recuperar memoria cuando hace falta.
+
+<Practica nivel={1} titulo="Resuelto: ¿hay overcommit?">
+
+Un host tiene **64 GB** de RAM y 4 VMs con **24 GB** asignados cada una (ejemplo propio). Memoria asignada = 4 × 24 = **96 GB** > 64 GB, así que **hay overcommit**: un 50 % más de lo que existe (96 / 64 = 1,5).
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: ¿qué pasa si todas la usan a la vez?">
+
+En el mismo host, las 4 VMs empiezan a usar sus 24 GB a la vez. ¿Qué herramientas de la clase entran en juego y qué riesgo conocido del capítulo de memoria virtual aparece?
+
+<Solucion titulo="Comparar">
+
+Primero **page sharing** (si hay páginas idénticas, se ahorra memoria sin costo para los guests) y **ballooning** (se presiona a algunos guests a mandar páginas a su swap). Si aun así la demanda supera la RAM, el sistema pagina mucho: es el mismo riesgo de **thrashing** del [working set](/final/memoria-virtual/conjunto-residente/), ahora a nivel de VMs. La conexión con thrashing es propia; la clase solo define overcommit.
+
+</Solucion>
+</Practica>
+
+### Tablas de páginas anidadas (NPT)
+
+**El problema:** el guest cree que controla sus tablas de páginas, pero quien de verdad las controla es el VMM. ¿Cómo se mantienen las dos visiones?
+
+- **Cada guest** mantiene sus tablas para traducir **su** virtual a **su** física, que no es real.
+- El **VMM** mantiene, **por cada guest**, unas **NPT** que representan el estado de las tablas de páginas del guest, igual que la VCPU guarda el estado de su CPU.
+- Cuando el guest entra a la CPU, el VMM **activa sus NPT** como tablas de páginas del sistema.
+- Si el guest intenta **cambiar** su tabla, el VMM hace el **cambio equivalente** en las NPT y en sus propias tablas.
+- **Costo:** puede causar **muchos más fallos de TLB**, y el rendimiento cae bastante.
+
+<VirtFig fig="npt">
+**Cómo leerlo:** arriba, las dos traducciones que existen «en teoría»: la del guest (virtual → «física» del guest) y la del VMM («física» del guest → física real). Abajo, lo que hace el VMM: guarda en la NPT el resultado combinado, para que la CPU vaya de una vez de la virtual del guest a la física real (flecha verde). Cada cambio del guest a su tabla hay que reflejarlo ahí.
+</VirtFig>
+
+:::note[Un detalle de nombres (fuera de la diapositiva)]
+La clase usa «NPT» para la técnica **por software** que mantiene el VMM, que sirve con trap-and-emulate y con binary translation. Otros textos la llaman *shadow page tables* y reservan «NPT» o «EPT» para el **soporte por hardware** que menciona la diapositiva 15. En el examen, usa los nombres de la clase.
+:::
+
+<Predice pregunta="¿Por qué crees que las NPT causan más fallos de TLB que un sistema sin virtualizar?">
+
+La TLB guarda traducciones ya hechas. En un sistema virtualizado hay **más cambios** que la invalidan: al cambiar de guest, el VMM cambia todas las tablas activas, y cuando el guest modifica sus tablas el VMM tiene que mantener la NPT sincronizada. Además, cada fallo cuesta más, porque la traducción completa pasa por dos niveles (el del guest y el del VMM). La diapositiva solo afirma el efecto (más fallos de TLB, más lento); esta explicación es un razonamiento propio.
+
+</Predice>
+
+## 8. E/S (diap. 22–24)
+
+**Ventaja:** virtualizar el camino de E/S da **independencia del hardware**. Los drivers propios de cada fabricante se reemplazan por versiones más genéricas que corren en el hipervisor. Esa abstracción permite:
+1. **Live migration**, una de las mayores fortalezas de la virtualización en disponibilidad: mover una VM viva a otro servidor.
+2. **Compartir recursos agregados**, como los caminos de red.
+
+**Memory overcommit** es otro beneficio de virtualizar la E/S de una VM. **El precio:** el hipervisor maneja **todo** el tráfico y eso consume **CPU**. Al principio de la virtualización era un problema; hoy los procesadores multinúcleo rápidos y los hipervisores más sofisticados lo han reducido.
+
+<VirtFig fig="io">
+**Cómo leerlo:** en (a), el camino normal de la figura 14.8. El driver del guest habla con un **dispositivo emulado**, y es el hipervisor quien usa el driver real de la NIC. Por eso es independiente del hardware, y también por eso gasta CPU del hipervisor. En (b), SR-IOV: la tarjeta se presenta como varias **funciones virtuales** (VF) y cada VM usa la suya directamente, sin pasar por el hipervisor. VT-d (la IOMMU) impide que el DMA de una VM toque la memoria de otra.
+</VirtFig>
+
+**Tecnologías para quitarle trabajo a la CPU** (diap. 23–24):
+
+| Tecnología | Qué hace | Por qué ayuda a la virtualización |
+| --- | --- | --- |
+| **I/OAT** · I/O Acceleration Technology (Intel, CPU/chipset) | un motor **DMA** copia datos entre memoria y E/S en lugar de la CPU | libera ciclos de CPU para las VMs y el hipervisor |
+| **TOE** · TCP Offload Engine (NIC) | toda la pila **TCP/IP** (segmentar, checksum, estado) la hace la tarjeta | reduce muchísimo el costo de CPU del tráfico de red |
+| **LSO** · Large Send/Segment Offload, TSO/GSO (NIC) | la CPU entrega **un buffer grande** y la NIC lo parte en paquetes (salida) | menos interrupciones e instrucciones por byte enviado |
+| **LRO** · Large Receive Offload (NIC) | la NIC **junta** varios paquetes que llegan en un bloque grande (entrada) | menos interrupciones por paquete pequeño |
+| **SR-IOV** · Single-Root I/O Virtualization (PCIe) | un dispositivo físico aparece como **varias VFs**, una por VM | rendimiento casi nativo: la VM **evita al hipervisor**; necesita soporte de hardware y drivers |
+| **VT-d** · Virtualization Technology for Directed I/O (Intel, IOMMU) | traduce el **DMA** de un dispositivo al espacio de memoria de **una** VM | **prerrequisito** de SR-IOV; aísla y protege la memoria de las otras VMs y del hipervisor |
+
+**Truco para LSO y LRO:** *Send* = salida, la NIC **parte** lo grande. *Receive* = entrada, la NIC **junta** lo pequeño. Las dos buscan **menos interrupciones**, y eso conecta con lo que viste de interrupciones y top/bottom halves.
+
+<Errores
+	errores={[
+		{ mal: 'Decir que con trap-and-emulate todo el guest corre más lento.', bien: 'El código de <strong>usuario</strong> del guest corre a velocidad nativa. Solo el código del <strong>kernel</strong> del guest se enlentece, por los traps.' },
+		{ mal: 'Decir que el kernel del guest corre en modo kernel real.', bien: 'Sin soporte de hardware, corre en modo <strong>usuario real</strong> («kernel virtual»). Con VT-x/AMD-V corre en <strong>modo guest</strong>.' },
+		{ mal: 'Decir que <code>popf</code> genera un trap que el VMM no sabe manejar.', bien: 'El problema es que <strong>no genera trap</strong>: en modo usuario solo cambia algunos flags, en silencio.' },
+		{ mal: 'Decir que binary translation traduce todo el código del guest.', bien: 'Solo traduce las instrucciones <strong>especiales</strong>, y solo si la VCPU está en modo kernel. El resto corre nativo y las traducciones se guardan en caché.' },
+		{ mal: 'Decir que con ballooning el hipervisor decide qué páginas del guest van a disco.', bien: 'Las elige el <strong>guest</strong>, presionado por el globo. El hipervisor no sabe cuáles son importantes.' },
+		{ mal: 'Confundir LSO con LRO.', bien: 'LSO: la NIC <strong>parte</strong> lo que sale. LRO: la NIC <strong>junta</strong> lo que entra.' },
+	]}
+/>
+
+## Autoevaluación
+
+<Quiz
+	client:visible
+	id="virt-conceptos"
+	titulo="Virtualización I"
+	preguntas={[
+		{ q: 'Según la clase, el VMM es…', opts: ['lo mismo que el host', 'la parte del hipervisor que se ocupa de virtualizar CPU y memoria', 'el SO que corre dentro de la VM', 'un driver de E/S'], ok: 1 },
+		{ q: 'Con trap-and-emulate, el kernel del guest corre en…', opts: ['modo kernel real', 'modo usuario real (como «kernel virtual»)', 'modo host', 'firmware'], ok: 1 },
+		{ q: 'Con trap-and-emulate, ¿qué código del guest se enlentece?', opts: ['todo por igual', 'solo el de usuario', 'el de modo kernel, por los traps', 'ninguno'], ok: 2 },
+		{ q: '¿Por qué popf rompe trap-and-emulate en x86?', opts: ['porque es muy lenta', 'porque en modo usuario cambia solo algunos flags y no genera trap', 'porque genera dos traps', 'porque solo existe en AMD'], ok: 1 },
+		{ q: 'En binary translation, las instrucciones no especiales…', opts: ['se traducen siempre', 'corren nativas', 'se emulan por software', 'provocan trap'], ok: 1 },
+		{ q: '¿Qué optimización hace viable binary translation en VMware?', opts: ['traducir dos veces', 'una caché de traducciones', 'desactivar la TLB', 'paravirtualizar'], ok: 1 },
+		{ q: 'VT-x y AMD-V agregan…', opts: ['un modo guest y un modo host, y eliminan la necesidad de binary translation', 'más registros de propósito general', 'una TLB más grande', 'paravirtualización obligatoria'], ok: 0 },
+		{ q: 'QEMU y el emulador de Android dan CPU a la VM…', opts: ['repartiendo tiempo de pCPUs', 'emulando un chip por software', 'con SR-IOV', 'con ballooning'], ok: 1 },
+		{ q: 'Una buena práctica al crear una VM es…', opts: ['darle todas las vCPUs del host', 'empezar con 1 vCPU y monitorear', 'no monitorear', 'usar siempre 4 vCPUs'], ok: 1 },
+		{ q: 'En ballooning, ¿quién decide qué páginas van a disco?', opts: ['el hipervisor', 'el SO del guest, presionado por el globo', 'la MMU', 'el usuario'], ok: 1 },
+		{ q: 'Memory overcommit significa…', opts: ['usar memoria de otra máquina', 'asignar más memoria de la que existe físicamente', 'duplicar cada página', 'desactivar el swap'], ok: 1 },
+		{ q: 'El costo principal de las NPT según la clase es…', opts: ['más fallos de TLB', 'más interrupciones de red', 'menos memoria para el kernel', 'traps de popf'], ok: 0 },
+		{ q: '¿Qué tecnología permite a una VM usar una «función virtual» de la NIC sin pasar por el hipervisor?', opts: ['TOE', 'LRO', 'SR-IOV', 'I/OAT'], ok: 2 },
+		{ q: 'VT-d es…', opts: ['un offload TCP', 'una IOMMU que aísla el DMA de cada VM; prerrequisito de SR-IOV', 'un modo de la CPU', 'un tipo de hipervisor'], ok: 1 },
+		{ q: 'LRO…', opts: ['parte los paquetes que salen', 'junta los paquetes que llegan para reducir interrupciones', 'cifra el tráfico', 'copia memoria con DMA'], ok: 1 },
+	]}
+/>
+
+<Feynman
+	consigna="Explícale a alguien que solo sabe de modo dual por qué virtualizar x86 era «imposible» antes de 1998 y qué tres soluciones aparecieron."
+	claves={[
+		'El kernel del guest no puede correr en modo kernel real, así que se ejecuta en modo usuario real y se confía en que lo delicado provoque un trap (trap-and-emulate).',
+		'En x86 hay instrucciones especiales, como <code>popf</code>, que en modo usuario se comportan distinto <strong>sin trap</strong>: el VMM no se entera.',
+		'Binary translation: el VMM lee por delante y traduce solo esas instrucciones (cuando la VCPU está en modo kernel), con una caché.',
+		'VT-x/AMD-V: la CPU agrega los modos guest y host y mantiene la VCPU; ya no hace falta traducir.',
+	]}
+/>
+
+<Dominio client:visible id="virt-conceptos" />
+
+<Fuente archivos={['sem_13/Sema13_13-OST-Virtualization.pdf (diap. 1–24)', 'Las figuras siguen las figs. 14.1, 14.7 y 14.8 de Stallings que usa la clase', 'Ejemplos numéricos de overcommit y ballooning: propios', 'Cálculo del arranque nativo: propio, a partir de los datos de la diap. 14']} />

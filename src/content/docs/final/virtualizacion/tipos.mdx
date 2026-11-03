@@ -1,0 +1,289 @@
+---
+title: 'Virtualización II · Tipos y ejemplos'
+description: 'Clase de teoría 13, partes «Types», «Examples» y «Conclusions»: tipos de máquina virtual, hipervisores tipo 0, 1 y 2 (con AWS Nitro), paravirtualización y Xen, otras variantes (entornos de programación, emuladores, contención de aplicaciones), virtual appliances y SVA, contenedores, y los ejemplos de VMware ESXi, Xen, Hyper-V, JVM, Linux VServer, la arquitectura de VMware, Docker frente a LXC y su historia.'
+---
+
+import EnSimple from '../../../../components/EnSimple.astro';
+import Solucion from '../../../../components/Solucion.astro';
+import Fuente from '../../../../components/Fuente.astro';
+import Quiz from '../../../../components/Quiz.tsx';
+import VirtFig from '../../../../components/VirtFig.astro';
+import Objetivos from '../../../../components/tutor/Objetivos.astro';
+import Predice from '../../../../components/tutor/Predice.astro';
+import Practica from '../../../../components/tutor/Practica.astro';
+import Errores from '../../../../components/tutor/Errores.astro';
+import Feynman from '../../../../components/tutor/Feynman.astro';
+import Dominio from '../../../../components/tutor/Dominio.tsx';
+
+<EnSimple>
+Los tipos de hipervisor se distinguen por **qué hay debajo** de él. Sigamos con el edificio de la [parte I](/final/virtualizacion/conceptos/):
+- **Tipo 0:** los departamentos vienen **construidos de fábrica** con muros fijos. El reparto está en el firmware.
+- **Tipo 1:** el administrador **es el dueño del terreno** y trabaja directo sobre él (*bare-metal*).
+- **Tipo 2:** el administrador **subarrienda**: vive en una casa normal (un SO anfitrión) y desde ahí reparte cuartos. Es una aplicación más.
+
+Los **contenedores** son otra cosa: no son departamentos con cimientos propios, sino **habitaciones dentro de la misma casa**, que comparten las tuberías (el **kernel**). Son más baratos y rápidos, pero si se rompe una tubería se afecta a todos.
+</EnSimple>
+
+<Objetivos
+	objetivos={[
+		'Clasificar un producto como hipervisor <strong>tipo 0, 1 o 2</strong>, o como contenedor, y justificarlo.',
+		'Explicar la <strong>paravirtualización</strong> y cómo la implementa Xen (anillos, Domain 0 y Domain U, hypercalls).',
+		'Distinguir <strong>VM de sistema, VM de lenguaje (JVM) y contenedor</strong>.',
+		'Comparar <strong>VMs y contenedores</strong> (overhead, aislamiento, kernel) y <strong>Docker con LXC</strong>.',
+		'Describir los ejemplos de la clase: ESXi, Xen, Hyper-V, VServer, VMware, Docker.',
+	]}
+	prerrequisitos={[
+		{ t: 'Virtualización I (conceptos)', href: '/final/virtualizacion/conceptos/' },
+	]}
+	perfiles={['visual', 'laboratorio', 'debate']}
+/>
+
+## 1. Tipos de máquina virtual (diap. 26)
+
+<VirtFig fig="taxonomia">
+**Cómo leerlo:** arriba, las tres **abstracciones** que se llaman «máquina virtual». La **basada en lenguaje** (como la JVM) corre programas de un lenguaje. La **de sistema** corre un SO completo. La **liviana** aísla aplicaciones (como un contenedor). Abajo, las **plataformas** sobre las que corre una VM de sistema: un simulador de máquina o un hipervisor, que puede ser bare-metal (tipo 1) o hosted (tipo 2). La etiqueta Popek/Goldberg señala la teoría clásica sobre cuándo una arquitectura es virtualizable. Los ejemplos en gris (JVM, .NET, contenedores) son propios; la diapositiva solo trae los nombres de las categorías.
+</VirtFig>
+
+## 2. Tipos de hipervisor (diap. 27–31)
+
+| Tipo | Qué es | Ejemplos de la clase |
+| --- | --- | --- |
+| **Tipo 0** | solución **por hardware**: crea y gestiona VMs desde el **firmware** | IBM **LPARs**, Oracle **LDOMs**; AWS **Nitro** (diap. 29) |
+| **Tipo 1** | software **tipo sistema operativo**, construido para virtualizar. También incluye **SO de uso general** que, además de sus funciones normales, hacen de VMM | VMware **ESX**, Joyent **SmartOS**, Citrix **XenServer**; Windows Server con **Hyper-V**, RedHat Linux con **KVM** |
+| **Tipo 2** | **aplicaciones** que corren sobre un SO normal y dan funciones de VMM a los guests | VMware **Workstation** y **Fusion**, **Parallels** Desktop, Oracle **VirtualBox** |
+
+<VirtFig fig="tipos">
+**Cómo leerlo:** fíjate en qué está **justo encima del hardware**. En el tipo 0 es firmware que **parte** la máquina: cada guest recibe su porción fija de CPUs y memoria (fig. «Type 0 Hypervisor»). En el tipo 1 es el propio hipervisor. En el tipo 2 es un **SO anfitrión** normal: el hipervisor es una aplicación más, al lado de las otras.
+</VirtFig>
+
+**AWS Nitro (diap. 29–30), un tipo 0 en la nube:**
+- Desde **2018**, **todos** los tipos nuevos de instancia EC2 (incluidas C7, M7, R7 y las basadas en Graviton) se construyen sobre el **Nitro System**. Si lanzas una VM moderna en AWS, corre sobre Nitro.
+- Es la capa de virtualización central de los datacenters de AWS, y AWS sigue sacando versiones nuevas del chip y del hipervisor (Nitro v4, v5, v6…).
+- **Arquitectura:** el servidor tiene un **Nitro Hypervisor** pequeño, y las tareas de **red, almacenamiento y gestión, seguridad y monitoreo** se pasan a las **Nitro Cards**, tarjetas de hardware propio conectadas por **PCIe**. En la foto del servidor C5n hay 2: una principal y una de red.
+
+<Predice pregunta="En tu laptop con Windows instalas VirtualBox y dentro corres Ubuntu. ¿De qué tipo es el hipervisor, quién es el host OS y quién es el guest?">
+
+**Tipo 2.** VirtualBox es una aplicación sobre Windows, que es el **host OS**. Ubuntu es el **guest**. Si cierras VirtualBox, Windows sigue funcionando: el hipervisor es una app más.
+
+</Predice>
+
+<Practica nivel={1} titulo="Resuelto: VMware ESXi en un servidor">
+
+ESXi se instala **directo en el servidor**, sin un SO debajo, y su propio kernel (VMkernel) gestiona las VMs. **Tipo 1** (bare-metal).
+
+</Practica>
+
+<Practica nivel={2} titulo="Complétalo: KVM en RedHat Linux">
+
+RedHat es un **SO de uso general**: corre aplicaciones normales. Con KVM, además, crea VMs. ¿Es tipo 1 o tipo 2? Guíate por la diapositiva 27, no por la intuición.
+
+<Solucion titulo="Comparar">
+
+**Tipo 1.** La diapositiva lo pone explícitamente en el tipo 1: «también incluye SO de uso general que proveen funciones estándar **y** funciones de VMM, como Windows Server con Hyper-V y RedHat Linux con KVM». La diferencia con el tipo 2 es que aquí la virtualización está **en el kernel** del SO, no en una aplicación encima de él.
+
+</Solucion>
+</Practica>
+
+<Practica nivel={3} titulo="Solo: clasifica IBM LPAR, Parallels Desktop, Citrix XenServer y AWS Nitro">
+
+<Solucion titulo="Comparar">
+
+- **IBM LPAR:** tipo 0 (firmware).
+- **Parallels Desktop:** tipo 2 (app sobre macOS).
+- **Citrix XenServer:** tipo 1.
+- **AWS Nitro:** tipo 0, según la clase («AWS Hypervisor 0»): el trabajo pesado lo hace hardware dedicado (las Nitro Cards).
+
+</Solucion>
+</Practica>
+
+<Practica nivel={4} titulo="Variante: ¿y Docker?">
+
+¿Docker es un hipervisor tipo 1, tipo 2 o ninguno? Justifica con la figura 14.4.
+
+<Solucion titulo="Comparar">
+
+**Ninguno.** Docker no crea máquinas virtuales con su propio SO. Es un **motor de contenedores** que corre sobre el host OS, y todos los contenedores **comparten el kernel** del host (sección 5). No hay guest OS.
+
+</Solucion>
+</Practica>
+
+## 3. Paravirtualización (diap. 32–35)
+
+- Es una técnica **asistida por software**: el **SO del guest se modifica** para cooperar con el VMM, usando **APIs especializadas** que conectan la VM con el hipervisor y optimizan el rendimiento.
+- El SO de la VM, Linux o Windows, trae soporte de paravirtualización **en el kernel**, además de **drivers paravirtualizados** que permiten al SO y al hipervisor trabajar juntos con menos overhead.
+- Muchas distribuciones Linux lo incluyen desde **2008**.
+
+<VirtFig fig="paravirt">
+**Cómo leerlo:** en (a), el guest no sabe nada. Usa drivers normales, y el hipervisor tiene que **emular hardware** (modelos de dispositivo) para que esos drivers funcionen. En (b), el guest está **modificado** y sus drivers PV hablan directo con una **interfaz de drivers** del hipervisor: no hay que fingir hardware. Es la figura 14.3.
+</VirtFig>
+
+**Analogía:** en (a), el inquilino cree vivir en una casa propia, y el administrador tiene que simular un medidor de luz real para cada uno. En (b), el inquilino **sabe** que es inquilino y simplemente **llama al administrador** («necesito más luz») por una línea directa.
+
+### Xen y los anillos de x86 (diap. 34 y 43)
+
+Las CPUs x86 tienen **4 anillos** de privilegio (0 = máximo). Xen los usa así:
+
+<VirtFig fig="xen">
+**Cómo leerlo:** Xen (el VMM) ocupa el **anillo 0**, el único con todo el privilegio: gestiona memoria, registros de CPU y E/S. Los **guest OS modificados** (Domain U) van en el **anillo 1**: tienen más privilegio que las apps, pero no el máximo, y para lo privilegiado hacen **hypercalls** a Xen (como una syscall, pero al hipervisor). Las **apps** siguen en el anillo 3 con su ABI sin cambios. **Domain 0** es el dominio de administración: gestiona las VMs, tiene la interfaz para manejarlas y accede a Xen.
+</VirtFig>
+
+- **Domain 0 (Dom0):** tiene los **drivers** reales del hardware y administra.
+- **Domain U (DomU):** los guests normales, con su kernel modificado (KernelU).
+- Si una instrucción privilegiada se ejecuta igual, el hardware hace un **trap** a Xen.
+
+<Predice pregunta="¿Qué ventaja tiene una hypercall sobre trap-and-emulate?">
+
+Con trap-and-emulate, el VMM tiene que **adivinar** qué quería el guest a partir de un error (el trap) y emular la instrucción. Con una hypercall, el guest **pide explícitamente** la operación, como una syscall bien definida: menos trabajo de análisis y menos traps. El costo es que hay que **modificar** el SO del guest.
+
+</Predice>
+
+## 4. Otros tipos y los virtual appliances (diap. 32, 36)
+
+| Variante | Qué es | Ejemplos |
+| --- | --- | --- |
+| **Paravirtualización** | guest **modificado** para cooperar con el VMM | Xen |
+| **Virtualización de entorno de programación** | el VMM **no virtualiza hardware real**: crea un sistema virtual optimizado | Oracle **Java** (JVM), Microsoft **.NET** |
+| **Emuladores** | aplicaciones escritas para un hardware corren en uno **muy distinto**, por ejemplo con **otra CPU** | (QEMU y el emulador de Android, diap. 16) |
+| **Contención de aplicaciones** | **no es virtualización** propiamente: separa las aplicaciones del SO para que sean más seguras y manejables | Oracle Solaris **Zones**, BSD **Jails**, IBM AIX **WPARs** |
+
+**Virtual appliance:**
+- Es **software autónomo** distribuido como **imagen de VM**: un paquete con aplicaciones y su guest OS.
+- Es **independiente** del hipervisor y del procesador, y corre en tipo 1 o tipo 2. Se volvió una forma estándar de distribuir software (de ahí el «vendedor de virtual appliances»).
+- **SVA** (*security virtual appliance*): una herramienta de seguridad que monitorea y protege a las otras VMs desde **fuera** de ellas, en una VM especialmente endurecida.
+  - Ve el estado de cada VM y el tráfico entre VMs, y entre VMs y el hipervisor, mediante la **API de introspección** del hipervisor.
+  - **Ventajas:** no es vulnerable a las fallas del guest OS, y no hay que reconfigurarla cada vez que cambia la red virtual, por ejemplo cuando se migran VMs.
+
+**Analogía del SVA:** un guardia que vigila los departamentos desde la **sala de cámaras del administrador**, no desde dentro de un departamento. Si un inquilino es atacado, el guardia sigue a salvo.
+
+## 5. Contenedores (diap. 37–38, 49–51)
+
+- Es un enfoque **relativamente reciente**. Un software llamado **contenedor** corre **sobre el kernel del host OS** y da un entorno de ejecución **aislado** a las aplicaciones.
+- A diferencia de las VMs, **no intenta emular servidores físicos**: todas las aplicaciones en contenedores del host **comparten un mismo kernel**.
+- Eso elimina el costo de correr **un SO separado por aplicación** y reduce mucho el overhead.
+
+<VirtFig fig="contenedor">
+**Cómo leerlo:** compara las columnas. En (a), cada VM trae su **guest OS** completo, con su propio kernel, y debajo hay un hipervisor. En (c), los contenedores solo traen **librerías y apps**; debajo hay un **motor de contenedores** y un **único host OS** cuyo kernel usan todos. Es la figura 14.4; el caso (b), tipo 2, es igual a (a) con un host OS entre el hipervisor y el hardware.
+</VirtFig>
+
+:::note[Una tensión en el material]
+La diapositiva 32 dice que la **contención de aplicaciones** (zonas, jails) «no es virtualización en absoluto», pero la 37 presenta los **contenedores** como «un enfoque de virtualización». Las dos ideas encajan si recuerdas lo esencial: un contenedor **no virtualiza hardware**, sino que **aísla procesos sobre el mismo kernel**. En el examen, usa esa frase.
+:::
+
+<Practica nivel={1} titulo="Debate: ¿VM o contenedor?">
+
+Para cada escenario, elige VM o contenedor y justifícalo con un criterio de la clase:
+1. Correr Windows y Linux en el mismo servidor.
+2. Desplegar 200 copias de un microservicio web, lo más rápido y barato posible.
+3. Aislar a clientes que no confían entre sí y podrían atacar al kernel.
+
+<Solucion titulo="Comparar">
+
+1. **VM.** Un contenedor comparte el kernel del host, así que no puede correr un kernel de otro SO. Cada VM trae su propio guest OS.
+2. **Contenedor.** No hay un SO por copia: menos overhead y arranque rápido, que es justo la ventaja de la diapositiva 37.
+3. **VM.** Con contenedores, una vulnerabilidad del **kernel compartido** afecta a todos (fila «Isolation» de la tabla Docker vs LXC). Las VMs tienen su propio kernel y un hipervisor pequeño y confiable de por medio (conclusiones, diap. 53).
+
+No hay ganador universal: depende del criterio (overhead o aislamiento).
+
+</Solucion>
+</Practica>
+
+### Docker frente a LXC (diap. 49–51)
+
+**Docker** da una forma más simple y estandarizada de correr contenedores, y también corre en Linux. Es popular sobre todo porque **carga una imagen** de contenedor en el host de forma simple y rápida: las imágenes se guardan en la nube y se piden cuando hacen falta.
+
+**Componentes:** Docker **image**, **client**, **host**, **engine**, **machine**, **registry** y **hub**.
+
+| Aspecto | Docker | LXC |
+| --- | --- | --- |
+| Objetivo | **contenedor de aplicación** | **contenedor de sistema** / VM liviana |
+| Qué encapsula | **un** servicio o proceso | un entorno Linux **completo**, con varios procesos (init, SSH, logs…) |
+| Herramientas | mucha abstracción: Engine, Hub, Compose, integración con Kubernetes | poca abstracción: `lxc-create`, `lxc-start`; hoy lo gestiona **LXD** |
+| Imagen base | **mínima** y en capas: solo la app y sus dependencias | una **distribución** completa (Ubuntu, Debian…) |
+| Portabilidad | **muy alta**: corre igual en cualquier host con Docker (en Windows o macOS, mediante una VM) | alta **dentro de Linux**: necesita un kernel host compatible |
+| Recursos | **muy bajos**: corre un solo proceso y arranca rapidísimo | bajos, pero algo más que Docker porque corre un init completo |
+| Aislamiento | a nivel de **proceso**: el kernel compartido es un punto débil | a nivel de **SO**: más parecido a una VM |
+| Ciclo de vida | **efímero/inmutable**: para actualizar se reemplaza el contenedor | **persistente/mutable**: se parchea por dentro, como una VM liviana |
+
+**Historia:**
+1. **2008, LXC:** el primer gestor de contenedores robusto. Junta dos funciones del kernel Linux: **namespaces** (aislamiento) y **cgroups** (límites de recursos).
+2. **2013, Docker:** al principio era una capa de **empaquetado** sobre LXC. Su innovación fue simplificar el flujo (Dockerfiles, imágenes en capas, Docker Hub); el aislamiento lo hacía LXC.
+3. **2014, Docker 0.9, «el divorcio»:** depender de LXC limitaba la flexibilidad y la portabilidad, así que Docker creó **libcontainer** (que luego evolucionó en **runc**) para hablar **directo** con los cgroups y namespaces del kernel.
+
+**Analogía:** **namespaces** = cada habitación tiene **su propia vista** (sus procesos, su red, sus archivos), como si fuera la única. **cgroups** = cada habitación tiene un **medidor con límite** de luz y agua (CPU y memoria).
+
+## 6. Ejemplos de la clase (diap. 40–48)
+
+| Ejemplo | Tipo | Lo que dice la clase |
+| --- | --- | --- |
+| **VMware ESXi** | tipo 1 (bare-metal) | VMware sacó las primeras soluciones x86 a fines de los 90 y fue el **primero en el mercado**; eso, más su innovación continua, lo mantiene líder. La fig. 14.9 compara **ESX** con **ESXi**: sobre el **VMkernel**, ESXi reemplaza los agentes de ESX por gestión **sin agentes** (*agentless*) |
+| **Xen** | tipo 1 | fig. 14.10: **Dom0** (con los drivers y Kernel0) y varios **DomU** (KernelU) sobre el hipervisor Xen |
+| **Microsoft Hyper-V** | tipo 1 | fig. 14.11: una **partición padre** (con los drivers, WMI, los *VM workers* y los **VSP**) y **particiones hijas** cuyos **VSC** hablan con los VSP por el **VMBus** |
+| **Java VM** | VM de proceso (parcialmente emulada) | entorno donde código Java corre en cualquier SO: «*write once, run anywhere*». Soporta varios hilos. Es una máquina abstracta con **conjunto de instrucciones, registro PC, pila** (variables y resultados), **heap** (datos en tiempo de ejecución y recolección de basura) y **área de métodos** (código y constantes) |
+| **Linux VServer** | virtualización a nivel de SO | open source, rápido y liviano; **una sola copia del kernel**, una modificación modesta del kernel más herramientas de usuario. Cada servidor virtual tiene su propio `/proc`, `/home`, `/usr`, `/dev` (fig. 14.12), y el kernel gestiona scheduling, memoria, disco y tiempo de CPU de todos |
+| **Arquitectura de VMware** | usada en tipo 1 (ESXi) y tipo 2 (Workstation/Fusion) | VMware **inventó el ballooning** |
+
+**La figura de VMware (diap. 48), en palabras:** la figura distingue dos **contextos**, el del **host OS** y el del **VMM**, y un **world switch** entre ellos. Cuando la VM necesita E/S (por ejemplo, disco), el VMM no tiene drivers propios: cambia al contexto del host mediante el **VMM driver**, y el proceso de usuario **VMX** (que incluye el emulador y la E/S asíncrona, AIO) hace la operación con llamadas normales al host OS (`ioctl`, driver SCSI). Es la forma de un tipo 2: el hipervisor **aprovecha los drivers del SO anfitrión**. Esta lectura de la figura es propia; la diapositiva solo trae el diagrama.
+
+<Predice pregunta="Linux VServer y Docker tienen algo en común que los separa de Xen y Hyper-V. ¿Qué es?">
+
+Los dos usan **un solo kernel** compartido por todos los entornos aislados: es virtualización a nivel de SO. Xen y Hyper-V corren un **kernel por VM** sobre un hipervisor.
+
+</Predice>
+
+## 7. Conclusiones de la clase (diap. 53)
+
+- La virtualización moderna es la **base de la computación en la nube**: permite **consolidar** recursos masivamente y da la agilidad que necesita una infraestructura escalable y bajo demanda.
+- El panorama es cada vez más **híbrido**:
+  - **virtualización completa asistida por hardware** cuando se necesita **mucho aislamiento**;
+  - **contenedores** a nivel de SO para **desplegar más rápido** y con más **densidad**.
+- La seguridad gira en torno a la **base de código pequeña y confiable** del hipervisor. El desarrollo se concentra en técnicas como el **ballooning** y la **paravirtualización de E/S**, para ganar velocidad sin sacrificar aislamiento.
+
+<Errores
+	errores={[
+		{ mal: 'Decir que todo SO de uso general con virtualización es tipo 2.', bien: 'La clase pone <strong>Windows Server con Hyper-V y RedHat con KVM</strong> en el <strong>tipo 1</strong>: la virtualización está en el kernel. El tipo 2 es una <strong>aplicación</strong> sobre un SO (VirtualBox, Workstation).' },
+		{ mal: 'Decir que la paravirtualización no necesita cambiar el guest.', bien: 'Es justo lo contrario: el guest se <strong>modifica</strong> (kernel y drivers) para cooperar con el hipervisor.' },
+		{ mal: 'Decir que un contenedor trae su propio kernel.', bien: 'Comparte el <strong>kernel del host</strong>. Por eso es liviano y por eso no puede correr otro SO.' },
+		{ mal: 'Poner la JVM en la misma categoría que VirtualBox.', bien: 'La JVM es una VM <strong>de lenguaje o de proceso</strong>: corre bytecode, no un SO.' },
+		{ mal: 'Decir que Docker siempre usó LXC.', bien: 'Lo usó al principio (2013). Desde la 0.9 (2014) usa su propia <strong>libcontainer</strong>, que luego evolucionó en runc.' },
+		{ mal: 'En Xen, poner a los guests en el anillo 0.', bien: 'El anillo 0 es de <strong>Xen</strong>. Los guests modificados van en el <strong>anillo 1</strong> y usan hypercalls.' },
+	]}
+/>
+
+## Autoevaluación
+
+<Quiz
+	client:visible
+	id="virt-tipos"
+	titulo="Virtualización II"
+	preguntas={[
+		{ q: 'Un hipervisor tipo 0 es…', opts: ['una aplicación sobre un SO', 'una solución por hardware/firmware, como IBM LPAR', 'un contenedor', 'un emulador'], ok: 1 },
+		{ q: 'VirtualBox sobre Windows es un hipervisor…', opts: ['tipo 0', 'tipo 1', 'tipo 2', 'paravirtualizado'], ok: 2 },
+		{ q: 'Según la clase, RedHat Linux con KVM es…', opts: ['tipo 1', 'tipo 2', 'tipo 0', 'un contenedor'], ok: 0 },
+		{ q: 'Desde 2018, las instancias nuevas de EC2 corren sobre…', opts: ['VirtualBox', 'el AWS Nitro System', 'Docker', 'VServer'], ok: 1 },
+		{ q: 'En la paravirtualización…', opts: ['el guest no se modifica', 'el guest se modifica para cooperar con el VMM mediante APIs', 'no hay hipervisor', 'solo se usa en tipo 2'], ok: 1 },
+		{ q: 'En Xen, los guest OS modificados corren en…', opts: ['el anillo 0', 'el anillo 1', 'el anillo 3', 'firmware'], ok: 1 },
+		{ q: 'Las Solaris Zones y las BSD Jails son ejemplos de…', opts: ['hipervisores tipo 1', 'contención de aplicaciones', 'emuladores', 'paravirtualización'], ok: 1 },
+		{ q: 'Un SVA (security virtual appliance)…', opts: ['corre dentro de cada guest', 'protege a las VMs desde fuera, usando la API de introspección del hipervisor', 'es un driver de red', 'reemplaza al hipervisor'], ok: 1 },
+		{ q: 'La diferencia clave entre VMs y contenedores es que los contenedores…', opts: ['emulan hardware', 'comparten el kernel del host', 'necesitan VT-x', 'traen su propio SO'], ok: 1 },
+		{ q: '¿Qué dos funciones del kernel Linux juntó LXC?', opts: ['futex y epoll', 'namespaces (aislamiento) y cgroups (límites de recursos)', 'mmap y brk', 'softirq y tasklets'], ok: 1 },
+		{ q: 'En Docker 0.9 (2014), Docker…', opts: ['adoptó LXC', 'reemplazó LXC por su propia libcontainer (luego runc)', 'pasó a ser un hipervisor', 'dejó de usar cgroups'], ok: 1 },
+		{ q: 'Frente a LXC, un contenedor Docker típico…', opts: ['corre un sistema completo con init', 'encapsula un solo servicio y es efímero', 'es menos portable', 'no usa imágenes'], ok: 1 },
+		{ q: 'En Hyper-V, las particiones hijas se comunican con la padre a través de…', opts: ['VMBus (VSC ↔ VSP)', 'hypercalls al anillo 1', 'ioctl', 'SR-IOV'], ok: 0 },
+		{ q: '¿Qué es la JVM según la clase?', opts: ['un hipervisor tipo 1', 'una VM de proceso que corre código Java en cualquier SO', 'un contenedor', 'un emulador de x86'], ok: 1 },
+		{ q: '¿Quién inventó el ballooning, según la clase?', opts: ['Xen', 'Microsoft', 'VMware', 'AWS'], ok: 2 },
+	]}
+/>
+
+<Feynman
+	consigna="Explica en un minuto la diferencia entre tipo 1, tipo 2 y contenedor, usando el mismo ejemplo para los tres (por ejemplo: correr 3 servidores web en una máquina)."
+	claves={[
+		'Tipo 1: el hipervisor va directo sobre el hardware y cada servidor tiene su VM con su propio SO.',
+		'Tipo 2: hay un SO anfitrión; el hipervisor es una app, y las VMs (cada una con su SO) corren dentro de ella.',
+		'Contenedor: un solo SO y un solo kernel; cada servidor es un proceso aislado (namespaces) y limitado (cgroups).',
+		'El trade-off: los contenedores tienen menos overhead pero menos aislamiento (kernel compartido); las VMs, al revés.',
+	]}
+/>
+
+<Dominio client:visible id="virt-tipos" />
+
+<Fuente archivos={['sem_13/Sema13_13-OST-Virtualization.pdf (diap. 25–53)', 'Figuras basadas en las figs. 14.2, 14.3, 14.4, 14.10 de Stallings y en las diap. 26, 28 y 34 de la clase', 'Lectura de la figura de VMware (diap. 48) y analogías: propias']} />

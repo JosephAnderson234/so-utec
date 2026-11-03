@@ -113,6 +113,14 @@ export default defineConfig({
 								{ label: 'Cap. 8 · Memoria virtual (§8.1–8.4)', slug: 'final/stallings/cap8' },
 							],
 						},
+						{
+							label: 'H · Virtualización (clase 13)',
+							badge: { text: 'nuevo', variant: 'success' },
+							items: [
+								{ label: 'I · Conceptos e implementación', slug: 'final/virtualizacion/conceptos' },
+								{ label: 'II · Tipos y ejemplos', slug: 'final/virtualizacion/tipos' },
+							],
+						},
 						{ label: 'Repaso y simulacro del LC3', slug: 'final/repaso', badge: { text: 'LC3', variant: 'caution' } },
 						{ label: 'LC3 · peor escenario (difícil)', slug: 'final/lc3-peor-escenario', badge: { text: 'difícil', variant: 'danger' } },
 					],

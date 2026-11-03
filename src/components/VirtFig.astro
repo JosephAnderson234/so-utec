@@ -1,0 +1,508 @@
+---
+/** Diagramas de virtualización (clase 13): capas, trap-and-emulate, binary translation, soporte de hardware, memoria, E/S, tipos de hipervisor, paravirtualización, Xen y contenedores. */
+import '../styles/svgfig.css';
+type Fig =
+	| 'capas' | 'trapemulate' | 'bintrans' | 'hwassist' | 'pagesharing' | 'balloon' | 'npt'
+	| 'io' | 'taxonomia' | 'tipos' | 'paravirt' | 'xen' | 'contenedor';
+interface Props {
+	fig: Fig;
+}
+const { fig } = Astro.props;
+const A = `url(#vfa-${fig})`;
+const R = `url(#vfr-${fig})`;
+const defs = `<defs><marker id="vfa-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head"/></marker><marker id="vfr-${fig}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="head-bad"/></marker></defs>`;
+
+const vms = [60, 290, 520];
+const instr = [
+	['mov', false],
+	['add', false],
+	['popf', true],
+	['cmp', false],
+	['jne', false],
+] as const;
+const share = [
+	{ x: 60, pages: ['código', 'kernel', 'datos A', 'pila A'] },
+	{ x: 290, pages: ['datos B', 'kernel', 'código', 'pila B'] },
+	{ x: 520, pages: ['pila C', 'datos C', 'kernel', 'heap C'] },
+];
+const frames = ['datos A', '', 'pila B', 'código', 'heap C', 'kernel', 'pila A', '', 'datos C', 'datos B', 'pila C', ''];
+const balloonPanels = [
+	{ x: 30, t: '1 · el hipervisor necesita memoria', cells: ['c1', 'c1', 'c1', 'cell-off', 'c1', 'c1', 'c1', 'cell-off'], r: 14 },
+	{ x: 275, t: '2 · el globo se infla en el guest', cells: ['c1', 'c1', 'c2', 'c2', 'c1', 'c2', 'c2', 'c2'], r: 40 },
+	{ x: 520, t: '3 · el hipervisor reasigna marcos', cells: ['c1', 'c1', 'c4', 'c4', 'c1', 'c4', 'c4', 'c4'], r: 0 },
+];
+---
+
+<figure class="svgfig not-content">
+	<div class="svgfig__scroll">
+		{fig === 'capas' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Concepto de máquina virtual: el host es el hardware, el hipervisor crea varias VMs y en cada una corre un guest con sus librerías y aplicaciones">
+				<Fragment set:html={defs} />
+				{vms.map((x, i) => (
+					<>
+						<rect x={x - 8} y="30" width="196" height="152" rx="8" class="frame" stroke-dasharray="5 4" />
+						<rect x={x} y="44" width="180" height="38" rx="5" class="c3" />
+						<rect x={x} y="88" width="180" height="30" rx="5" class="box" />
+						<rect x={x} y="124" width="180" height="48" rx="5" class="c1" />
+						<text x={x + 90} y="22" class="t s b">VM {i + 1}</text>
+						<text x={x + 90} y="68" class="t s">aplicaciones</text>
+						<text x={x + 90} y="108" class="t s">librerías</text>
+						<text x={x + 90} y="146" class="t s b">guest</text>
+						<text x={x + 90} y="163" class="t s">{['Linux', 'Windows', 'otro SO'][i]}</text>
+					</>
+				))}
+				<rect x="52" y="196" width="656" height="42" rx="6" class="c6" />
+				<rect x="52" y="248" width="656" height="40" rx="6" class="box" />
+				<text x="380" y="214" class="t s b">hipervisor / VMM</text>
+				<text x="380" y="230" class="t s">crea y corre las VMs; a cada una le da una interfaz idéntica a la del host</text>
+				<text x="380" y="273" class="t s"><tspan class="b">host:</tspan> el hardware físico (CPU, memoria, E/S)</text>
+			</svg>
+		)}
+
+		{fig === 'trapemulate' && (
+			<svg viewBox="0 0 760 330" role="img" aria-label="Trap and emulate: el kernel del guest corre en modo usuario real; al ejecutar una instrucción privilegiada hay un trap al VMM, que la emula y devuelve el control">
+				<Fragment set:html={defs} />
+				<rect x="20" y="34" width="720" height="150" rx="8" class="hl" />
+				<text x="34" y="54" class="t s l b">modo USUARIO real de la CPU</text>
+				<rect x="40" y="70" width="270" height="70" rx="6" class="c3" />
+				<text x="175" y="96" class="t s b">apps del guest</text>
+				<text x="175" y="114" class="t s">«modo usuario virtual»</text>
+				<text x="175" y="160" class="t s ok">corren a velocidad nativa</text>
+				<rect x="390" y="70" width="330" height="70" rx="6" class="c1" />
+				<text x="555" y="96" class="t s b">kernel del guest</text>
+				<text x="555" y="114" class="t s">«modo kernel virtual» (cree que es kernel)</text>
+				<line x1="310" y1="105" x2="388" y2="105" class="ln dash" marker-end={A} />
+				<text x="349" y="96" class="t s mu">syscall</text>
+				<line x1="20" y1="200" x2="740" y2="200" class="sep" stroke-dasharray="6 4" />
+				<rect x="20" y="214" width="720" height="104" rx="8" class="hl" />
+				<text x="34" y="234" class="t s l b">modo KERNEL real</text>
+				<rect x="150" y="244" width="570" height="60" rx="6" class="c6" />
+				<text x="435" y="268" class="t s b">VMM</text>
+				<text x="435" y="288" class="t s">② analiza el error y ejecuta la operación como la quería el guest (actualiza su VCPU)</text>
+				<line x1="470" y1="140" x2="470" y2="242" class="ln bad" stroke-width="2" marker-end={R} />
+				<text x="462" y="172" class="t s r bad b">① instrucción privilegiada</text>
+				<text x="462" y="188" class="t s r bad">en modo usuario → error → trap</text>
+				<line x1="640" y1="242" x2="640" y2="142" class="ln ok" stroke-width="2" marker-end={A} />
+				<text x="648" y="172" class="t s l ok b">③ vuelve al guest</text>
+				<text x="648" y="188" class="t s l ok">(en modo usuario)</text>
+			</svg>
+		)}
+
+		{fig === 'bintrans' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Binary translation: el VMM lee por adelantado las instrucciones del guest; las normales corren nativas y las especiales como popf se traducen a código equivalente que se guarda en caché">
+				<Fragment set:html={defs} />
+				<text x="380" y="24" class="t s">el VMM lee por delante del PC las instrucciones del kernel del guest</text>
+				{instr.map(([op, esp], i) => (
+					<>
+						<rect x={60 + i * 130} y="46" width="110" height="38" rx="5" class={esp ? 'trap' : 'box'} />
+						<text x={115 + i * 130} y="70" class={esp ? 't mono b bad' : 't mono'}>{op}</text>
+					</>
+				))}
+				<text x="115" y="104" class="t s mu">↑ PC</text>
+				<text x="700" y="70" class="t s l mu">…</text>
+				{[0, 1, 3, 4].map((i) => (
+					<line x1={115 + i * 130} y1={i === 0 ? 112 : 86} x2={115 + i * 130} y2="216" class="ln ok" marker-end={A} />
+				))}
+				<line x1="375" y1="86" x2="375" y2="124" class="ln bad" stroke-width="2" marker-end={R} />
+				<rect x="290" y="126" width="170" height="54" rx="6" class="c6" />
+				<text x="375" y="148" class="t s b">se traduce</text>
+				<text x="375" y="166" class="t s">a código equivalente</text>
+				<line x1="375" y1="180" x2="375" y2="216" class="ln" marker-end={A} />
+				<text x="470" y="148" class="t s l">cambia los flags en la VCPU,</text>
+				<text x="470" y="166" class="t s l">no en la CPU real; se guarda en caché</text>
+				<rect x="60" y="218" width="640" height="36" rx="6" class="c3" />
+				<text x="380" y="241" class="t s">CPU real: todo termina corriendo nativo; solo las especiales pasan por el traductor</text>
+				<text x="380" y="282" class="t s mu">Arranque de Windows XP como guest: 950 000 traducciones × 3 µs ≈ 3 s, un 5 % más lento que nativo.</text>
+			</svg>
+		)}
+
+		{fig === 'hwassist' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Sin soporte de hardware la CPU tiene solo dos modos; con VT-x o AMD-V hay modo guest y modo host, y el guest corre como si fuera nativo hasta que un acceso privilegiado provoca un trap">
+				<Fragment set:html={defs} />
+				<text x="200" y="22" class="t s b">(a) CPU con solo dos modos</text>
+				<rect x="30" y="36" width="340" height="120" rx="8" class="hl" />
+				<text x="42" y="54" class="t s l b">usuario</text>
+				<rect x="50" y="64" width="140" height="70" rx="5" class="c3" />
+				<text x="120" y="96" class="t s">apps guest</text>
+				<rect x="210" y="64" width="140" height="70" rx="5" class="c1" />
+				<text x="280" y="92" class="t s">kernel guest</text>
+				<text x="280" y="110" class="t s bad">desprivilegiado</text>
+				<rect x="30" y="170" width="340" height="70" rx="8" class="hl" />
+				<text x="42" y="188" class="t s l b">kernel</text>
+				<rect x="110" y="196" width="240" height="34" rx="5" class="c6" />
+				<text x="230" y="218" class="t s b">VMM</text>
+				<text x="200" y="266" class="t s mu">trap-and-emulate o binary translation</text>
+
+				<text x="565" y="22" class="t s b">(b) VT-x (Intel, 2005) · AMD-V (2006)</text>
+				<rect x="395" y="36" width="340" height="120" rx="8" class="hl" />
+				<text x="407" y="54" class="t s l b">modo guest</text>
+				<rect x="415" y="64" width="140" height="70" rx="5" class="c3" />
+				<text x="485" y="96" class="t s">apps guest</text>
+				<rect x="575" y="64" width="140" height="70" rx="5" class="c1" />
+				<text x="645" y="92" class="t s">kernel guest</text>
+				<text x="645" y="110" class="t s ok">«cree que es nativo»</text>
+				<rect x="395" y="170" width="340" height="70" rx="8" class="hl" />
+				<text x="407" y="188" class="t s l b">modo host</text>
+				<rect x="475" y="196" width="240" height="34" rx="5" class="c6" />
+				<text x="595" y="218" class="t s b">VMM</text>
+				<line x1="645" y1="134" x2="645" y2="194" class="ln bad" marker-end={R} />
+				<text x="635" y="162" class="t s r bad">instr. privilegiada o dispositivo → trap</text>
+				<text x="565" y="266" class="t s mu">la CPU guarda y cambia la VCPU; ya no hace falta traducir</text>
+			</svg>
+		)}
+
+		{fig === 'pagesharing' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Page sharing: páginas idénticas de tres VMs apuntan al mismo marco físico">
+				<Fragment set:html={defs} />
+				{[[150, 73], [380, 73], [610, 101]].map(([x, y]) => (
+					<line x1={x} y1={y} x2="355" y2="218" class="ln ok" stroke-width="2" marker-end={A} />
+				))}
+				{share.map((vm, i) => (
+					<>
+						<text x={vm.x + 90} y="22" class="t s b">memoria virtual VM {i + 1}</text>
+						{vm.pages.map((p, k) => (
+							<>
+								<rect x={vm.x} y={32 + k * 28} width="180" height="26" rx="3" class={p === 'kernel' ? 'c4' : 'box'} />
+								<text x={vm.x + 90} y={50 + k * 28} class={p === 'kernel' ? 't s b' : 't s'}>{p}</text>
+							</>
+						))}
+					</>
+				))}
+				<text x="60" y="212" class="cap l">memoria física (marcos)</text>
+				{frames.map((p, k) => (
+					<>
+						<rect x={60 + k * 54} y="220" width="50" height="34" rx="3" class={p === 'kernel' ? 'c4' : p === '' ? 'cell-off' : 'box'} />
+						<text x={85 + k * 54} y="241" class={p === 'kernel' ? 't s b' : 't s mu'} font-size="10">{p}</text>
+					</>
+				))}
+				<text x="380" y="282" class="t s">Tres páginas «kernel» idénticas → <tspan class="b">una sola copia física</tspan>. Lo gestiona el hipervisor: los guests no se enteran.</text>
+			</svg>
+		)}
+
+		{fig === 'balloon' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Ballooning en tres pasos: el driver globo se infla dentro del guest, el guest libera páginas a disco y el hipervisor reasigna esos marcos a otra VM">
+				<Fragment set:html={defs} />
+				{balloonPanels.map((p) => (
+					<>
+						<text x={p.x + 105} y="20" class="t s b">{p.t}</text>
+						<rect x={p.x} y="32" width="210" height="150" rx="8" class="frame" />
+						<text x={p.x + 10} y="50" class="t s l mu">RAM que ve el guest</text>
+						{p.cells.map((c, k) => (
+							<rect x={p.x + 14 + (k % 4) * 46} y={62 + Math.floor(k / 4) * 50} width="42" height="44" rx="3" class={c} />
+						))}
+						{p.r > 0 && (
+							<>
+								<circle cx={p.x + 150} cy={p.r > 20 ? 110 : 150} r={p.r} class="c2" opacity="0.85" />
+								<text x={p.x + 150} y={p.r > 20 ? 114 : 154} class="t s b">globo</text>
+							</>
+						)}
+					</>
+				))}
+				<rect x="290" y="208" width="180" height="40" rx="6" class="box" />
+				<text x="380" y="233" class="t s">disco del guest (swap)</text>
+				<line x1="340" y1="182" x2="340" y2="206" class="ln" marker-end={A} />
+				<text x="380" y="198" class="t s l mu" dx="-30">el guest baja páginas</text>
+				<rect x="540" y="208" width="170" height="40" rx="6" class="c4" />
+				<text x="625" y="233" class="t s b">usados por la VM 2</text>
+				<line x1="625" y1="182" x2="625" y2="206" class="ln ok" marker-end={A} />
+				<text x="380" y="276" class="t s mu">celeste = usados por el guest · naranja = tomados por el globo · verde = reasignados por el hipervisor (ejemplo propio)</text>
+			</svg>
+		)}
+
+		{fig === 'npt' && (
+			<svg viewBox="0 0 760 270" role="img" aria-label="Tablas de páginas anidadas: el guest traduce de su virtual a su física; el VMM traduce de la física del guest a la física real y mantiene una tabla por guest que la CPU usa">
+				<Fragment set:html={defs} />
+				<rect x="30" y="40" width="170" height="54" rx="6" class="c3" />
+				<text x="115" y="63" class="t s b">dirección virtual</text>
+				<text x="115" y="81" class="t s">del guest</text>
+				<rect x="295" y="40" width="170" height="54" rx="6" class="c1" />
+				<text x="380" y="63" class="t s b">dirección «física»</text>
+				<text x="380" y="81" class="t s">del guest (no es real)</text>
+				<rect x="560" y="40" width="170" height="54" rx="6" class="c4" />
+				<text x="645" y="63" class="t s b">dirección física</text>
+				<text x="645" y="81" class="t s">real (host)</text>
+				<line x1="200" y1="67" x2="293" y2="67" class="ln" marker-end={A} />
+				<text x="247" y="30" class="t s">tabla del guest</text>
+				<line x1="465" y1="67" x2="558" y2="67" class="ln" marker-end={A} />
+				<text x="512" y="30" class="t s">mapa del VMM</text>
+				<rect x="30" y="140" width="700" height="50" rx="6" class="c6" />
+				<text x="380" y="161" class="t s b">NPT de ese guest (la mantiene el VMM)</text>
+				<text x="380" y="179" class="t s">cuando el guest está en la CPU, el VMM activa su NPT como tabla de páginas del sistema</text>
+				<path d="M115 94 V120 H645 V94" class="ln ok dash" stroke-width="2" marker-end={A} />
+				<text x="380" y="114" class="t s ok">lo que de verdad usa la CPU</text>
+				<text x="380" y="222" class="t s">El guest cambia su tabla → el VMM hace el cambio equivalente en la NPT (como con la VCPU).</text>
+				<text x="380" y="246" class="t s bad b">Costo: muchos más fallos de TLB → bastante más lento.</text>
+			</svg>
+		)}
+
+		{fig === 'io' && (
+			<svg viewBox="0 0 760 340" role="img" aria-label="E/S virtualizada: el driver del guest habla con un dispositivo emulado y el hipervisor usa el driver real; con SR-IOV la VM accede a una función virtual de la tarjeta sin pasar por el hipervisor">
+				<Fragment set:html={defs} />
+				<text x="190" y="20" class="t s b">(a) camino normal (fig. 14.8)</text>
+				<rect x="40" y="30" width="300" height="140" rx="8" class="frame" stroke-dasharray="5 4" />
+				<text x="52" y="46" class="t s l mu">máquina virtual</text>
+				{[['aplicaciones', 'c3', 54], ['SO del guest', 'c1', 90], ['driver de red (genérico)', 'box', 126]].map(([t, c, y]) => (
+					<>
+						<rect x="70" y={y as number} width="240" height="30" rx="4" class={c as string} />
+						<text x="190" y={(y as number) + 20} class="t s">{t}</text>
+					</>
+				))}
+				<rect x="40" y="186" width="300" height="74" rx="8" class="c6" />
+				<text x="190" y="206" class="t s b">hipervisor</text>
+				<rect x="60" y="216" width="125" height="32" rx="4" class="c5" />
+				<text x="122" y="237" class="t s">dispositivo emulado</text>
+				<rect x="200" y="216" width="125" height="32" rx="4" class="box" />
+				<text x="262" y="237" class="t s">driver real NIC</text>
+				<line x1="185" y1="232" x2="198" y2="232" class="ln" marker-end={A} />
+				<line x1="122" y1="156" x2="122" y2="214" class="ln" marker-end={A} />
+				<rect x="40" y="276" width="300" height="32" rx="6" class="box" />
+				<text x="190" y="297" class="t s b">NIC física → red</text>
+				<line x1="262" y1="248" x2="262" y2="274" class="ln" marker-end={A} />
+				<text x="190" y="330" class="t s mu">hardware independiente, live migration · costo: CPU del hipervisor</text>
+
+				<text x="570" y="20" class="t s b">(b) SR-IOV con VT-d</text>
+				{[0, 1].map((k) => (
+					<>
+						<rect x={420 + k * 160} y="40" width="140" height="70" rx="6" class="c1" />
+						<text x={490 + k * 160} y="70" class="t s b">VM {k + 1}</text>
+						<text x={490 + k * 160} y="88" class="t s">driver de VF</text>
+					</>
+				))}
+				<rect x="515" y="132" width="110" height="64" rx="6" class="c6" />
+				<text x="570" y="154" class="t s b">hipervisor</text>
+				<text x="570" y="171" class="t s">fuera del camino</text>
+				<text x="570" y="186" class="t s">de datos</text>
+				<rect x="420" y="232" width="300" height="76" rx="6" class="box" />
+				<text x="570" y="252" class="t s b">NIC PCIe física</text>
+				{[0, 1].map((k) => (
+					<>
+						<rect x={440 + k * 150} y="264" width="110" height="32" rx="4" class="c4" />
+						<text x={495 + k * 150} y="285" class="t s">VF {k + 1}</text>
+					</>
+				))}
+				<line x1="460" y1="110" x2="480" y2="262" class="ln ok" stroke-width="2" marker-end={A} />
+				<line x1="680" y1="110" x2="650" y2="262" class="ln ok" stroke-width="2" marker-end={A} />
+				<text x="570" y="330" class="t s mu">acceso casi nativo; la IOMMU (VT-d) aísla el DMA de cada VM</text>
+			</svg>
+		)}
+
+		{fig === 'taxonomia' && (
+			<svg viewBox="0 0 760 290" role="img" aria-label="Tipos de máquina virtual: abstracciones (basada en lenguaje, de sistema, liviana) y plataformas (simulador de máquina, hipervisor tipo 1 y tipo 2)">
+				<Fragment set:html={defs} />
+				<rect x="20" y="20" width="720" height="120" rx="8" class="hl" />
+				<text x="34" y="40" class="t s l b">abstracciones</text>
+				<rect x="300" y="30" width="160" height="34" rx="6" class="box" />
+				<text x="380" y="52" class="t s b">máquina virtual</text>
+				<rect x="40" y="86" width="190" height="42" rx="6" class="c3" />
+				<text x="135" y="104" class="t s b">basada en lenguaje</text>
+				<text x="135" y="120" class="t s mu">JVM, .NET</text>
+				<rect x="290" y="86" width="180" height="42" rx="6" class="c1" />
+				<text x="380" y="104" class="t s b">de sistema</text>
+				<text x="380" y="120" class="t s mu">un SO completo</text>
+				<rect x="530" y="86" width="190" height="42" rx="6" class="c4" />
+				<text x="625" y="104" class="t s b">liviana</text>
+				<text x="625" y="120" class="t s mu">contenedores</text>
+				<line x1="320" y1="64" x2="190" y2="84" class="ln" marker-end={A} />
+				<line x1="380" y1="64" x2="380" y2="84" class="ln" marker-end={A} />
+				<line x1="440" y1="64" x2="570" y2="84" class="ln" marker-end={A} />
+				<text x="34" y="164" class="t s l b">plataformas</text>
+				<rect x="80" y="180" width="200" height="40" rx="6" class="box" />
+				<text x="180" y="205" class="t s">simulador de máquina</text>
+				<rect x="420" y="180" width="200" height="40" rx="6" class="c6" />
+				<text x="520" y="205" class="t s b">hipervisor</text>
+				<line x1="350" y1="128" x2="230" y2="178" class="ln" marker-end={A} />
+				<line x1="410" y1="128" x2="480" y2="178" class="ln" marker-end={A} />
+				<rect x="300" y="240" width="200" height="34" rx="6" class="c6" />
+				<text x="400" y="262" class="t s">bare-metal (tipo 1)</text>
+				<rect x="530" y="240" width="200" height="34" rx="6" class="c6" />
+				<text x="630" y="262" class="t s">hosted (tipo 2)</text>
+				<line x1="480" y1="220" x2="420" y2="238" class="ln" marker-end={A} />
+				<line x1="560" y1="220" x2="610" y2="238" class="ln" marker-end={A} />
+				<text x="660" y="205" class="t s l mu">Popek/Goldberg</text>
+			</svg>
+		)}
+
+		{fig === 'tipos' && (
+			<svg viewBox="0 0 760 340" role="img" aria-label="Hipervisores tipo 0, 1 y 2: firmware que parte el hardware, software tipo SO sobre el hardware, y aplicación sobre un SO anfitrión">
+				<Fragment set:html={defs} />
+				{[25, 270, 515].map((x) => (
+					<rect x={x} y="262" width="220" height="32" rx="5" class="box" />
+				))}
+				{[25, 270, 515].map((x) => (
+					<text x={x + 110} y="283" class="t s">hardware</text>
+				))}
+				<text x="135" y="22" class="t b">Tipo 0</text>
+				<text x="135" y="40" class="t s mu">en firmware</text>
+				<rect x="25" y="220" width="220" height="36" rx="5" class="c6" />
+				<text x="135" y="243" class="t s b">hipervisor (firmware)</text>
+				{[0, 1, 2].map((k) => (
+					<>
+						<rect x={25 + k * 75} y="174" width="70" height="40" rx="4" class="c2" />
+						<rect x={25 + k * 75} y="104" width="70" height="64" rx="4" class="c1" />
+						<text x={60 + k * 75} y="190" class="t s" font-size="10">CPUs +</text>
+						<text x={60 + k * 75} y="204" class="t s" font-size="10">memoria</text>
+						<text x={60 + k * 75} y="140" class="t s b">guest {k + 1}</text>
+					</>
+				))}
+				<text x="135" y="88" class="t s mu">cada guest, su trozo fijo</text>
+
+				<text x="380" y="22" class="t b">Tipo 1</text>
+				<text x="380" y="40" class="t s mu">«bare-metal», tipo SO</text>
+				<rect x="270" y="210" width="220" height="46" rx="5" class="c6" />
+				<text x="380" y="238" class="t s b">hipervisor tipo 1</text>
+				{[0, 1].map((k) => (
+					<>
+						<rect x={270 + k * 114} y="152" width="106" height="52" rx="4" class="c1" />
+						<rect x={270 + k * 114} y="104" width="106" height="42" rx="4" class="c3" />
+						<text x={323 + k * 114} y="182" class="t s b">guest OS</text>
+						<text x={323 + k * 114} y="130" class="t s">apps</text>
+					</>
+				))}
+
+				<text x="625" y="22" class="t b">Tipo 2</text>
+				<text x="625" y="40" class="t s mu">«hosted», una app más</text>
+				<rect x="515" y="220" width="220" height="36" rx="5" class="box" />
+				<text x="625" y="243" class="t s b">SO anfitrión (host OS)</text>
+				<rect x="515" y="174" width="146" height="40" rx="4" class="c6" />
+				<text x="588" y="199" class="t s b">hipervisor tipo 2</text>
+				<rect x="667" y="134" width="68" height="80" rx="4" class="c3" />
+				<text x="701" y="170" class="t s" font-size="10">otras</text>
+				<text x="701" y="184" class="t s" font-size="10">apps</text>
+				{[0, 1].map((k) => (
+					<>
+						<rect x={515 + k * 75} y="128" width="70" height="40" rx="4" class="c1" />
+						<rect x={515 + k * 75} y="88" width="70" height="34" rx="4" class="c3" />
+						<text x={550 + k * 75} y="153" class="t s" font-size="11">guest OS</text>
+						<text x={550 + k * 75} y="110" class="t s" font-size="11">apps</text>
+					</>
+				))}
+
+				<text x="135" y="314" class="t s mu">IBM LPAR, Oracle LDOM, AWS Nitro</text>
+				<text x="380" y="314" class="t s mu">ESX(i), Xen, Hyper-V, KVM</text>
+				<text x="625" y="314" class="t s mu">VirtualBox, Workstation, Parallels</text>
+			</svg>
+		)}
+
+		{fig === 'paravirt' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Virtualización completa frente a paravirtualización: en la completa el hipervisor emula dispositivos; en la paravirtualizada el guest está modificado y usa drivers especiales que hablan directo con el hipervisor">
+				<Fragment set:html={defs} />
+				<text x="195" y="20" class="t s b">(a) tipo 1, virtualización completa</text>
+				{[0, 1, 2].map((k) => (
+					<>
+						<rect x={30 + k * 112} y="32" width="104" height="78" rx="5" class="c1" />
+						<text x={82 + k * 112} y="54" class="t s b">guest OS</text>
+						<text x={82 + k * 112} y="70" class="t s ok">sin modificar</text>
+						<rect x={38 + k * 112} y="78" width="88" height="24" rx="3" class="box" />
+						<text x={82 + k * 112} y="95" class="t s" font-size="11">drivers normales</text>
+						<line x1={82 + k * 112} y1="110" x2={82 + k * 112} y2="140" class="ln" marker-end={A} />
+					</>
+				))}
+				<rect x="30" y="142" width="328" height="86" rx="6" class="c6" />
+				<text x="194" y="160" class="t s b">hipervisor</text>
+				<rect x="46" y="170" width="296" height="24" rx="3" class="c5" />
+				<text x="194" y="187" class="t s">modelos de dispositivo (hardware emulado)</text>
+				<rect x="46" y="198" width="296" height="22" rx="3" class="box" />
+				<text x="194" y="214" class="t s" font-size="11">drivers reales</text>
+				<rect x="30" y="240" width="328" height="30" rx="5" class="box" />
+				<text x="194" y="260" class="t s">hardware</text>
+
+				<text x="565" y="20" class="t s b">(b) tipo 1 paravirtualizado</text>
+				{[0, 1, 2].map((k) => (
+					<>
+						<rect x={400 + k * 112} y="32" width="104" height="78" rx="5" class="c1" />
+						<text x={452 + k * 112} y="54" class="t s b">guest OS</text>
+						<text x={452 + k * 112} y="70" class="t s bad">modificado</text>
+						<rect x={408 + k * 112} y="78" width="88" height="24" rx="3" class="c4" />
+						<text x={452 + k * 112} y="95" class="t s" font-size="11">drivers PV</text>
+						<line x1={452 + k * 112} y1="110" x2={452 + k * 112} y2="140" class="ln ok" marker-end={A} />
+					</>
+				))}
+				<rect x="400" y="142" width="328" height="86" rx="6" class="c6" />
+				<text x="564" y="160" class="t s b">hipervisor</text>
+				<rect x="416" y="170" width="296" height="24" rx="3" class="c4" />
+				<text x="564" y="187" class="t s">interfaz de drivers (APIs, hypercalls)</text>
+				<rect x="416" y="198" width="296" height="22" rx="3" class="box" />
+				<text x="564" y="214" class="t s" font-size="11">drivers reales</text>
+				<rect x="400" y="240" width="328" height="30" rx="5" class="box" />
+				<text x="564" y="260" class="t s">hardware</text>
+				<text x="380" y="292" class="t s mu">En (b) no se emula hardware: el guest «sabe» que está virtualizado y coopera con el hipervisor.</text>
+			</svg>
+		)}
+
+		{fig === 'xen' && (
+			<svg viewBox="0 0 760 320" role="img" aria-label="Xen y los anillos de privilegio x86: Xen en el anillo 0, los guest OS modificados en el anillo 1 y las aplicaciones en el anillo 3; el dominio 0 administra">
+				<Fragment set:html={defs} />
+				<circle cx="190" cy="170" r="140" class="box" />
+				<circle cx="190" cy="170" r="105" class="c3" />
+				<circle cx="190" cy="170" r="72" class="c1" />
+				<circle cx="190" cy="170" r="40" class="c6" />
+				<text x="190" y="46" class="t s b">anillo 3</text>
+				<text x="190" y="62" class="t s mu">(el 2 no se usa)</text>
+				<text x="190" y="84" class="t s b">anillo 2</text>
+				<text x="190" y="116" class="t s b">anillo 1</text>
+				<text x="190" y="166" class="t s b">anillo 0</text>
+				<text x="190" y="182" class="t s">Xen</text>
+				<rect x="380" y="24" width="350" height="54" rx="6" class="c3" />
+				<text x="555" y="46" class="t s b">apps de usuario · anillo 3</text>
+				<text x="555" y="64" class="t s">ABI sin cambios: el programa no se recompila</text>
+				<rect x="380" y="94" width="350" height="70" rx="6" class="c1" />
+				<text x="555" y="116" class="t s b">Domain U (guests) · anillo 1</text>
+				<text x="555" y="134" class="t s">guest OS con el código modificado</text>
+				<text x="555" y="152" class="t s">hace <tspan class="b">hypercalls</tspan> a Xen para lo privilegiado</text>
+				<rect x="380" y="180" width="350" height="54" rx="6" class="c2" />
+				<text x="555" y="202" class="t s b">Domain 0 · administración</text>
+				<text x="555" y="220" class="t s">crea y gestiona VMs; tiene los drivers reales</text>
+				<rect x="380" y="250" width="350" height="54" rx="6" class="c6" />
+				<text x="555" y="272" class="t s b">Xen (VMM) · anillo 0</text>
+				<text x="555" y="290" class="t s">memoria, registros de CPU, E/S de dispositivos</text>
+			</svg>
+		)}
+
+		{fig === 'contenedor' && (
+			<svg viewBox="0 0 760 300" role="img" aria-label="Máquinas virtuales frente a contenedores: cada VM lleva su propio SO; los contenedores comparten el kernel del host a través del motor de contenedores">
+				<Fragment set:html={defs} />
+				<text x="190" y="20" class="t s b">(a) VMs sobre hipervisor tipo 1</text>
+				{[0, 1].map((k) => (
+					<>
+						<rect x={30 + k * 172} y="32" width="160" height="150" rx="6" class="frame" stroke-dasharray="5 4" />
+						<rect x={42 + k * 172} y="42" width="64" height="34" rx="4" class="c3" />
+						<rect x={114 + k * 172} y="42" width="64" height="34" rx="4" class="c3" />
+						<text x={74 + k * 172} y="64" class="t s">app</text>
+						<text x={146 + k * 172} y="64" class="t s">app</text>
+						<rect x={42 + k * 172} y="84" width="136" height="30" rx="4" class="box" />
+						<text x={110 + k * 172} y="104" class="t s">librerías</text>
+						<rect x={42 + k * 172} y="122" width="136" height="50" rx="4" class="c1" />
+						<text x={110 + k * 172} y="144" class="t s b">guest OS</text>
+						<text x={110 + k * 172} y="162" class="t s">(su propio kernel)</text>
+					</>
+				))}
+				<rect x="30" y="196" width="332" height="36" rx="5" class="c6" />
+				<text x="196" y="219" class="t s b">hipervisor</text>
+				<rect x="30" y="240" width="332" height="32" rx="5" class="box" />
+				<text x="196" y="261" class="t s">hardware</text>
+
+				<text x="575" y="20" class="t s b">(c) contenedores</text>
+				{[0, 1].map((k) => (
+					<>
+						<rect x={410 + k * 172} y="32" width="160" height="96" rx="6" class="frame" stroke-dasharray="5 4" />
+						<rect x={422 + k * 172} y="42" width="64" height="34" rx="4" class="c3" />
+						<rect x={494 + k * 172} y="42" width="64" height="34" rx="4" class="c3" />
+						<text x={454 + k * 172} y="64" class="t s">app</text>
+						<text x={526 + k * 172} y="64" class="t s">app</text>
+						<rect x={422 + k * 172} y="84" width="136" height="30" rx="4" class="box" />
+						<text x={490 + k * 172} y="104" class="t s">librerías</text>
+					</>
+				))}
+				<rect x="410" y="140" width="332" height="40" rx="5" class="c4" />
+				<text x="576" y="165" class="t s b">motor de contenedores</text>
+				<rect x="410" y="188" width="332" height="44" rx="5" class="c1" />
+				<text x="576" y="208" class="t s b">host OS</text>
+				<text x="576" y="225" class="t s">un solo kernel, compartido</text>
+				<rect x="410" y="240" width="332" height="32" rx="5" class="box" />
+				<text x="576" y="261" class="t s">hardware</text>
+				<text x="380" y="292" class="t s mu">Un contenedor no emula un servidor: aísla procesos sobre el mismo kernel (menos overhead, menos aislamiento).</text>
+			</svg>
+		)}
+	</div>
+	<figcaption><slot /></figcaption>
+</figure>
